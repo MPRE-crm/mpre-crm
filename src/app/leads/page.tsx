@@ -1,10 +1,10 @@
+// This must be before "use client" to work
+export const dynamic = 'force-dynamic'
+
 'use client'
 
-import dynamic from 'next/dynamic'
 import { Suspense } from 'react'
-
-// Force client-side only rendering
-const LeadsContent = dynamic(() => import('./LeadsContent'), { ssr: false })
+import LeadsContent from './LeadsContent'
 
 export default function LeadsPage() {
   return (
