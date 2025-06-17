@@ -1,6 +1,7 @@
-'use client'
+import dynamic from 'next/dynamic'
 
-import LeadsContent from './LeadsContent'
+// Force client-side only
+const LeadsContent = dynamic(() => import('./LeadsContent'), { ssr: false })
 
 export default function LeadsPage() {
   return <LeadsContent />
