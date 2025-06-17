@@ -3,10 +3,8 @@
 import dynamic from 'next/dynamic'
 import { Suspense } from 'react'
 
-// Dynamically import the LeadsContent component without SSR
-const LeadsContent = dynamic(() => import('./LeadsContent'), {
-  ssr: false,
-})
+// Force client-side only rendering
+const LeadsContent = dynamic(() => import('./LeadsContent'), { ssr: false })
 
 export default function LeadsPage() {
   return (
@@ -15,4 +13,5 @@ export default function LeadsPage() {
     </Suspense>
   )
 }
+
 
