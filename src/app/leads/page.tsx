@@ -1,9 +1,12 @@
 'use client'
 
-export const dynamic = 'force-dynamic'
-
+import dynamic from 'next/dynamic'
 import { Suspense } from 'react'
-import LeadsContent from './LeadsContent'
+
+// Dynamically import the LeadsContent component without SSR
+const LeadsContent = dynamic(() => import('./LeadsContent'), {
+  ssr: false,
+})
 
 export default function LeadsPage() {
   return (
@@ -12,3 +15,4 @@ export default function LeadsPage() {
     </Suspense>
   )
 }
+
