@@ -1,42 +1,25 @@
 'use client'
 
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
 
-type Lead = {
-  id: string
-  name: string
-  email: string
-  phone: string
-  status: string
-  source: string
-  appointment_date?: string
-}
-
-export default function LeadsPage() {
+function LeadsContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
-
-  const [leads, setLeads] = useState<Lead[]>([])
+  const [leads, setLeads] = useState<any[]>([])
   const [error, setError] = useState<string | null>(null)
-  const [statusFilter, setStatusFilter] = useState<string>(() => {
-    return searchParams?.get('status') || ''
-  })
+  const [statusFilter, setStatusFilter] = useState(searchParams?.get('status') || '')
 
   useEffect(() => {
     const fetchLeads = async () => {
       let query = supabase.from('leads').select('*').order('created_at', { ascending: false })
-
-      if (statusFilter) {
-        query = query.eq('status', statusFilter)
-      }
+      if (statusFilter) query = query.eq('status', statusFilter)
 
       const { data, error } = await query
-
       if (error) setError(error.message)
-      else setLeads(data as Lead[] || [])
+      else setLeads(data ?? [])
     }
 
     fetchLeads()
@@ -44,17 +27,14 @@ export default function LeadsPage() {
 
   const handleDelete = async (id: string) => {
     await supabase.from('leads').delete().eq('id', id)
-    setLeads((prev) => prev.filter((lead) => lead.id !== id))
+    setLeads(leads.filter((lead) => lead.id !== id))
   }
 
   const handleStatusChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const value = e.target.value
-    setStatusFilter(value)
-
+    setStatusFilter(e.target.value)
     const params = new URLSearchParams(window.location.search)
-    if (value) params.set('status', value)
+    if (e.target.value) params.set('status', e.target.value)
     else params.delete('status')
-
     router.push('/leads?' + params.toString())
   }
 
@@ -108,5 +88,13 @@ export default function LeadsPage() {
         <p>No leads found.</p>
       )}
     </div>
+  )
+}
+
+export default function LeadsPage() {
+  return (
+    <Suspense fallback={<div>Loading leads...</div>}>
+      <LeadsContent />
+    </Suspense>
   )
 }
