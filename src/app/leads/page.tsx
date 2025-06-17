@@ -5,10 +5,22 @@ import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
 
+// Define the Lead type
+type Lead = {
+  id: string
+  name: string
+  email: string
+  phone: string
+  status: string
+  source: string
+  appointment_date?: string
+  created_at?: string
+}
+
 export default function LeadsPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const [leads, setLeads] = useState<any[]>([])
+  const [leads, setLeads] = useState<Lead[]>([])
   const [error, setError] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState(searchParams.get('status') || '')
 
@@ -19,7 +31,7 @@ export default function LeadsPage() {
 
       const { data, error } = await query
       if (error) setError(error.message)
-      else setLeads(data || [])
+      else setLeads((data as Lead[]) || [])
     }
 
     fetchLeads()
@@ -62,7 +74,7 @@ export default function LeadsPage() {
         <div>Error loading leads: {error}</div>
       ) : leads.length > 0 ? (
         <ul className="space-y-2">
-          {leads.map((lead: any) => (
+          {leads.map((lead) => (
             <li key={lead.id} className="border p-4 rounded-md shadow-sm hover:shadow-md transition">
               <Link href={`/leads/${lead.id}`} className="text-lg font-semibold text-blue-600 hover:underline">
                 {lead.name || '(No Name)'}
