@@ -1,4 +1,5 @@
 'use client'
 
-import LeadsPage from './LeadsClient'
-export default LeadsPage
+import LeadsClient from './LeadsClient'
+
+export default LeadsClient
