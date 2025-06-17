@@ -1,9 +1,9 @@
 'use client'
 
+export const dynamic = 'force-dynamic'
+
 import { Suspense } from 'react'
 import LeadsContent from './LeadsContent'
-
-export const dynamic = 'force-dynamic'
 
 export default function LeadsPage() {
   return (
