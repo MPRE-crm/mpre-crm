@@ -5,7 +5,6 @@ import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
 
-// Define the Lead type
 type Lead = {
   id: string
   name: string
@@ -14,24 +13,30 @@ type Lead = {
   status: string
   source: string
   appointment_date?: string
-  created_at?: string
 }
 
 export default function LeadsPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
+
   const [leads, setLeads] = useState<Lead[]>([])
   const [error, setError] = useState<string | null>(null)
-  const [statusFilter, setStatusFilter] = useState(searchParams.get('status') || '')
+  const [statusFilter, setStatusFilter] = useState<string>(() => {
+    return searchParams?.get('status') || ''
+  })
 
   useEffect(() => {
     const fetchLeads = async () => {
       let query = supabase.from('leads').select('*').order('created_at', { ascending: false })
-      if (statusFilter) query = query.eq('status', statusFilter)
+
+      if (statusFilter) {
+        query = query.eq('status', statusFilter)
+      }
 
       const { data, error } = await query
+
       if (error) setError(error.message)
-      else setLeads((data as Lead[]) || [])
+      else setLeads(data as Lead[] || [])
     }
 
     fetchLeads()
@@ -39,14 +44,17 @@ export default function LeadsPage() {
 
   const handleDelete = async (id: string) => {
     await supabase.from('leads').delete().eq('id', id)
-    setLeads(leads.filter((lead) => lead.id !== id))
+    setLeads((prev) => prev.filter((lead) => lead.id !== id))
   }
 
   const handleStatusChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setStatusFilter(e.target.value)
+    const value = e.target.value
+    setStatusFilter(value)
+
     const params = new URLSearchParams(window.location.search)
-    if (e.target.value) params.set('status', e.target.value)
+    if (value) params.set('status', value)
     else params.delete('status')
+
     router.push('/leads?' + params.toString())
   }
 
