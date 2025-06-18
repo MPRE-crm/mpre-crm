@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 
 type Lead = {
@@ -14,13 +15,12 @@ type Lead = {
 }
 
 export default function Home() {
-  // Removed the unused 'leads' variable
-  const [statusFilter, setStatusFilter] = useState<string>('')
+  const router = useRouter()
 
   useEffect(() => {
-    // Perform fetch or other logic if needed
-    // Example: fetchData()
-  }, [statusFilter])
+    // Redirect to demo-idx page when the component mounts
+    router.push('/demo-idx')
+  }, [router])
 
   return (
     <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
@@ -71,5 +71,3 @@ export default function Home() {
     </div>
   )
 }
-
-
