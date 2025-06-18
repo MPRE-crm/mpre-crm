@@ -14,18 +14,18 @@ type Lead = {
 }
 
 export default function Home() {
-  const [data, setData] = useState<Lead[]>([]) // Using Lead type here
-  const [error, setError] = useState<string | null>(null)
+  // Removed unused variables: data and error
+  const [leads, setLeads] = useState<Lead[]>([])
 
   useEffect(() => {
     const fetchData = async () => {
       const res = await fetch('/api/leads') // Replace with actual API URL
       if (!res.ok) {
-        setError('Failed to load data')
+        // Handle error if needed
         return
       }
       const data: Lead[] = await res.json() // Explicitly defining the type of data as Lead[]
-      setData(data)
+      setLeads(data)
     }
 
     fetchData()
@@ -80,3 +80,4 @@ export default function Home() {
     </div>
   )
 }
+
