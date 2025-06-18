@@ -6,7 +6,11 @@ import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 
 type AnalyticsItem = {
-  [key: string]: any // or better: define exact fields if known
+  // Define the exact fields you expect from your 'analytics' table
+  id: string
+  name?: string
+  value?: number
+  // Add other fields based on your actual data structure
 }
 
 export default function AnalyticsPage() {
