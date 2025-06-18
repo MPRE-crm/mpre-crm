@@ -1,16 +1,22 @@
 'use client'
 
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
 
 export default function LeadsClient() {
   const router = useRouter()
-  const searchParams = useSearchParams()
   const [leads, setLeads] = useState<any[]>([])
   const [error, setError] = useState<string | null>(null)
-  const [statusFilter, setStatusFilter] = useState(searchParams?.get('status') || '')
+  const [statusFilter, setStatusFilter] = useState('')
+
+  // Safely access URL search params inside a client-only useEffect
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search)
+    const status = urlParams.get('status') || ''
+    setStatusFilter(status)
+  }, [])
 
   useEffect(() => {
     const fetchLeads = async () => {
@@ -31,9 +37,10 @@ export default function LeadsClient() {
   }
 
   const handleStatusChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setStatusFilter(e.target.value)
+    const newStatus = e.target.value
+    setStatusFilter(newStatus)
     const params = new URLSearchParams(window.location.search)
-    if (e.target.value) params.set('status', e.target.value)
+    if (newStatus) params.set('status', newStatus)
     else params.delete('status')
     router.push('/leads?' + params.toString())
   }
