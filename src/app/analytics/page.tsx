@@ -5,8 +5,12 @@ export const dynamic = 'force-dynamic'
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 
+type AnalyticsItem = {
+  [key: string]: any // or better: define exact fields if known
+}
+
 export default function AnalyticsPage() {
-  const [data, setData] = useState<any[]>([])
+  const [data, setData] = useState<AnalyticsItem[]>([])
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
