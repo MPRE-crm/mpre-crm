@@ -3,8 +3,19 @@
 import { useEffect, useState } from 'react'
 import Image from 'next/image'
 
+type Lead = {
+  id: string
+  name?: string
+  email?: string
+  phone?: string
+  status?: string
+  source?: string
+  appointment_date?: string
+}
+
 export default function Home() {
-  const [statusFilter, setStatusFilter] = useState<string>('')
+  // Remove the unused 'setStatusFilter' state
+  const [statusFilter] = useState<string>('') // We removed the setStatusFilter since it's not used
 
   useEffect(() => {
     // Perform fetch or other logic if needed
