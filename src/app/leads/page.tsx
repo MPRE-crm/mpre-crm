@@ -1,5 +1,14 @@
+'use client'
+
+import { Suspense } from 'react'
+import LeadsClient from './LeadsClient'
+
 export default function LeadsPage() {
-  return <div>Placeholder page for Leads (build cache clearing)</div>
+  return (
+    <Suspense fallback={<div>Loading leads...</div>}>
+      <LeadsClient />
+    </Suspense>
+  )
 }
 
 
