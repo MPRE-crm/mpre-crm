@@ -1,24 +1,34 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { supabase } from '@/lib/supabase'
+import Image from 'next/image'
+
+type Lead = {
+  id: string
+  name?: string
+  email?: string
+  phone?: string
+  status?: string
+  source?: string
+  appointment_date?: string
+}
 
 export default function Home() {
-  const [listings, setListings] = useState<any[]>([])  // Adjust type if needed
+  const [data, setData] = useState<Lead[]>([]) // Using Lead type here
   const [error, setError] = useState<string | null>(null)
 
-  // Fetch IMLS listings data
   useEffect(() => {
-    const fetchListings = async () => {
-      const { data, error } = await supabase.from('listings').select('*')  // Adjust query for your data
-      if (error) {
-        setError(error.message)
-      } else {
-        setListings(data ?? [])
+    const fetchData = async () => {
+      const res = await fetch('/api/leads') // Replace with actual API URL
+      if (!res.ok) {
+        setError('Failed to load data')
+        return
       }
+      const data: Lead[] = await res.json() // Explicitly defining the type of data as Lead[]
+      setData(data)
     }
 
-    fetchListings()
+    fetchData()
   }, [])
 
   return (
@@ -30,28 +40,25 @@ export default function Home() {
           This is your custom page where IMLS can view your data.
         </p>
 
-        {/* Error Message */}
-        {error && <p className="text-red-500">{error}</p>}
-
-        {/* Listings */}
-        <div className="flex flex-col gap-4">
-          {listings.length > 0 ? (
-            listings.map((listing, index) => (
-              <div key={index} className="border p-4 rounded-md shadow-sm hover:shadow-md">
-                <h3 className="text-lg font-semibold">{listing.name || 'Unnamed Listing'}</h3>
-                <p>{listing.description}</p>
-                <p><strong>Price:</strong> ${listing.price}</p>
-                <p><strong>Status:</strong> {listing.status}</p>
-                <p><strong>Location:</strong> {listing.location}</p>
-              </div>
-            ))
-          ) : (
-            <p>No listings available at this time.</p>
-          )}
+        <div className="flex gap-4 items-center flex-col sm:flex-row">
+          {/* Add buttons or any other content here */}
+          <a
+            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
+            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <Image
+              className="dark:invert"
+              src="/vercel.svg"
+              alt="Vercel logomark"
+              width={20}
+              height={20}
+            />
+            Deploy Now
+          </a>
         </div>
       </main>
-
-      {/* Footer */}
       <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
         <a
           className="flex items-center gap-2 hover:underline hover:underline-offset-4"
@@ -73,4 +80,3 @@ export default function Home() {
     </div>
   )
 }
-
