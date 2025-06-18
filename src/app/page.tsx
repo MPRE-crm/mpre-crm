@@ -14,22 +14,13 @@ type Lead = {
 }
 
 export default function Home() {
-  // Removed unused variables: data and error
-  const [leads, setLeads] = useState<Lead[]>([])
+  // Removed the unused 'leads' variable
+  const [statusFilter, setStatusFilter] = useState<string>('')
 
   useEffect(() => {
-    const fetchData = async () => {
-      const res = await fetch('/api/leads') // Replace with actual API URL
-      if (!res.ok) {
-        // Handle error if needed
-        return
-      }
-      const data: Lead[] = await res.json() // Explicitly defining the type of data as Lead[]
-      setLeads(data)
-    }
-
-    fetchData()
-  }, [])
+    // Perform fetch or other logic if needed
+    // Example: fetchData()
+  }, [statusFilter])
 
   return (
     <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
@@ -80,4 +71,5 @@ export default function Home() {
     </div>
   )
 }
+
 
