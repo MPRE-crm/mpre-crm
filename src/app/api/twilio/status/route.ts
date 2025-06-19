@@ -14,22 +14,21 @@ export async function POST(req: Request) {
       return new Response('Missing data', { status: 400 });
     }
 
-    // Update the status of the message in the database
+    // Update the status and twilio_sid in the database
     const { error } = await supabase
       .from('messages')
-      .update({ status })
-      .eq('twilio_sid', messageSid);
+      .update({ status, twilio_sid: messageSid })
+      .eq('twilio_sid', messageSid);  // Use the MessageSid to update the correct row
 
     if (error) {
       console.error('Failed to update status:', error.message);
       return new Response('Supabase error', { status: 500 });
     }
 
-    // Successfully updated status
     return new Response('Status updated', { status: 200 });
-
   } catch (error: any) {
     console.error('Error handling status callback:', error);
     return new Response('Error processing request', { status: 500 });
   }
 }
+

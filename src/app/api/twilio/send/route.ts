@@ -1,7 +1,5 @@
 // src/app/api/twilio/send/route.ts
 
-export const dynamic = 'force-dynamic';  // Keep the dynamic line as you had
-
 import { NextResponse } from 'next/server';
 import twilio from 'twilio';
 import { supabase } from '@/lib/supabase';
