@@ -16,7 +16,7 @@ export async function POST(req: Request) {
     console.log("Received request:", { to, body });
 
     // Replace this URL with your ngrok URL
-    const statusCallbackUrl = `https://a001-65-129-120-112.ngrok-free.app/api/twilio/status`;  // ngrok URL
+    const statusCallbackUrl = `https://20b2-65-129-120-112.ngrok-free.app/api/twilio/status`;  // ngrok URL
 
     const message = await client.messages.create({
       body,
