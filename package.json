@@ -9,13 +9,13 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@supabase/realtime-js": "^2.0.0",
     "@supabase/supabase-js": "^2.50.0",
-    "@supabase/realtime-js": "^2.0.0", 
     "date-fns": "^4.1.0",
-    "next": "^13.0.0", 
+    "next": "^15.3.4",
     "openai": "^5.5.1",
-    "react": "^18.2.0", 
-    "react-dom": "^18.2.0", 
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
     "twilio": "^5.7.1"
   },
   "devDependencies": {
@@ -26,7 +26,7 @@
     "@types/react-dom": "^19.1.6",
     "@types/twilio": "^3.19.2",
     "eslint": "^9",
-    "eslint-config-next": "15.3.3",
+    "eslint-config-next": "^13.0.0",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
