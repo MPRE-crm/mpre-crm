@@ -16,6 +16,7 @@ export async function POST(req: Request) {
     // Replace this URL with your ngrok URL
     const statusCallbackUrl = `https://20b2-65-129-120-112.ngrok-free.app/api/twilio/status`;  // ngrok URL
 
+    // Send SMS through Twilio
     const message = await client.messages.create({
       body,
       from: process.env.TWILIO_PHONE_NUMBER!,
@@ -25,23 +26,27 @@ export async function POST(req: Request) {
 
     console.log("Twilio message response:", message);
 
+    // Insert the message into Supabase
     const { error: dbError } = await supabase.from('messages').insert({
       lead_phone: to,
       direction: 'outgoing',
       body,
       status: 'queued',
-      twilio_sid: message.sid,
+      twilio_sid: message.sid,  // Store the Twilio SID here
     });
 
     if (dbError) {
       console.error("Supabase insert error:", dbError.message);
     }
 
+    // Return success response with the SID
     return NextResponse.json({ success: true, sid: message.sid });
   } catch (error: any) {
     console.error("Send error:", error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
+
+
 
 
