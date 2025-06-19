@@ -1,6 +1,6 @@
 // src/app/api/twilio/send/route.ts
 
-export const dynamic = 'force-dynamic';  // keep the dynamic line as you had
+export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import twilio from 'twilio';
@@ -15,8 +15,8 @@ export async function POST(req: Request) {
     const { to, body } = await req.json();
     console.log("Received request:", { to, body });
 
-    // Replace this URL with your ngrok URL
-    const statusCallbackUrl = `https://dfd1-65-129-120-112.ngrok-free.app/api/twilio/status`;  // ngrok URL
+    // Update the ngrok URL here
+    const statusCallbackUrl = `https://25d9-65-129-120-112.ngrok-free.app/api/twilio/status`;  // Replace with your updated ngrok URL
 
     const message = await client.messages.create({
       body,
@@ -45,4 +45,5 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
+
 
