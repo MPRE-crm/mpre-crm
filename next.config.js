@@ -1,6 +1,7 @@
-import type { NextConfig } from "next";
+// next.config.js
 
-const nextConfig: NextConfig = {
+/** @type {import('next').NextConfig} */
+const nextConfig = {
   // If using Twilio and other external packages
   serverExternalPackages: ['twilio'],
   
@@ -8,4 +9,4 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
 };
 
-export default nextConfig;
+module.exports = nextConfig;
