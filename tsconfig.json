@@ -3,7 +3,7 @@
     "types": [
       "react",
       "react-dom"
-    ], // Ensuring react types are included
+    ], 
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
@@ -44,3 +44,4 @@
     "node_modules"
   ]
 }
+
