@@ -7,7 +7,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { name, phone, email, priceRange, moveTimeline, source } = req.body;
+  const { name, phone, email, priceRange, moveTimeline, lead_source } = req.body;
 
   try {
     // Store lead in Supabase
