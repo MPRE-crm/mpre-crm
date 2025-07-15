@@ -1,8 +1,10 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { supabase } from '../../lib/supabase'; // ✅ fixed path
-import { sendWelcomeText } from '../../lib/sendText'; // ✅ fixed path
+import { supabase } from '../../lib/supabase';
+import { sendWelcomeText } from '../../lib/sendText';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  console.log('Incoming request body:', req.body); // 🔍 Added for debugging
+
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -18,7 +20,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         email,
         price_range: priceRange,
         move_timeline: moveTimeline,
-        source,
+        lead_source: lead_source, // ✅ this field matches your Supabase column
       },
     ]);
 
@@ -36,3 +38,5 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(500).json({ error: 'Internal server error.' });
   }
 }
+
+
