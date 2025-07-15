@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { supabase } from '@/lib/supabase'; // adjust path as needed
-import { sendWelcomeText } from '@/lib/sendText'; // Twilio SMS helper
+import { supabase } from '../../lib/supabase'; // ✅ fixed path
+import { sendWelcomeText } from '../../lib/sendText'; // ✅ fixed path
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
