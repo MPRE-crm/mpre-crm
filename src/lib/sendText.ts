@@ -1,25 +1,28 @@
 import twilio from 'twilio';
 
-const client = twilio(
-  process.env.TWILIO_ACCOUNT_SID!,
-  process.env.TWILIO_AUTH_TOKEN!
-);
+const accountSid = process.env.TWILIO_ACCOUNT_SID!;
+const authToken = process.env.TWILIO_AUTH_TOKEN!;
+const twilioPhone = process.env.TWILIO_PHONE_NUMBER!;
 
-export const sendWelcomeText = async (
-  to: string,
+const client = twilio(accountSid, authToken);
+
+export async function sendWelcomeText(
+  phone: string,
   name: string,
-  timeline: string,
-  price: string
-) => {
-  const message = generateCustomMessage(name, timeline, price);
+  moveTimeline: string,
+  priceRange: string
+) {
+  const message = `Hi ${name}, this is Mike with MPRE Boise. Based on your timeline (${moveTimeline}) and price range (${priceRange}), I’ve got some homes that could be a great fit. Want me to text you a few listings?`;
 
-  return await client.messages.create({
-    body: message,
-    from: process.env.TWILIO_PHONE_NUMBER!,
-    to,
-  });
-};
-
-function generateCustomMessage(name: string, timeline: string, price: string) {
-  return `Hi ${name}, this is Mike with MPRE Boise. I saw you're planning to move in ${timeline} with a budget around ${price}. I can set up a personalized home search for you right away. Want me to get that started?`;
+  try {
+    await client.messages.create({
+      body: message,
+      from: twilioPhone,
+      to: phone,
+    });
+    console.log('✅ Text message sent to', phone);
+  } catch (error) {
+    console.error('❌ Failed to send SMS:', error);
+  }
 }
+

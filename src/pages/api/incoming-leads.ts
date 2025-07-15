@@ -3,8 +3,6 @@ import { supabase } from '../../lib/supabase';
 import { sendWelcomeText } from '../../lib/sendText';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  console.log('Incoming request body:', req.body); // 🔍 Added for debugging
-
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -20,7 +18,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         email,
         price_range: priceRange,
         move_timeline: moveTimeline,
-        lead_source: lead_source, // ✅ this field matches your Supabase column
+        lead_source: lead_source,
       },
     ]);
 
@@ -29,14 +27,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(500).json({ error: 'Failed to save lead.' });
     }
 
-    // Send AI-powered welcome text
-    await sendWelcomeText(phone, name, moveTimeline, priceRange);
+    // Attempt to send SMS, but don't let failure stop the response
+    try {
+      await sendWelcomeText(phone, name, moveTimeline, priceRange);
+    } catch (textError) {
+      console.warn('Text sending failed:', textError);
+    }
 
-    return res.status(200).json({ message: 'Lead stored and SMS sent.' });
+    return res.status(200).json({ message: 'Lead stored and SMS attempted.' });
   } catch (err) {
     console.error('Error processing incoming lead:', err);
     return res.status(500).json({ error: 'Internal server error.' });
   }
 }
+
 
 
