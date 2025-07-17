@@ -1,5 +1,3 @@
-// next.config.js
-
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -14,7 +12,7 @@ const nextConfig = {
     removeConsole: false,
   },
 
-  // ✅ Optional: Allow URLs from any origin for testing APIs like Twilio locally
+  // ✅ Allow URLs from any origin for testing APIs like Twilio locally
   async headers() {
     return [
       {
@@ -36,8 +34,18 @@ const nextConfig = {
       },
     ];
   },
+
+  // Add path aliases to support @ imports (optional if you don't have tsconfig path aliases yet)
+  webpack(config) {
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      '@': require('path').resolve(__dirname, 'src'), // Make sure this path resolves to your src directory
+    };
+    return config;
+  },
 };
 
 module.exports = nextConfig;
+
 
 

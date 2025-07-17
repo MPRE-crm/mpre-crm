@@ -1,9 +1,10 @@
-// src/app/api/twilio/webhook/route.js
+// src/app/api/twilio/webhook/route.ts
 
 import { supabase } from '@/lib/supabase';
 import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
 
-export async function POST(req) {
+export async function POST(req: NextRequest) {
   try {
     const contentType = req.headers.get('content-type');
     if (!contentType || !contentType.includes('application/json')) {
@@ -35,6 +36,7 @@ export async function POST(req) {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
+
 
 
 
