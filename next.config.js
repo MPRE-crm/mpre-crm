@@ -2,9 +2,14 @@
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Optionally, enabling React strict mode (not necessary but helps with debugging)
   reactStrictMode: true,
+
+  // ✅ Enable App Router support inside /src/app
+  experimental: {
+    appDir: true,
+  },
 };
 
 module.exports = nextConfig;
+
 
