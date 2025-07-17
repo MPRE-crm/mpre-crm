@@ -1,4 +1,8 @@
-require('dotenv').config();  // Ensure dotenv is loaded
+require('dotenv').config();  // Load environment variables from .env.local
+
+// Log the environment variables to check if they are loaded
+console.log('Supabase URL:', process.env.SUPABASE_URL);  // Should log your Supabase URL
+console.log('Supabase Anon Key:', process.env.SUPABASE_ANON_KEY);  // Should log your Supabase anon key
 
 const { createClient } = require('@supabase/supabase-js');
 
@@ -12,7 +16,7 @@ exports.createUser = async (req, res) => {
     const { data, error } = await supabase
       .from('users')
       .insert([{ name, email, password_hash }])
-      .single();
+      .single();  // Insert one row
 
     if (error) {
       console.error(error);
@@ -44,6 +48,8 @@ exports.getUsers = async (req, res) => {
     res.status(500).send('Error fetching users');
   }
 };
+
+
 
 
 

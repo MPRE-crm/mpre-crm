@@ -1,40 +1,52 @@
-// availabilityController.js
-const { Client } = require('pg');
-const client = new Client({ connectionString: process.env.DATABASE_URL });
+require('dotenv').config();  // Ensure dotenv is loaded
 
-client.connect();
+const { createClient } = require('@supabase/supabase-js');
 
-// Create availability for an agent
+// Initialize Supabase client using environment variables
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
+
+// Define createAvailability function and export it
 exports.createAvailability = async (req, res) => {
-  const { agent_id, available_from, available_to, date } = req.body;
-
+  const { agent_id, available_from, available_to } = req.body;
   try {
-    const result = await client.query(
-      'INSERT INTO availability(agent_id, available_from, available_to, date) VALUES($1, $2, $3, $4) RETURNING *',
-      [agent_id, available_from, available_to, date]
-    );
-    res.status(201).json(result.rows[0]);
+    const { data, error } = await supabase
+      .from('availability')
+      .insert([{ agent_id, available_from, available_to }])
+      .single();  // Insert one row
+
+    if (error) {
+      console.error(error);
+      return res.status(500).send('Error creating availability');
+    }
+
+    res.status(201).json(data);  // Return the newly created availability
   } catch (err) {
     console.error(err);
     res.status(500).send('Error creating availability');
   }
 };
 
-// Get availability for a specific agent
+// Get all availability for an agent
 exports.getAvailability = async (req, res) => {
   const { agent_id } = req.params;
-
   try {
-    const result = await client.query(
-      'SELECT * FROM availability WHERE agent_id = $1',
-      [agent_id]
-    );
-    res.status(200).json(result.rows);
+    const { data, error } = await supabase
+      .from('availability')
+      .select('*')
+      .eq('agent_id', agent_id);
+
+    if (error) {
+      console.error(error);
+      return res.status(500).send('Error fetching availability');
+    }
+
+    res.status(200).json(data);  // Return the availability data
   } catch (err) {
     console.error(err);
     res.status(500).send('Error fetching availability');
   }
 };
+
 
 
 

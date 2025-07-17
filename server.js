@@ -1,4 +1,4 @@
-require('dotenv').config();  // Ensure dotenv is loaded
+require('dotenv').config({ path: '.env.local' });  // Explicitly load .env.local
 
 const express = require('express');
 const app = express();
@@ -23,6 +23,7 @@ app.use('/api/availability', availabilityRoutes);
 app.listen(3000, () => {
   console.log('Server running on port 3000');
 });
+
 
 
 

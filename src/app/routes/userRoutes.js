@@ -5,7 +5,7 @@ const router = express.Router();
 const userController = require('../controllers/userController');
 
 // Log to check if userController is loaded correctly
-console.log('userController:', userController);  // This will log the functions of userController
+console.log('userController:', userController);  // This will log the functions in userController
 
 // Define routes
 router.post('/', userController.createUser);  // This should reference the function in userController
