@@ -2,10 +2,10 @@
 const nextConfig = {
   reactStrictMode: true,
 
-  // ✅ Enable App Router support inside /src/app
-  experimental: {
-    appDir: true,
-  },
+  // Remove experimental.appDir, as it's no longer needed in Next.js
+  // experimental: {
+  //   appDir: true,
+  // },
 
   // ✅ Optional: Ensure baseUrl paths like '@/lib/supabase' resolve correctly
   compiler: {
@@ -46,6 +46,7 @@ const nextConfig = {
 };
 
 module.exports = nextConfig;
+
 
 
 
