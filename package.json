@@ -11,13 +11,16 @@
   "dependencies": {
     "@googleapis/calendar": "^11.0.1",
     "@supabase/realtime-js": "^2.0.0",
-    "@supabase/supabase-js": "^2.50.0",
+    "@supabase/supabase-js": "^2.52.0",
     "axios": "^1.10.0",
     "date-fns": "^4.1.0",
     "dayjs-plugin-utc": "^0.1.2",
+    "dotenv": "^17.2.0",
     "eslint": "^8.57.1",
+    "express": "^5.1.0",
     "next": "^15.3.4",
     "openai": "^5.5.1",
+    "pg": "^8.16.3",
     "react": "^18.2.0",
     "react-calendar": "^6.0.0",
     "react-dom": "^18.2.0",
@@ -34,5 +37,18 @@
     "eslint-config-next": "^13.0.0",
     "tailwindcss": "^4",
     "typescript": "^5"
-  }
+  },
+  "description": "This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).",
+  "main": "next.config.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MPRE-crm/mpre-crm.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/MPRE-crm/mpre-crm/issues"
+  },
+  "homepage": "https://github.com/MPRE-crm/mpre-crm#readme"
 }
