@@ -3,14 +3,15 @@
 import { supabase } from '@/lib/supabase';
 import { NextResponse } from 'next/server';
 
-export async function POST(req) {
+export async function POST(request) {
   try {
-    const contentType = req.headers.get('content-type');
-    if (!contentType || !contentType.includes('application/json')) {
+    const contentType = request.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
       return NextResponse.json({ error: 'Invalid content type' }, { status: 400 });
     }
 
-    const { id, selected_date, selected_time } = await req.json();
+    const body = await request.json();
+    const { id, selected_date, selected_time } = body;
 
     if (!id || !selected_date || !selected_time) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
@@ -25,16 +26,17 @@ export async function POST(req) {
       .eq('id', id);
 
     if (error) {
-      console.error('Supabase error:', error);
+      console.error('[Supabase Update Error]:', error);
       return NextResponse.json({ error: 'Failed to update appointment' }, { status: 500 });
     }
 
-    return NextResponse.json({ message: 'Appointment updated successfully' });
+    return NextResponse.json({ message: 'Appointment updated successfully' }, { status: 200 });
   } catch (err) {
-    console.error('Unexpected error:', err);
+    console.error('[Server Error]:', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
+
 
 
 
