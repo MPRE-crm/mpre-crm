@@ -1,9 +1,15 @@
-require('dotenv').config();  // Ensure dotenv is loaded
-
+// app/controllers/appointmentController.js
 const { createClient } = require('@supabase/supabase-js');
 
-// Initialize Supabase client using environment variables
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
+const supabaseUrl =
+  process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+const supabaseAnonKey =
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+
+if (!supabaseUrl) throw new Error('Missing env: NEXT_PUBLIC_SUPABASE_URL or SUPABASE_URL');
+if (!supabaseAnonKey) throw new Error('Missing env: NEXT_PUBLIC_SUPABASE_ANON_KEY or SUPABASE_ANON_KEY');
+
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // Create an appointment
 exports.createAppointment = async (req, res) => {
@@ -12,14 +18,13 @@ exports.createAppointment = async (req, res) => {
     const { data, error } = await supabase
       .from('appointments')
       .insert([{ agent_id, lead_id, appointment_date }])
-      .single();  // Insert one row
+      .single();
 
     if (error) {
       console.error(error);
       return res.status(500).send('Error creating appointment');
     }
-
-    res.status(201).json(data);  // Return the newly created appointment
+    res.status(201).json(data);
   } catch (err) {
     console.error(err);
     res.status(500).send('Error creating appointment');
@@ -27,18 +32,14 @@ exports.createAppointment = async (req, res) => {
 };
 
 // Get all appointments
-exports.getAppointments = async (req, res) => {
+exports.getAppointments = async (_req, res) => {
   try {
-    const { data, error } = await supabase
-      .from('appointments')
-      .select('*');
-
+    const { data, error } = await supabase.from('appointments').select('*');
     if (error) {
       console.error(error);
       return res.status(500).send('Error fetching appointments');
     }
-
-    res.status(200).json(data);  // Return the list of appointments
+    res.status(200).json(data);
   } catch (err) {
     console.error(err);
     res.status(500).send('Error fetching appointments');
@@ -54,18 +55,15 @@ exports.updateAppointmentStatus = async (req, res) => {
       .from('appointments')
       .update({ status })
       .eq('id', id)
-      .single();  // Update one row
+      .single();
 
     if (error) {
       console.error(error);
       return res.status(500).send('Error updating appointment status');
     }
-
-    res.status(200).json(data);  // Return the updated appointment
+    res.status(200).json(data);
   } catch (err) {
     console.error(err);
     res.status(500).send('Error updating appointment status');
   }
 };
-
-

@@ -1,25 +1,30 @@
-require('dotenv').config();  // Ensure dotenv is loaded
-
+// app/controllers/availabilityController.js
 const { createClient } = require('@supabase/supabase-js');
 
-// Initialize Supabase client using environment variables
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
+const supabaseUrl =
+  process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+const supabaseAnonKey =
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
 
-// Define createAvailability function and export it
+if (!supabaseUrl) throw new Error('Missing env: NEXT_PUBLIC_SUPABASE_URL or SUPABASE_URL');
+if (!supabaseAnonKey) throw new Error('Missing env: NEXT_PUBLIC_SUPABASE_ANON_KEY or SUPABASE_ANON_KEY');
+
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+// Create availability
 exports.createAvailability = async (req, res) => {
   const { agent_id, available_from, available_to } = req.body;
   try {
     const { data, error } = await supabase
       .from('availability')
       .insert([{ agent_id, available_from, available_to }])
-      .single();  // Insert one row
+      .single();
 
     if (error) {
       console.error(error);
       return res.status(500).send('Error creating availability');
     }
-
-    res.status(201).json(data);  // Return the newly created availability
+    res.status(201).json(data);
   } catch (err) {
     console.error(err);
     res.status(500).send('Error creating availability');
@@ -39,14 +44,9 @@ exports.getAvailability = async (req, res) => {
       console.error(error);
       return res.status(500).send('Error fetching availability');
     }
-
-    res.status(200).json(data);  // Return the availability data
+    res.status(200).json(data);
   } catch (err) {
     console.error(err);
     res.status(500).send('Error fetching availability');
   }
 };
-
-
-
-
