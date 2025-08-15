@@ -1,47 +1,40 @@
 {
   "compilerOptions": {
-    "types": [
-      "react",
-      "react-dom",
-      "next" // Add "next" for Next.js type definitions
-    ],
+    "baseUrl": ".", 
+    "paths": {
+      "@/*": ["crm-project/crm/*"],
+      "@components/*": ["crm-project/crm/components/*"],
+      "@lib/*": ["crm-project/crm/lib/*"]
+    },
+    "types": ["react", "react-dom"],
+    "typeRoots": ["node_modules/@types"],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
     "forceConsistentCasingInFileNames": true,
     "noEmit": true,
     "esModuleInterop": true,
-    "module": "esnext",
-    "moduleResolution": "node", // Change "bundler" to "node"
+    "module": "node16",
+    "moduleResolution": "node16",
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "jsx": "preserve", // Update JSX setting for React 17+
+    "jsx": "preserve",
     "incremental": true,
-    "baseUrl": "src",
-    "paths": {
-      "@/*": [
-        "./*"
-      ]
-    },
+    "target": "ES2017",
+    "lib": ["dom", "esnext"],
     "plugins": [
       {
         "name": "next"
       }
-    ],
-    "target": "ES2017",
-    "lib": [
-      "dom",
-      "dom.iterable",
-      "esnext"
     ]
   },
   "include": [
-    "**/*.ts",
-    "**/*.tsx",
+    "crm-project/crm/**/*",
     "next-env.d.ts",
+    "node_modules/@types",
     ".next/types/**/*.ts"
   ],
-  "exclude": [
-    "node_modules"
-  ]
+  "exclude": ["node_modules", ".next"]
 }
+
+

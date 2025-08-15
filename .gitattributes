@@ -1,0 +1,2 @@
+crm-project/crm/.next/cache/webpack/server-production/0.pack filter=lfs diff=lfs merge=lfs -text
+crm-project/crm/node_modules/@next/swc-win32-x64-msvc/next-swc.win32-x64-msvc.node filter=lfs diff=lfs merge=lfs -text

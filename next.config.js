@@ -2,11 +2,6 @@
 const nextConfig = {
   reactStrictMode: true,
 
-  // Remove experimental.appDir, as it's no longer needed in Next.js
-  // experimental: {
-  //   appDir: true,
-  // },
-
   // ✅ Optional: Ensure baseUrl paths like '@/lib/supabase' resolve correctly
   compiler: {
     removeConsole: false,
@@ -39,14 +34,10 @@ const nextConfig = {
   webpack(config) {
     config.resolve.alias = {
       ...config.resolve.alias,
-      '@': require('path').resolve(__dirname, 'src'), // Make sure this path resolves to your src directory
+      '@': require('path').resolve(__dirname, 'crm-project/crm'), // Ensure alias points to 'crm' directory
     };
     return config;
   },
 };
 
 module.exports = nextConfig;
-
-
-
-
