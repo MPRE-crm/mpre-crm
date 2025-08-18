@@ -1,49 +1,51 @@
-export const runtime = 'nodejs'
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
-import { NextResponse } from 'next/server'
-import axios from 'axios'
-import qs from 'qs'
-import { supabaseAdmin } from '../../../../lib/supabaseAdmin'
+import { NextResponse } from 'next/server';
+import axios from 'axios';
+import qs from 'qs';
+import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 
-const req = (name, val) => {
-  if (!val) throw new Error(`Missing env: ${name}`)
-  return val
-}
-
-const TWILIO_ACCOUNT_SID  = req('TWILIO_ACCOUNT_SID', process.env.TWILIO_ACCOUNT_SID)
-const TWILIO_AUTH_TOKEN   = req('TWILIO_AUTH_TOKEN', process.env.TWILIO_AUTH_TOKEN)
-const TWILIO_PHONE_NUMBER = req('TWILIO_PHONE_NUMBER', process.env.TWILIO_PHONE_NUMBER)
 const FLOW_EXEC_URL =
   process.env.TWILIO_FLOW_EXECUTIONS_URL ||
-  'https://studio.twilio.com/v2/Flows/FW88d76c8c4a90aa1159ae34f135179c91/Executions'
+  'https://studio.twilio.com/v2/Flows/FW88d76c8c4a90aa1159ae34f135179c91/Executions';
 
 const toE164 = (p) => {
-  const digits = String(p || '').replace(/[^\d+]/g, '')
-  return digits.startsWith('+') ? digits : `+1${digits}`
-}
+  const digits = String(p || '').replace(/[^\d+]/g, '');
+  return digits.startsWith('+') ? digits : `+1${digits}`;
+};
 
 async function getAvailableTimes() {
-  return ['Today 3 PM', 'Tomorrow 9 AM']
+  return ['Today 3 PM', 'Tomorrow 9 AM'];
 }
 
-export async function triggerAppointmentFlow(id) {
-  if (!id) throw new Error('Missing lead id')
+async function runTriggerAppointmentFlow(id, env) {
+  if (!id) return { ok: false, error: 'Missing lead id' };
 
   const { data: lead, error: leadError } = await supabaseAdmin
     .from('leads')
     .select('id, name, phone, appointment_date, new_appointment_date, new_appointment_time')
     .eq('id', id)
-    .single()
+    .single();
 
   if (leadError || !lead) {
-    console.error('Lead fetch error:', leadError)
-    return { ok: false, error: 'Lead not found' }
+    console.error('Lead fetch error:', leadError);
+    return { ok: false, error: 'Lead not found' };
   }
 
-  if (!lead.phone) return { ok: false, error: 'Lead missing phone' }
-  const to = toE164(lead.phone)
-  const firstName = (lead.name || 'there').split(' ')[0]
-  const [timeOption1, timeOption2] = await getAvailableTimes()
+  if (!lead.phone) return { ok: false, error: 'Lead missing phone' };
+
+  const TWILIO_ACCOUNT_SID = env.TWILIO_ACCOUNT_SID;
+  const TWILIO_AUTH_TOKEN = env.TWILIO_AUTH_TOKEN;
+  const TWILIO_PHONE_NUMBER = env.TWILIO_PHONE_NUMBER;
+
+  if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_PHONE_NUMBER) {
+    return { ok: false, error: 'Missing Twilio configuration' };
+  }
+
+  const to = toE164(lead.phone);
+  const firstName = (lead.name || 'there').split(' ')[0];
+  const [timeOption1, timeOption2] = await getAvailableTimes();
 
   try {
     const resp = await axios.post(
@@ -65,39 +67,34 @@ export async function triggerAppointmentFlow(id) {
         auth: { username: TWILIO_ACCOUNT_SID, password: TWILIO_AUTH_TOKEN },
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       }
-    )
+    );
 
-    const selectedTime = resp?.data?.selected_time || null
-    const selectedDate = resp?.data?.selected_date || null
+    const selectedTime = resp?.data?.selected_time || null;
+    const selectedDate = resp?.data?.selected_date || null;
+
     if (selectedTime || selectedDate) {
       await supabaseAdmin
         .from('leads')
         .update({ new_appointment_date: selectedDate, new_appointment_time: selectedTime })
-        .eq('id', id)
+        .eq('id', id);
     }
 
-    return { ok: true, executionSid: resp?.data?.sid || null }
+    return { ok: true, executionSid: resp?.data?.sid || null };
   } catch (err) {
-    console.error('Twilio request failed:')
-    if (err.response) {
-      console.error('Status:', err.response.status)
-      console.error('Data:', JSON.stringify(err.response.data, null, 2))
-    } else {
-      console.error(err)
-    }
-    return { ok: false, error: 'Twilio request failed' }
+    console.error('Twilio request failed:', err?.response?.status, err?.response?.data || err);
+    return { ok: false, error: 'Twilio request failed' };
   }
 }
 
+// POST /api/twilio/triggerAppointmentFlow
 export async function POST(req) {
   try {
-    const body = await req.json().catch(() => ({}))
-    const id = body?.id
-    const result = await triggerAppointmentFlow(id)
-    return NextResponse.json(result, { status: result.ok ? 200 : 400 })
+    const body = await req.json().catch(() => ({}));
+    const id = body?.id;
+    const result = await runTriggerAppointmentFlow(id, process.env);
+    return NextResponse.json(result, { status: result.ok ? 200 : 400 });
   } catch (err) {
-    console.error('triggerAppointmentFlow error:', err)
-    return NextResponse.json({ ok: false, error: String(err?.message || err) }, { status: 500 })
+    console.error('triggerAppointmentFlow error:', err);
+    return NextResponse.json({ ok: false, error: String(err?.message || err) }, { status: 500 });
   }
 }
-
