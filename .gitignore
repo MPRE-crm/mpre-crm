@@ -1,7 +1,11 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# Universal ignores for monorepos
+**/node_modules/
+**/.next/
+**/.vercel/
+**/out/
+**/build/
 
-# dependencies
-/node_modules
+# Yarn/PnP
 /.pnp
 .pnp.*
 .yarn/*
@@ -10,39 +14,24 @@
 !.yarn/releases
 !.yarn/versions
 
-# testing
+# Coverage
 /coverage
 
-# next.js
-/.next/
-/out/
-/.next/cache/webpack/server-production/0.pack  # Ignore this specific large file
-
-# production
-/build
-
-# misc
+# OS / misc
 .DS_Store
+Thumbs.db
 *.pem
 
-# debug
+# Logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# Env files (never commit secrets)
 .env*
-# Specifically ignore .env.local
 .env.local
 
-# vercel
-.vercel
-
-# typescript
+# TypeScript
 *.tsbuildinfo
 next-env.d.ts
-
-# Ignore the large .node file
-crm-project/crm/node_modules/@next/swc-win32-x64-msvc/next-swc.win32-x64-msvc.node
-
