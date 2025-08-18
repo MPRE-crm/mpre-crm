@@ -2,27 +2,23 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { supabase } from '../../lib/supabase-browser';
 
 export default function LoginPage() {
   const router = useRouter();
   const search = useSearchParams();
-  const supabase = createClientComponentClient();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // DEBUG: confirm the Supabase project your build is using
+  // DEBUG: confirm which Supabase project this build uses
   useEffect(() => {
-    // Remove after verifying in DevTools console
-    // Example: https://wfjwkssqvifwatquhvti.supabase.co
-    // eslint-disable-next-line no-console
     console.log('Auth project:', process.env.NEXT_PUBLIC_SUPABASE_URL);
   }, []);
 
-  // Keep middleware cookies in sync when auth state changes
+  // keep middleware cookies in sync
   useEffect(() => {
     const { data: sub } = supabase.auth.onAuthStateChange(async (event, session) => {
       await fetch('/auth/callback', {
@@ -34,7 +30,7 @@ export default function LoginPage() {
     return () => {
       sub.subscription.unsubscribe();
     };
-  }, [supabase]);
+  }, []);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
