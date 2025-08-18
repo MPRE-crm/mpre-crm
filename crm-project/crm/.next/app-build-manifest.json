@@ -1,9 +1,0 @@
-{
-  "pages": {
-    "/api/twilio/execute/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/twilio/execute/route.js"
-    ]
-  }
-}
