@@ -11,10 +11,11 @@ const FLOW_EXEC_URL =
   'https://studio.twilio.com/v2/Flows/FW88d76c8c4a90aa1159ae34f135179c91/Executions';
 
 const toE164 = (p) => {
-  const digits = String(p || '').replace(/[^\d+]/g, '');
+  const digits = String(p ?? '').replace(/[^\d+]/g, '');
   return digits.startsWith('+') ? digits : `+1${digits}`;
 };
 
+// TODO: replace with your real availability logic
 async function getAvailableTimes() {
   return ['Today 3 PM', 'Tomorrow 9 AM'];
 }
@@ -69,8 +70,8 @@ async function runTriggerAppointmentFlow(id, env) {
       }
     );
 
-    const selectedTime = resp?.data?.selected_time || null;
-    const selectedDate = resp?.data?.selected_date || null;
+    const selectedTime = resp && resp.data ? resp.data.selected_time || null : null;
+    const selectedDate = resp && resp.data ? resp.data.selected_date || null : null;
 
     if (selectedTime || selectedDate) {
       await supabaseAdmin
@@ -79,7 +80,7 @@ async function runTriggerAppointmentFlow(id, env) {
         .eq('id', id);
     }
 
-    return { ok: true, executionSid: resp?.data?.sid || null };
+    return { ok: true, executionSid: resp && resp.data ? resp.data.sid || null : null };
   } catch (err) {
     console.error('Twilio request failed:', err?.response?.status, err?.response?.data || err);
     return { ok: false, error: 'Twilio request failed' };
@@ -91,7 +92,7 @@ export async function POST(req) {
   try {
     const body = await req.json().catch(() => ({}));
     const id = body?.id;
-    const result = await runTriggerAppointmentFlow(id, process.env);
+    const result = await runTriggerAppointmentFlow(String(id || ''), process.env);
     return NextResponse.json(result, { status: result.ok ? 200 : 400 });
   } catch (err) {
     console.error('triggerAppointmentFlow error:', err);
