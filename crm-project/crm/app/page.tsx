@@ -1,25 +1,23 @@
-'use client';
+// crm/app/page.tsx
+// Note: No "use client" — this is a simple server component with no auto-redirect.
 
-import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
 export default function Home() {
-  const router = useRouter();
-
-  useEffect(() => {
-    // Redirect users to the Leads dashboard
-    router.replace('/dashboard/leads');
-  }, [router]);
-
   return (
     <main className="min-h-screen flex flex-col items-center justify-center p-8 sm:p-12 bg-[var(--color-background)] text-[var(--color-foreground)] font-sans">
-      <h1 className="text-2xl font-bold mb-2">Redirecting to Leads…</h1>
+      <h1 className="text-2xl font-bold mb-2">Welcome to MPRE CRM</h1>
       <p className="text-sm text-gray-500 mb-6">
-        If this page doesn’t redirect automatically, use the links below.
+        Please choose where you’d like to go.
       </p>
 
       <div className="flex gap-4">
+        <Link
+          href="/login"
+          className="px-4 py-2 rounded-lg border border-gray-300 hover:bg-gray-100 transition"
+        >
+          Login
+        </Link>
         <Link
           href="/dashboard/leads"
           className="px-4 py-2 rounded-lg border border-gray-300 hover:bg-gray-100 transition"
@@ -36,3 +34,4 @@ export default function Home() {
     </main>
   );
 }
+
