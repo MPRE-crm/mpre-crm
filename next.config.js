@@ -2,7 +2,7 @@
 const nextConfig = {
   reactStrictMode: true,
 
-  // ✅ Disable lightningcss (fix for Vercel build issue)
+  // 🚫 Disable LightningCSS (fix for Vercel build issue)
   experimental: {
     optimizeCss: false,
   },
@@ -17,18 +17,9 @@ const nextConfig = {
       {
         source: '/api/:path*',
         headers: [
-          {
-            key: 'Access-Control-Allow-Origin',
-            value: '*',
-          },
-          {
-            key: 'Access-Control-Allow-Methods',
-            value: 'GET, POST, OPTIONS',
-          },
-          {
-            key: 'Access-Control-Allow-Headers',
-            value: 'Content-Type',
-          },
+          { key: 'Access-Control-Allow-Origin', value: '*' },
+          { key: 'Access-Control-Allow-Methods', value: 'GET, POST, OPTIONS' },
+          { key: 'Access-Control-Allow-Headers', value: 'Content-Type' },
         ],
       },
     ];
