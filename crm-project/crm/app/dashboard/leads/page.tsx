@@ -13,7 +13,7 @@ if (!supabaseAnonKey) throw new Error('Missing env: NEXT_PUBLIC_SUPABASE_ANON_KE
 
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-// Local helper: split a full name into first/last
+// Split a full name into first/last; DB has first_name/last_name columns
 function splitName(full?: string) {
   if (!full) return { first_name: null as string | null, last_name: null as string | null };
   const [first, ...rest] = full.trim().split(/\s+/);
@@ -22,21 +22,28 @@ function splitName(full?: string) {
 
 interface Lead {
   id: string;
-  // new fields
+  created_at?: string;
+
+  // name fields
+  name: string;
   first_name?: string | null;
   last_name?: string | null;
-  // generated column (read-only in DB)
-  name: string;
-  email: string;
-  phone: string;
-  price_range?: string;
-  move_timeline?: string;
-  status?: string;
-  lead_source?: string;
-  created_at?: string;
-  delivery_status?: string;
-  appointment_date?: string;
-  appointment_requested?: boolean;
+
+  // contact
+  email: string | null;
+  phone: string | null;
+
+  // pipeline
+  status?: string | null;
+  lead_source?: string | null;
+
+  // appointment summary fields used in UI
+  appointment_date?: string | null;
+
+  // extras used in UI
+  price_range?: string | null;
+  move_timeline?: string | null;
+  appointment_requested?: boolean | null;
 }
 
 function getStatusBadgeColor(status: string) {
@@ -61,9 +68,9 @@ function getStatusBadgeColor(status: string) {
 function downloadCSV(data: Lead[]) {
   const headers = ['Name', 'Email', 'Phone', 'Price Range', 'Move Timeline', 'Status', 'Lead Source', 'Created At'];
   const rows = data.map((lead) => [
-    lead.name,
-    lead.email,
-    lead.phone,
+    lead.name ?? '',
+    lead.email ?? '',
+    lead.phone ?? '',
     lead.price_range ?? '',
     lead.move_timeline ?? '',
     lead.status ?? '',
@@ -89,7 +96,6 @@ export default function LeadsDashboard() {
   const [search, setSearch] = useState<string>('');
   const [daysFilter, setDaysFilter] = useState<number | null>(null);
 
-  // local state updater
   const updateLocalLead = (id: string, patch: Partial<Lead>) => {
     setLeads((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
   };
@@ -98,21 +104,36 @@ export default function LeadsDashboard() {
     const fetchLeads = async () => {
       setLoading(true);
       try {
+        // ✅ Only select columns you actually have and that the UI uses
         const { data, error } = await supabase
           .from('leads')
           .select(
-            'id, first_name, last_name, name, email, phone, price_range, move_timeline, status, lead_source, created_at, delivery_status, appointment_date, appointment_requested'
+            `
+            id,
+            created_at,
+            name,
+            first_name,
+            last_name,
+            email,
+            phone,
+            status,
+            lead_source,
+            appointment_date,
+            price_range,
+            move_timeline,
+            appointment_requested
+          `
           )
           .order('created_at', { ascending: false })
           .limit(100);
 
         if (error) {
-          console.error('Error fetching leads:', error);
+          console.error('Error fetching leads:', error.message, error.details || '', error.hint || '');
         } else {
           setLeads((data as Lead[]) ?? []);
         }
-      } catch (error) {
-        console.error('Error in fetching leads:', error);
+      } catch (error: any) {
+        console.error('Error in fetching leads:', error.message || error);
       }
       setLoading(false);
     };
@@ -133,12 +154,12 @@ export default function LeadsDashboard() {
     try {
       const { error } = await supabase.from('leads').delete().eq('id', id);
       if (error) {
-        console.error('Error deleting lead:', error);
+        console.error('Error deleting lead:', error.message);
       } else {
         setLeads((prev) => prev.filter((lead) => lead.id !== id));
       }
-    } catch (error) {
-      console.error('Error deleting lead:', error);
+    } catch (error: any) {
+      console.error('Error deleting lead:', error.message || error);
     }
   };
 
@@ -146,23 +167,26 @@ export default function LeadsDashboard() {
     try {
       const { error } = await supabase.from('leads').update({ status }).eq('id', id);
       if (error) {
-        console.error('Error updating status:', error);
+        console.error('Error updating status:', error.message);
       } else {
         updateLocalLead(id, { status });
       }
-    } catch (error) {
-      console.error('Error updating status:', error);
+    } catch (error: any) {
+      console.error('Error updating status:', error.message || error);
     }
   };
 
   const handleFieldEdit = async (id: string, field: keyof Lead, value: string) => {
     try {
       if (field === 'name') {
-        // Split and write first/last; do NOT write `name` (generated column)
+        // `name` is stored; also update first_name/last_name if present in schema
         const { first_name, last_name } = splitName(value);
-        const { error } = await supabase.from('leads').update({ first_name, last_name }).eq('id', id);
+        const { error } = await supabase
+          .from('leads')
+          .update({ name: value, first_name, last_name })
+          .eq('id', id);
         if (error) {
-          console.error('Error updating name:', error);
+          console.error('Error updating name:', error.message);
         } else {
           updateLocalLead(id, { first_name, last_name, name: value });
         }
@@ -171,22 +195,22 @@ export default function LeadsDashboard() {
 
       const { error } = await supabase.from('leads').update({ [field]: value }).eq('id', id);
       if (error) {
-        console.error(`Error updating ${String(field)}:`, error);
+        console.error(`Error updating ${String(field)}:`, error.message);
       } else {
         updateLocalLead(id, { [field]: value } as Partial<Lead>);
       }
-    } catch (error) {
-      console.error(`Error updating ${String(field)}:`, error);
+    } catch (error: any) {
+      console.error(`Error updating ${String(field)}:`, error.message || error);
     }
   };
 
   const filteredLeads = leads.filter((lead) => {
-    const matchesStatus = filter === 'All' || lead.status?.toLowerCase() === filter.toLowerCase();
+    const matchesStatus = filter === 'All' || (lead.status ?? '').toLowerCase() === filter.toLowerCase();
     const searchLower = search.toLowerCase();
     const matchesSearch =
-      lead.name?.toLowerCase().includes(searchLower) ||
+      (lead.name ?? '').toLowerCase().includes(searchLower) ||
       `${lead.first_name || ''} ${lead.last_name || ''}`.toLowerCase().includes(searchLower) ||
-      lead.email?.toLowerCase().includes(searchLower) ||
+      (lead.email || '').toLowerCase().includes(searchLower) ||
       (lead.phone || '').toLowerCase().includes(searchLower);
     const matchesDate = !daysFilter || dayjs(lead.created_at).isAfter(dayjs().subtract(daysFilter, 'day'));
     return matchesStatus && matchesSearch && matchesDate;
@@ -197,9 +221,7 @@ export default function LeadsDashboard() {
     today: filteredLeads.filter((l) => dayjs(l.created_at).isAfter(dayjs().startOf('day'))).length,
     appointments: filteredLeads.filter((l) => l.status === 'Appointment Set').length,
     sources: filteredLeads.reduce((acc, l) => {
-      if (l.lead_source) {
-        acc[l.lead_source] = (acc[l.lead_source] || 0) + 1;
-      }
+      if (l.lead_source) acc[l.lead_source] = (acc[l.lead_source] || 0) + 1;
       return acc;
     }, {} as Record<string, number>),
   };
@@ -275,17 +297,17 @@ export default function LeadsDashboard() {
                   <div className="flex gap-2 flex-wrap">
                     <input
                       className="text-lg font-semibold border-b px-1 w-48"
-                      value={lead.name}
-                      onChange={(e) => handleFieldEdit(lead.id, 'name' as keyof Lead, e.target.value)}
+                      value={lead.name ?? ''}
+                      onChange={(e) => handleFieldEdit(lead.id, 'name', e.target.value)}
                     />
                     <input
                       className="text-sm text-gray-600 border-b px-1 w-64"
-                      value={lead.email}
+                      value={lead.email ?? ''}
                       onChange={(e) => handleFieldEdit(lead.id, 'email', e.target.value)}
                     />
                     <input
                       className="text-sm text-gray-600 border-b px-1 w-40"
-                      value={lead.phone}
+                      value={lead.phone ?? ''}
                       onChange={(e) => handleFieldEdit(lead.id, 'phone', e.target.value)}
                     />
                   </div>
@@ -295,7 +317,7 @@ export default function LeadsDashboard() {
                   </p>
 
                   <p className="text-xs text-gray-400">
-                    Created: {dayjs(lead.created_at).format('MMM D, YYYY h:mm A')}
+                    Created: {lead.created_at ? dayjs(lead.created_at).format('MMM D, YYYY h:mm A') : '—'}
                   </p>
 
                   <div className="mt-2 flex gap-2 flex-wrap text-sm">
@@ -307,15 +329,10 @@ export default function LeadsDashboard() {
                         {lead.status}
                       </span>
                     )}
-                    {lead.delivery_status && (
-                      <span className={`px-2 py-1 rounded-full ${getStatusBadgeColor(lead.delivery_status)}`}>
-                        {lead.delivery_status}
-                      </span>
-                    )}
                   </div>
 
                   <div className="mt-4">
-                    <BookingForm leadId={lead.id} leadName={lead.name} leadEmail={lead.email} />
+                    <BookingForm leadId={lead.id} leadName={lead.name ?? ''} leadEmail={lead.email ?? ''} />
                   </div>
                 </div>
 

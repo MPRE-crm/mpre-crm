@@ -2,7 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { executeStudioFlow, getFlowSidFromEnvVar } from "../../../../lib/twilio";
 
+// Supabase Client
 const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_ANON_KEY!);
+
+// Helper function to split full name into first and last names
+function splitName(fullName?: string) {
+  if (!fullName) return { first_name: null, last_name: null };
+  const [first_name, ...last_name] = fullName.trim().split(/\s+/);
+  return { first_name: first_name || null, last_name: last_name.join(" ") || null };
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -12,7 +20,7 @@ export async function POST(req: NextRequest) {
       lead_source,
       lead_id,
       variables = {},
-      channels = { phone: true, sms: true, email: true } // we trigger phone via Studio, SMS/Email often via Studio or your CRM
+      channels = { phone: true, sms: true, email: true }, // Trigger phone via Studio, SMS/Email via CRM
     } = body as {
       to: string;
       lead_source: string;
@@ -25,7 +33,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "Missing 'to' or 'lead_source'." }, { status: 400 });
     }
 
-    // map lead_source -> flow_key
+    // Map lead_source to flow_key
     const { data: mapRow, error: mapErr } = await supabase
       .from("lead_source_flow_map")
       .select("flow_key")
@@ -33,9 +41,9 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
 
     if (mapErr) throw mapErr;
-    const flowKey = mapRow?.flow_key ?? "HOME_SEARCH"; // safe default
+    const flowKey = mapRow?.flow_key ?? "HOME_SEARCH"; // Default to "HOME_SEARCH" if not found
 
-    // lookup env var for that flow key
+    // Lookup flow SID from the corresponding environment variable
     const { data: flowRow, error: flowErr } = await supabase
       .from("twilio_flows")
       .select("env_var, active")
@@ -49,7 +57,7 @@ export async function POST(req: NextRequest) {
 
     const flowSid = getFlowSidFromEnvVar(flowRow.env_var);
 
-    // PHONE: execute Twilio Studio flow (this can internally send SMS too)
+    // PHONE: Trigger Twilio Studio flow
     let execution: any = null;
     if (channels.phone !== false) {
       execution = await executeStudioFlow({
@@ -69,8 +77,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // SMS + EMAIL: you can do these inside Studio, or trigger here separately if needed.
-    // Below just logs placeholders so you have end-to-end records on day 1.
+    // SMS: Trigger SMS for the lead
     if (channels.sms) {
       await supabase.from("lead_interactions").insert({
         lead_id,
@@ -79,10 +86,11 @@ export async function POST(req: NextRequest) {
         to_number: to,
         channel: "sms",
         status: "queued",
-        payload: { note: "SMS handled by Studio (recommended) or add your own sender here." },
+        payload: { note: "SMS handled by Studio (recommended) or custom sender." },
       });
     }
 
+    // EMAIL: Trigger email for the lead
     if (channels.email) {
       await supabase.from("lead_interactions").insert({
         lead_id,

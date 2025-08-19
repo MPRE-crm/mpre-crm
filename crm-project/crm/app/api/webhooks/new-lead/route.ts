@@ -156,7 +156,8 @@ async function startLeadListener() {
     });
 }
 
-if (!(global as any)._leadListenerStarted) {
+if (process.env.NODE_ENV !== 'production' && !(global as any)._leadListenerStarted) {
+  // Prevent running this during build time (it will run only in development/production runtime)
   startLeadListener();
   (global as any)._leadListenerStarted = true;
 }

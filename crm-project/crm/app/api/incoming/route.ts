@@ -1,15 +1,28 @@
 // app/api/incoming/route.ts
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server';
-import OpenAI from 'openai';
-import twilio from 'twilio';
-import { supabase } from '../../../lib/supabase'; // from app/api/incoming → ../../../lib/supabase
+import { supabase } from '../../../lib/supabase'; // keep your existing client
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+function requireEnv(name: string) {
+  const v = process.env[name];
+  if (!v) throw new Error(`Missing env: ${name}`);
+  return v;
+}
 
-const twilioClient = twilio(
-  process.env.TWILIO_ACCOUNT_SID!,
-  process.env.TWILIO_AUTH_TOKEN!
-);
+async function getOpenAI() {
+  const { default: OpenAI } = await import('openai');
+  const apiKey = requireEnv('OPENAI_API_KEY');
+  return new OpenAI({ apiKey });
+}
+
+async function getTwilioClient() {
+  const twilio = (await import('twilio')).default;
+  const sid = requireEnv('TWILIO_ACCOUNT_SID');
+  const token = requireEnv('TWILIO_AUTH_TOKEN');
+  return twilio(sid, token);
+}
 
 export async function POST(req: Request) {
   const ct = req.headers.get('content-type') || '';
@@ -18,6 +31,7 @@ export async function POST(req: Request) {
   let incomingMessage: string | undefined;
 
   try {
+    // Parse Twilio payload (form-encoded) or JSON
     if (ct.includes('application/x-www-form-urlencoded')) {
       const raw = await req.text();
       const params = new URLSearchParams(raw);
@@ -38,14 +52,15 @@ export async function POST(req: Request) {
       );
     }
 
-    // Log incoming message
+    // Log incoming
     await supabase.from('messages').insert({
       lead_phone: from,
       direction: 'incoming',
       body: incomingMessage,
     });
 
-    // AI reply
+    // Lazy-load OpenAI at request time
+    const openai = await getOpenAI();
     const aiResponse = await openai.chat.completions.create({
       model: 'gpt-4',
       messages: [
@@ -61,15 +76,30 @@ export async function POST(req: Request) {
     const replyText = aiResponse.choices[0]?.message?.content?.trim();
     if (!replyText) throw new Error('AI failed to generate a response');
 
-    // Send SMS reply
+    // Lazy-load Twilio at request time
+    const twilioClient = await getTwilioClient();
+
+    // Fallback: if Twilio didn't include "To", use our configured number
+    const fromNumber = to || process.env.TWILIO_PHONE_NUMBER || undefined;
+    if (!fromNumber) {
+      throw new Error('No reply number available (missing To and TWILIO_PHONE_NUMBER)');
+    }
+
+    const statusCallback =
+      process.env.TWILIO_STATUS_CALLBACK_URL ||
+      process.env.VOICE_STATUS_WEBHOOK_URL ||
+      (process.env.NEXT_PUBLIC_APP_URL
+        ? `${process.env.NEXT_PUBLIC_APP_URL}/api/twilio/status`
+        : undefined);
+
     await twilioClient.messages.create({
-      from: to, // reply from the number Twilio used
+      from: fromNumber,
       to: from,
       body: replyText,
-      statusCallback: `${process.env.NEXT_PUBLIC_APP_URL}/api/twilio/status`,
+      ...(statusCallback ? { statusCallback } : {}),
     });
 
-    // Log outgoing message
+    // Log outgoing
     await supabase.from('messages').insert({
       lead_phone: from,
       direction: 'outgoing',

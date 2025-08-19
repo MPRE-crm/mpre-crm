@@ -3,27 +3,17 @@ import { NextResponse } from 'next/server'
 import twilio from 'twilio'
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin'
 
-// Helper to require envs with TS-typed strings
+// Helper to require envs
 function req(name: string, val: string | undefined): string {
   if (!val) throw new Error(`Missing env: ${name}`)
   return val
 }
-
-const ACCOUNT_SID = req('TWILIO_ACCOUNT_SID', process.env.TWILIO_ACCOUNT_SID)
-const AUTH_TOKEN  = req('TWILIO_AUTH_TOKEN', process.env.TWILIO_AUTH_TOKEN)
-const FROM_NUMBER = req('TWILIO_PHONE_NUMBER', process.env.TWILIO_PHONE_NUMBER)
-
-const STATUS_CALLBACK =
-  process.env.TWILIO_STATUS_CALLBACK_URL || process.env.VOICE_STATUS_WEBHOOK_URL || undefined
-
-const client = twilio(ACCOUNT_SID, AUTH_TOKEN)
 
 const toE164 = (p: string): string => {
   const digits = p.replace(/[^\d+]/g, '')
   return digits.startsWith('+') ? digits : `+1${digits}`
 }
 
-// Helper to build display name
 function displayName(first?: string, last?: string, fallback?: string) {
   const full = `${first || ''} ${last || ''}`.trim()
   return full || fallback || 'there'
@@ -31,6 +21,18 @@ function displayName(first?: string, last?: string, fallback?: string) {
 
 export async function GET() {
   try {
+    // 🔹 Lazy-load envs and Twilio client here
+    const ACCOUNT_SID = req('TWILIO_ACCOUNT_SID', process.env.TWILIO_ACCOUNT_SID)
+    const AUTH_TOKEN = req('TWILIO_AUTH_TOKEN', process.env.TWILIO_AUTH_TOKEN)
+    const FROM_NUMBER = req('TWILIO_PHONE_NUMBER', process.env.TWILIO_PHONE_NUMBER)
+    const STATUS_CALLBACK =
+      process.env.TWILIO_STATUS_CALLBACK_URL ||
+      process.env.VOICE_STATUS_WEBHOOK_URL ||
+      undefined
+
+    const client = twilio(ACCOUNT_SID, AUTH_TOKEN)
+
+    // 🔹 Query leads with appt in next 48h
     const nowIso = new Date().toISOString()
     const in48hIso = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString()
 

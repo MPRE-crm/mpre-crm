@@ -6,7 +6,9 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
   const res = NextResponse.json({ ok: true });
-  const c = await cookies(); // Next 15: must await
+
+  // Ensure cookies() is awaited
+  const c = await cookies();  // Next 15: must await
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -14,13 +16,13 @@ export async function POST(req: Request) {
     {
       cookies: {
         get(name) {
-          return c.get(name)?.value;
+          return c.get(name)?.value;  // Safely access cookie values
         },
         set(name, value, options) {
-          res.cookies.set({ name, value, ...options });
+          res.cookies.set({ name, value, ...options });  // Set cookie on response
         },
         remove(name, options) {
-          res.cookies.set({ name, value: '', ...options });
+          res.cookies.set({ name, value: '', ...options });  // Remove cookie
         },
       },
     }
@@ -28,6 +30,7 @@ export async function POST(req: Request) {
 
   const { event, session } = await req.json();
 
+  // Handle different auth events
   if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
     if (session?.access_token && session?.refresh_token) {
       await supabase.auth.setSession({
