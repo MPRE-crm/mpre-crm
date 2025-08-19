@@ -13,7 +13,6 @@ if (!supabaseAnonKey) throw new Error('Missing env: NEXT_PUBLIC_SUPABASE_ANON_KE
 
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-// Split a full name into first/last; DB has first_name/last_name columns
 function splitName(full?: string) {
   if (!full) return { first_name: null as string | null, last_name: null as string | null };
   const [first, ...rest] = full.trim().split(/\s+/);
@@ -23,24 +22,14 @@ function splitName(full?: string) {
 interface Lead {
   id: string;
   created_at?: string;
-
-  // name fields
   name: string;
   first_name?: string | null;
   last_name?: string | null;
-
-  // contact
   email: string | null;
   phone: string | null;
-
-  // pipeline
   status?: string | null;
   lead_source?: string | null;
-
-  // appointment summary fields used in UI
   appointment_date?: string | null;
-
-  // extras used in UI
   price_range?: string | null;
   move_timeline?: string | null;
   appointment_requested?: boolean | null;
@@ -104,7 +93,6 @@ export default function LeadsDashboard() {
     const fetchLeads = async () => {
       setLoading(true);
       try {
-        // ✅ Only select columns you actually have and that the UI uses
         const { data, error } = await supabase
           .from('leads')
           .select(
@@ -128,7 +116,7 @@ export default function LeadsDashboard() {
           .limit(100);
 
         if (error) {
-          console.error('Error fetching leads:', error.message, error.details || '', error.hint || '');
+          console.error('Error fetching leads:', error.message);
         } else {
           setLeads((data as Lead[]) ?? []);
         }
@@ -153,11 +141,8 @@ export default function LeadsDashboard() {
   const handleDelete = async (id: string) => {
     try {
       const { error } = await supabase.from('leads').delete().eq('id', id);
-      if (error) {
-        console.error('Error deleting lead:', error.message);
-      } else {
-        setLeads((prev) => prev.filter((lead) => lead.id !== id));
-      }
+      if (error) console.error('Error deleting lead:', error.message);
+      else setLeads((prev) => prev.filter((lead) => lead.id !== id));
     } catch (error: any) {
       console.error('Error deleting lead:', error.message || error);
     }
@@ -166,11 +151,8 @@ export default function LeadsDashboard() {
   const handleStatusUpdate = async (id: string, status: string) => {
     try {
       const { error } = await supabase.from('leads').update({ status }).eq('id', id);
-      if (error) {
-        console.error('Error updating status:', error.message);
-      } else {
-        updateLocalLead(id, { status });
-      }
+      if (error) console.error('Error updating status:', error.message);
+      else updateLocalLead(id, { status });
     } catch (error: any) {
       console.error('Error updating status:', error.message || error);
     }
@@ -179,26 +161,17 @@ export default function LeadsDashboard() {
   const handleFieldEdit = async (id: string, field: keyof Lead, value: string) => {
     try {
       if (field === 'name') {
-        // `name` is stored; also update first_name/last_name if present in schema
         const { first_name, last_name } = splitName(value);
         const { error } = await supabase
           .from('leads')
           .update({ name: value, first_name, last_name })
           .eq('id', id);
-        if (error) {
-          console.error('Error updating name:', error.message);
-        } else {
-          updateLocalLead(id, { first_name, last_name, name: value });
-        }
+        if (!error) updateLocalLead(id, { first_name, last_name, name: value });
         return;
       }
 
       const { error } = await supabase.from('leads').update({ [field]: value }).eq('id', id);
-      if (error) {
-        console.error(`Error updating ${String(field)}:`, error.message);
-      } else {
-        updateLocalLead(id, { [field]: value } as Partial<Lead>);
-      }
+      if (!error) updateLocalLead(id, { [field]: value } as Partial<Lead>);
     } catch (error: any) {
       console.error(`Error updating ${String(field)}:`, error.message || error);
     }
@@ -227,141 +200,155 @@ export default function LeadsDashboard() {
   };
 
   return (
-    <div className="p-6">
-      <h1 className="text-3xl font-bold mb-6">Leads Dashboard</h1>
+    <div className="p-6 bg-neutral-50 min-h-screen">
+      <div className="max-w-7xl mx-auto">
+        <h1 className="text-3xl font-bold mb-6">Leads Dashboard</h1>
 
-      <div className="mb-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-        <div className="bg-gray-100 p-3 rounded">Total Leads: {summary.total}</div>
-        <div className="bg-green-100 p-3 rounded">New Today: {summary.today}</div>
-        <div className="bg-blue-100 p-3 rounded">Appointments Set: {summary.appointments}</div>
-        <div className="bg-yellow-100 p-3 rounded">
-          Top Source: {Object.entries(summary.sources).sort((a, b) => b[1] - a[1])[0]?.[0] || '—'}
+        {/* summary cards */}
+        <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="bg-white p-4 rounded-xl shadow text-center">
+            <p className="text-sm text-gray-500">Total Leads</p>
+            <p className="text-2xl font-bold">{summary.total}</p>
+          </div>
+          <div className="bg-white p-4 rounded-xl shadow text-center">
+            <p className="text-sm text-gray-500">New Today</p>
+            <p className="text-2xl font-bold text-green-600">{summary.today}</p>
+          </div>
+          <div className="bg-white p-4 rounded-xl shadow text-center">
+            <p className="text-sm text-gray-500">Appointments</p>
+            <p className="text-2xl font-bold text-blue-600">{summary.appointments}</p>
+          </div>
+          <div className="bg-white p-4 rounded-xl shadow text-center">
+            <p className="text-sm text-gray-500">Top Source</p>
+            <p className="text-lg font-semibold">
+              {Object.entries(summary.sources).sort((a, b) => b[1] - a[1])[0]?.[0] || '—'}
+            </p>
+          </div>
         </div>
-      </div>
 
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
-        <input
-          type="text"
-          placeholder="Search by name, email, or phone..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="border px-3 py-2 rounded-md w-full sm:w-1/2"
-        />
-
-        <div className="flex gap-2 flex-wrap">
-          {[0, 7, 30, null].map((days) => (
+        {/* search + filters */}
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+          <input
+            type="text"
+            placeholder="Search by name, email, or phone..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="border px-3 py-2 rounded-md w-full md:w-1/2 shadow-sm"
+          />
+          <div className="flex gap-2 flex-wrap">
+            {[0, 7, 30, null].map((days) => (
+              <button
+                key={days ?? 'all'}
+                onClick={() => setDaysFilter(days)}
+                className={`px-3 py-1 rounded-full border text-sm ${
+                  daysFilter === days ? 'bg-black text-white' : 'bg-white'
+                }`}
+              >
+                {days ? `Last ${days} Days` : 'All Time'}
+              </button>
+            ))}
             <button
-              key={days ?? 'all'}
-              onClick={() => setDaysFilter(days)}
+              onClick={() => downloadCSV(filteredLeads)}
+              className="px-3 py-1 rounded-full border text-sm bg-blue-600 text-white"
+            >
+              Export CSV
+            </button>
+          </div>
+        </div>
+
+        {/* status filter buttons */}
+        <div className="flex gap-2 flex-wrap mb-6">
+          {['All', 'New', 'Contacted', 'Appointment Set', 'Archived'].map((status) => (
+            <button
+              key={status}
+              onClick={() => setFilter(status)}
               className={`px-3 py-1 rounded-full border text-sm ${
-                daysFilter === days ? 'bg-black text-white' : 'bg-white text-black'
+                filter === status ? 'bg-black text-white' : 'bg-white'
               }`}
             >
-              {days ? `Last ${days} Days` : 'All Time'}
+              {status}
             </button>
           ))}
-
-          <button
-            onClick={() => downloadCSV(filteredLeads)}
-            className="px-3 py-1 rounded-full border text-sm bg-blue-600 text-white"
-          >
-            Export CSV
-          </button>
         </div>
-      </div>
 
-      <div className="flex gap-2 flex-wrap mb-6">
-        {['All', 'New', 'Contacted', 'Appointment Set', 'Archived'].map((status) => (
-          <button
-            key={status}
-            onClick={() => setFilter(status)}
-            className={`px-3 py-1 rounded-full border text-sm ${
-              filter === status ? 'bg-black text-white' : 'bg-white text-black'
-            }`}
-          >
-            {status}
-          </button>
-        ))}
-      </div>
-
-      {loading ? (
-        <p>Loading leads...</p>
-      ) : filteredLeads.length === 0 ? (
-        <p>No leads found.</p>
-      ) : (
-        <div className="space-y-4">
-          {filteredLeads.map((lead) => (
-            <div key={lead.id} className="p-4 border rounded-lg shadow-sm hover:shadow-md transition">
-              <div className="flex justify-between items-start gap-4">
-                <div className="w-full">
-                  <div className="flex gap-2 flex-wrap">
+        {/* leads grid */}
+        {loading ? (
+          <p>Loading leads...</p>
+        ) : filteredLeads.length === 0 ? (
+          <p>No leads found.</p>
+        ) : (
+          <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+            {filteredLeads.map((lead) => (
+              <div
+                key={lead.id}
+                className="bg-white rounded-xl shadow hover:shadow-md transition p-4 flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex flex-col gap-1 mb-2">
                     <input
-                      className="text-lg font-semibold border-b px-1 w-48"
+                      className="text-lg font-semibold border-b px-1"
                       value={lead.name ?? ''}
                       onChange={(e) => handleFieldEdit(lead.id, 'name', e.target.value)}
                     />
                     <input
-                      className="text-sm text-gray-600 border-b px-1 w-64"
+                      className="text-sm text-gray-600 border-b px-1"
                       value={lead.email ?? ''}
                       onChange={(e) => handleFieldEdit(lead.id, 'email', e.target.value)}
                     />
                     <input
-                      className="text-sm text-gray-600 border-b px-1 w-40"
+                      className="text-sm text-gray-600 border-b px-1"
                       value={lead.phone ?? ''}
                       onChange={(e) => handleFieldEdit(lead.id, 'phone', e.target.value)}
                     />
                   </div>
 
-                  <p className="text-sm text-gray-600 mt-1">
+                  <p className="text-sm text-gray-600">
                     Price: {lead.price_range || '—'} • Timeline: {lead.move_timeline || '—'}
                   </p>
-
-                  <p className="text-xs text-gray-400">
+                  <p className="text-xs text-gray-400 mb-2">
                     Created: {lead.created_at ? dayjs(lead.created_at).format('MMM D, YYYY h:mm A') : '—'}
                   </p>
 
-                  <div className="mt-2 flex gap-2 flex-wrap text-sm">
-                    <span className="px-2 py-1 rounded-full bg-gray-100 text-gray-600">
-                      Source: {lead.lead_source?.slice(0, 50) || 'Unknown'}
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    <span className="px-2 py-1 rounded-full bg-gray-100 text-gray-600 text-xs">
+                      {lead.lead_source || 'Unknown'}
                     </span>
                     {lead.status && (
-                      <span className={`px-2 py-1 rounded-full ${getStatusBadgeColor(lead.status)}`}>
+                      <span className={`px-2 py-1 rounded-full text-xs ${getStatusBadgeColor(lead.status)}`}>
                         {lead.status}
                       </span>
                     )}
                   </div>
 
-                  <div className="mt-4">
-                    <BookingForm leadId={lead.id} leadName={lead.name ?? ''} leadEmail={lead.email ?? ''} />
-                  </div>
+                  <BookingForm leadId={lead.id} leadName={lead.name ?? ''} leadEmail={lead.email ?? ''} />
                 </div>
 
-                <div className="flex flex-col items-end gap-2">
-                  <Link href={`/leads/${lead.id}`} className="text-blue-600 hover:underline text-sm">
+                <div className="mt-4 flex justify-between items-center text-sm">
+                  <Link href={`/leads/${lead.id}`} className="text-blue-600 hover:underline">
                     Edit
                   </Link>
-
-                  <select
-                    className="border rounded px-2 py-1 text-sm"
-                    value={lead.status || ''}
-                    onChange={(e) => handleStatusUpdate(lead.id, e.target.value)}
-                  >
-                    <option value="">— Change Status —</option>
-                    <option value="New">New</option>
-                    <option value="Contacted">Contacted</option>
-                    <option value="Appointment Set">Appointment Set</option>
-                    <option value="Archived">Archived</option>
-                  </select>
-
-                  <button onClick={() => handleDelete(lead.id)} className="text-red-500 hover:underline text-sm">
-                    Delete
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <select
+                      className="border rounded px-2 py-1 text-sm"
+                      value={lead.status || ''}
+                      onChange={(e) => handleStatusUpdate(lead.id, e.target.value)}
+                    >
+                      <option value="">— Change Status —</option>
+                      <option value="New">New</option>
+                      <option value="Contacted">Contacted</option>
+                      <option value="Appointment Set">Appointment Set</option>
+                      <option value="Archived">Archived</option>
+                    </select>
+                    <button onClick={() => handleDelete(lead.id)} className="text-red-500 hover:underline">
+                      Delete
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
-      )}
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
