@@ -2,7 +2,11 @@
 const nextConfig = {
   reactStrictMode: true,
 
-  // ✅ Optional: Ensure baseUrl paths like '@/lib/supabase' resolve correctly
+  // ✅ Disable lightningcss (fix for Vercel build issue)
+  experimental: {
+    optimizeCss: false,
+  },
+
   compiler: {
     removeConsole: false,
   },
@@ -30,11 +34,11 @@ const nextConfig = {
     ];
   },
 
-  // Add path aliases to support @ imports (optional if you don't have tsconfig path aliases yet)
+  // ✅ Add path aliases to support @ imports
   webpack(config) {
     config.resolve.alias = {
       ...config.resolve.alias,
-      '@': require('path').resolve(__dirname, 'crm-project/crm'), // Ensure alias points to 'crm' directory
+      '@': require('path').resolve(__dirname, 'crm-project/crm'),
     };
     return config;
   },
