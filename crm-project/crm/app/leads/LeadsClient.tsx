@@ -4,7 +4,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import Link from 'next/link';
 // crm-project/crm/app/leads/LeadsClient.tsx
-import { supabase } from '../../../lib/supabase-browser';
+import { supabase } from '../../lib/supabase-browser';
 
 type LeadStatus =
   | 'new'
