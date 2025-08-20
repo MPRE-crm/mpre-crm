@@ -1,15 +1,11 @@
-import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY! // needs service role, not anon
-);
+import { NextResponse } from 'next/server';
+import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 
 export async function POST() {
-  const { error } = await supabase.auth.resend({
-    type: "signup",
-    email: "mpetras@mpre.homes",
+  // Uses service role (admin) client under the hood
+  const { error } = await supabaseAdmin.auth.resend({
+    type: 'signup',
+    email: 'mpetras@mpre.homes',
   });
 
   if (error) {

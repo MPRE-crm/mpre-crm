@@ -1,14 +1,16 @@
+// crm/app/api/twilio/ai-call/route.ts
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import OpenAI from 'openai';
+import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 import twilio from 'twilio';
 
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_ANON_KEY!
-);
+export const dynamic = 'force-dynamic';
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID!;
+const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN!;
+const TWILIO_FROM = process.env.TWILIO_PHONE_NUMBER!; // ✅ matches your .env
+const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL!;   // ✅ used to build webhook URL
+
+const twilioClient = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
 
 export async function POST(req: Request) {
   try {
@@ -17,47 +19,40 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: 'Missing lead_id' }, { status: 400 });
     }
 
-    // 1️⃣ Get lead details from Supabase
-    const { data: lead, error } = await supabase
+    // 1) Get lead details (server-side, service role)
+    const { data: lead, error } = await supabaseAdmin
       .from('leads')
       .select('id, first_name, last_name, phone, price_point, move_timeline, notes')
       .eq('id', lead_id)
       .single();
 
-    if (error || !lead) {
+    if (error) {
+      return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    }
+    if (!lead) {
       return NextResponse.json({ ok: false, error: 'Lead not found' }, { status: 404 });
     }
+    if (!lead.phone) {
+      return NextResponse.json({ ok: false, error: 'Lead has no phone on file' }, { status: 400 });
+    }
+    if (!TWILIO_FROM || !BASE_URL) {
+      return NextResponse.json(
+        { ok: false, error: 'Server is missing TWILIO_PHONE_NUMBER or NEXT_PUBLIC_BASE_URL' },
+        { status: 500 }
+      );
+    }
 
-    // 2️⃣ Build conversation prompt
-    const prompt = `
-You are Samantha, a warm, helpful Boise, Idaho real estate assistant for MPRE Boise.
-Your job is to naturally speak with ${lead.first_name} ${lead.last_name} about their move.
-You already know:
-- Move timeline: ${lead.move_timeline || "Unknown"}
-- Price point: ${lead.price_point || "Unknown"}
-- Past conversation notes: ${lead.notes || "None"}
-
-Start the call by referencing their moving plans and budget. Keep the conversation natural, handle objections, and aim to progress toward booking an appointment or sending the relocation guide if not already done.
-If they sidetrack, gently bring them back to real estate.
-
-At the end, summarize the key updates in bullet points.
-`;
-
-    // 3️⃣ Create outbound call using Twilio Programmable Voice
-    const client = twilio(
-      process.env.TWILIO_ACCOUNT_SID!,
-      process.env.TWILIO_AUTH_TOKEN!
-    );
-
-    const call = await client.calls.create({
+    // 2) Kick off outbound call to your AI stream endpoint
+    const call = await twilioClient.calls.create({
       to: lead.phone,
-      from: process.env.TWILIO_CALLER_ID!,
-      // URL of TwiML that connects call to AI streaming endpoint
-      url: `${process.env.PUBLIC_URL}/api/twilio/ai-stream?lead_id=${lead.id}`
+      from: TWILIO_FROM,
+      // TwiML or webhook that connects to your /api/twilio/ai-stream endpoint
+      url: `${BASE_URL}/api/twilio/ai-stream?lead_id=${encodeURIComponent(lead.id)}`,
     });
 
     return NextResponse.json({ ok: true, callSid: call.sid });
   } catch (err: any) {
-    return NextResponse.json({ ok: false, error: err.message }, { status: 500 });
+    console.error('ai-call error:', err);
+    return NextResponse.json({ ok: false, error: err.message ?? 'Server error' }, { status: 500 });
   }
 }

@@ -4,8 +4,8 @@ import { createClient } from '@supabase/supabase-js'
 
 // Supabase server-side client
 const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  process.env.SUPABASE_URL!,              // ✅ use server-side var
+  process.env.SUPABASE_SERVICE_ROLE_KEY!  // ✅ service role for writes
 )
 
 export async function POST(req: Request) {
@@ -23,19 +23,8 @@ export async function POST(req: Request) {
   if (!callSid) return NextResponse.json({ ok: true })
 
   try {
-    // Stop further retries if call connected
-    if (status === 'in-progress' || status === 'completed') {
-      await supabase
-        .from('follow_ups')
-        .update({
-          final_status: 'answered',
-          do_not_contact: true,
-          next_attempt_at: null,
-        })
-        .eq('call_sid', callSid)
-    }
-    // Voicemail path
-    else if (status === 'completed' && answeredBy?.startsWith('machine')) {
+    // Voicemail path first
+    if (status === 'completed' && answeredBy?.startsWith('machine')) {
       await supabase
         .from('follow_ups')
         .update({
@@ -45,7 +34,18 @@ export async function POST(req: Request) {
         })
         .eq('call_sid', callSid)
     }
-    // Missed, busy, failed — leave for cron to retry
+    // Connected calls
+    else if (status === 'in-progress' || status === 'completed') {
+      await supabase
+        .from('follow_ups')
+        .update({
+          final_status: 'answered',
+          do_not_contact: true,
+          next_attempt_at: null,
+        })
+        .eq('call_sid', callSid)
+    }
+    // Missed, busy, failed — mark attempt time
     else if (['busy', 'no-answer', 'failed', 'canceled'].includes(status)) {
       await supabase
         .from('follow_ups')
@@ -53,7 +53,7 @@ export async function POST(req: Request) {
         .eq('call_sid', callSid)
     }
 
-    // Save AI conversation notes to the lead record if provided
+    // Save AI conversation notes if provided
     if (leadId && conversationSummary) {
       await supabase
         .from('leads')

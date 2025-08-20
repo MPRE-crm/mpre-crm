@@ -1,16 +1,16 @@
-// crm/pages/api/twilio/ai-media-stream/bridge.ts
-import type { NextApiRequest, NextApiResponse } from 'next';
+import { NextRequest } from 'next/server';
 import { WebSocketServer, WebSocket } from 'ws';
 import { createClient } from '@supabase/supabase-js';
 
-// Reuse a single WebSocketServer across hot-reloads in dev
+export const runtime = 'nodejs'; // must be node runtime (not edge)
+
 const g = globalThis as any;
 let wss: WebSocketServer | undefined = g.__TWILIO_BRIDGE_WSS__;
 
 // Supabase client
 const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_ANON_KEY!);
 
-// Connect to OpenAI Realtime with headers (Node ws supports headers)
+// Connect to OpenAI Realtime
 function connectOpenAI(): WebSocket {
   return new WebSocket('wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview', {
     headers: {
@@ -20,11 +20,7 @@ function connectOpenAI(): WebSocket {
   });
 }
 
-function handleTwilioConnection(
-  client: WebSocket,
-  leadIdFromUrl?: string,
-  systemPromptB64FromUrl?: string
-) {
+function handleTwilioConnection(client: WebSocket, leadIdFromUrl?: string, systemPromptB64FromUrl?: string) {
   let leadId = leadIdFromUrl || '';
   const openaiWS = connectOpenAI();
 
@@ -75,6 +71,18 @@ function handleTwilioConnection(
       if (data?.type === 'audio' && data?.data) {
         client.send(JSON.stringify({ event: 'media', media: { payload: data.data } }));
       }
+
+      // Log escalation if needed
+      if (data?.type === 'escalation' && data?.content) {
+        console.log(`⚡ Escalation detected for lead ${leadId}. Details: ${data.content}`);
+        await supabase.from('call_logs').insert({
+          call_sid: leadId,
+          status: 'escalation',
+          lead_id: leadId,
+          timestamp: new Date().toISOString(),
+          details: data.content,
+        });
+      }
     } catch {
       // ignore non-JSON frames
     }
@@ -120,15 +128,15 @@ function handleTwilioConnection(
   });
 }
 
-// Pages API route
-export default function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (!res.socket) {
-    res.status(500).send('No socket');
-    return;
-  }
-
+// ✅ App Router API handler
+export async function GET(req: NextRequest) {
   if (!wss) {
-    const server = (res.socket as any).server; // cast to access 'server'
+    const server: any = (globalThis as any).__NEXT_SERVER__?.server;
+    if (!server) {
+      console.error('No Next.js server found for WebSocket upgrade');
+      return new Response('Server not ready', { status: 500 });
+    }
+
     wss = new WebSocketServer({ noServer: true });
 
     server.on('upgrade', (request: any, socket: any, head: any) => {
@@ -148,5 +156,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
     console.log('✅ Twilio bridge WebSocket server ready');
   }
 
-  res.status(200).json({ ok: true });
+  return new Response(JSON.stringify({ ok: true }), {
+    headers: { 'Content-Type': 'application/json' },
+  });
 }

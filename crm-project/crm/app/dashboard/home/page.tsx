@@ -1,19 +1,15 @@
+// crm/app/dashboard/home/page.tsx
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
-import { createClient } from '@supabase/supabase-js'
+import { getSupabaseBrowser } from '../../../lib/supabase-browser'
 
 dayjs.extend(relativeTime)
 
-// Supabase client (browser-side)
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string
-if (!supabaseUrl) throw new Error('Missing env: NEXT_PUBLIC_SUPABASE_URL')
-if (!supabaseAnonKey) throw new Error('Missing env: NEXT_PUBLIC_SUPABASE_ANON_KEY')
-
-const supabase = createClient(supabaseUrl, supabaseAnonKey)
+// Supabase client (singleton, browser-side)
+const supabase = getSupabaseBrowser()
 
 type Lead = {
   id: string
@@ -275,3 +271,4 @@ export default function HomeIDXActivity() {
     </div>
   )
 }
+

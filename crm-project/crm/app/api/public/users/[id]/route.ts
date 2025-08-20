@@ -1,20 +1,17 @@
+// crm/app/api/public/users/[id]/route.ts
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import type { NextRequest } from 'next/server';
+import { supabaseAdmin } from '../../../../../lib/supabaseAdmin';
 
 export const dynamic = 'force-dynamic';
 
-// Build a server-side Supabase client (uses server vars if present, else NEXT_PUBLIC)
-const supabaseUrl =
-  process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey =
-  process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  const id = params.id;
 
-// GET /api/public/users/:id
-export async function GET(_req: Request, ctx: any) {
-  const id = ctx?.params?.id as string;
-
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('users')
     .select(
       'id, name, email, phone, bio, picture_url, facebook, instagram, linkedin, relocation_guide_url'
@@ -33,4 +30,5 @@ export async function GET(_req: Request, ctx: any) {
 
   return NextResponse.json(data);
 }
+
 

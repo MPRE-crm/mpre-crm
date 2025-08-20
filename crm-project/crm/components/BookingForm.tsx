@@ -1,19 +1,14 @@
 'use client';
 
 import React, { useState } from 'react';
-import { createClient } from '@supabase/supabase-js';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
+import { getSupabaseBrowser } from '../lib/supabase-browser';
 
 dayjs.extend(utc);
 
-// Create a browser-safe Supabase client using ONLY public envs
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string;
-if (!supabaseUrl) throw new Error('Missing env: NEXT_PUBLIC_SUPABASE_URL');
-if (!supabaseAnonKey) throw new Error('Missing env: NEXT_PUBLIC_SUPABASE_ANON_KEY');
-
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// use the singleton client
+const supabase = getSupabaseBrowser();
 
 interface BookingFormProps {
   leadId: string;
