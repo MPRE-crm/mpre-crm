@@ -1,354 +1,386 @@
+// crm/app/dashboard/leads/page.tsx
 'use client';
 
-import { useEffect, useState } from 'react';
-import Link from 'next/link';
-import dayjs from 'dayjs';
+import { useEffect, useMemo, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import BookingForm from '../../../components/BookingForm';
+import dayjs from 'dayjs';
+import relativeTime from 'dayjs/plugin/relativeTime';
+dayjs.extend(relativeTime);
 
+// ----- Supabase (browser) -----
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string;
 if (!supabaseUrl) throw new Error('Missing env: NEXT_PUBLIC_SUPABASE_URL');
 if (!supabaseAnonKey) throw new Error('Missing env: NEXT_PUBLIC_SUPABASE_ANON_KEY');
-
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-function splitName(full?: string) {
-  if (!full) return { first_name: null as string | null, last_name: null as string | null };
-  const [first, ...rest] = full.trim().split(/\s+/);
-  return { first_name: first || null, last_name: rest.length ? rest.join(' ') : null };
-}
+// Toggle with NEXT_PUBLIC_USE_LEADS_VIEW=false to force fallback
+const USE_VIEW = process.env.NEXT_PUBLIC_USE_LEADS_VIEW !== 'false';
 
-interface Lead {
+// ----- Types -----
+type Lead = {
   id: string;
-  created_at?: string;
-  name: string;
-  first_name?: string | null;
-  last_name?: string | null;
+  created_at: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  name: string | null;
   email: string | null;
   phone: string | null;
-  status?: string | null;
-  lead_source?: string | null;
-  appointment_date?: string | null;
-  price_range?: string | null;
-  move_timeline?: string | null;
-  appointment_requested?: boolean | null;
-}
+  status: string | null;
+  lead_source: string | null;
+  appointment_type: string | null; // using as "Type" (buyer/seller/investor/renter) unless you have a dedicated field
+};
 
-function getStatusBadgeColor(status: string) {
-  switch (status) {
-    case 'New':
-      return 'bg-gray-200 text-gray-800';
-    case 'Contacted':
-      return 'bg-blue-100 text-blue-800';
-    case 'Appointment Set':
-      return 'bg-green-200 text-green-800';
-    case 'Archived':
-      return 'bg-yellow-100 text-yellow-800';
-    case 'Failed':
-      return 'bg-red-100 text-red-800';
-    case 'Sent':
-      return 'bg-green-100 text-green-800';
-    default:
-      return 'bg-gray-100 text-gray-600';
-  }
-}
+type Profile = { role: 'agent' | 'admin' | 'platform_admin'; org_id: string };
 
-function downloadCSV(data: Lead[]) {
-  const headers = ['Name', 'Email', 'Phone', 'Price Range', 'Move Timeline', 'Status', 'Lead Source', 'Created At'];
-  const rows = data.map((lead) => [
-    lead.name ?? '',
-    lead.email ?? '',
-    lead.phone ?? '',
-    lead.price_range ?? '',
-    lead.move_timeline ?? '',
-    lead.status ?? '',
-    lead.lead_source ?? '',
-    lead.created_at ?? '',
-  ]);
+type IdxAgg = { lead_id: string; max: string | null; count: number | null };
+type MsgAgg = { lead_id: string; max: string | null };
 
-  const csvContent = [headers, ...rows].map((row) => row.join(',')).join('\n');
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.setAttribute('href', url);
-  link.setAttribute('download', 'leads_export.csv');
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-}
+type TableRow = {
+  id: string;
+  first: string;
+  last: string;
+  phone: string;
+  status: string;
+  type: string;
+  lastIdxVisit: string | null;
+  idxViews30d: number;
+  latestComm: string | null;
+};
 
-export default function LeadsDashboard() {
-  const [leads, setLeads] = useState<Lead[]>([]);
+type StatusFilter =
+  | 'ALL'
+  | 'NEW'
+  | 'SPHERE'
+  | 'ACTIVE'
+  | 'CLIENT'
+  | 'UNDER_CONTRACT'
+  | 'CLOSED'
+  | 'ARCHIVED';
+
+const STATUS_BUTTONS: { key: StatusFilter; label: string; match: string | null }[] = [
+  { key: 'ALL', label: 'All', match: null },
+  { key: 'NEW', label: 'New Leads', match: 'new' },
+  { key: 'SPHERE', label: 'Sphere', match: 'sphere' },
+  { key: 'ACTIVE', label: 'Active Clients', match: 'active' },
+  { key: 'CLIENT', label: 'Clients', match: 'client' },
+  { key: 'UNDER_CONTRACT', label: 'Under Contract', match: 'under contract' },
+  { key: 'CLOSED', label: 'Closed', match: 'closed' },
+  { key: 'ARCHIVED', label: 'Archived', match: 'archived' },
+];
+
+export default function LeadsPage() {
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<string>('All');
-  const [search, setSearch] = useState<string>('');
-  const [daysFilter, setDaysFilter] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const updateLocalLead = (id: string, patch: Partial<Lead>) => {
-    setLeads((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
-  };
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [idxAgg, setIdxAgg] = useState<Record<string, { last: string | null; count: number }>>({});
+  const [msgAgg, setMsgAgg] = useState<Record<string, string | null>>({});
+
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
+  const [search, setSearch] = useState('');
+  const [daysFilter, setDaysFilter] = useState<number | null>(null); // 7, 30, null=all
+
+  const since30dISO = useMemo(() => dayjs().subtract(30, 'day').toISOString(), []);
+  const sinceDaysISO = useMemo(
+    () => (daysFilter ? dayjs().subtract(daysFilter, 'day').toISOString() : null),
+    [daysFilter]
+  );
 
   useEffect(() => {
-    const fetchLeads = async () => {
+    let mounted = true;
+
+    const fetchAll = async () => {
       setLoading(true);
-      try {
-        const { data, error } = await supabase
-          .from('leads')
-          .select(
-            `
-            id,
-            created_at,
-            name,
-            first_name,
-            last_name,
-            email,
-            phone,
-            status,
-            lead_source,
-            appointment_date,
-            price_range,
-            move_timeline,
-            appointment_requested
-          `
-          )
-          .order('created_at', { ascending: false })
-          .limit(100);
+      setError(null);
 
-        if (error) {
-          console.error('Error fetching leads:', error.message);
-        } else {
-          setLeads((data as Lead[]) ?? []);
-        }
-      } catch (error: any) {
-        console.error('Error in fetching leads:', error.message || error);
-      }
-      setLoading(false);
-    };
-
-    fetchLeads();
-
-    const channel = supabase
-      .channel('realtime leads')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, fetchLeads)
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, []);
-
-  const handleDelete = async (id: string) => {
-    try {
-      const { error } = await supabase.from('leads').delete().eq('id', id);
-      if (error) console.error('Error deleting lead:', error.message);
-      else setLeads((prev) => prev.filter((lead) => lead.id !== id));
-    } catch (error: any) {
-      console.error('Error deleting lead:', error.message || error);
-    }
-  };
-
-  const handleStatusUpdate = async (id: string, status: string) => {
-    try {
-      const { error } = await supabase.from('leads').update({ status }).eq('id', id);
-      if (error) console.error('Error updating status:', error.message);
-      else updateLocalLead(id, { status });
-    } catch (error: any) {
-      console.error('Error updating status:', error.message || error);
-    }
-  };
-
-  const handleFieldEdit = async (id: string, field: keyof Lead, value: string) => {
-    try {
-      if (field === 'name') {
-        const { first_name, last_name } = splitName(value);
-        const { error } = await supabase
-          .from('leads')
-          .update({ name: value, first_name, last_name })
-          .eq('id', id);
-        if (!error) updateLocalLead(id, { first_name, last_name, name: value });
+      // --- 0) who am I + my profile/role? ---
+      const { data: userRes, error: userErr } = await supabase.auth.getUser();
+      if (userErr || !userRes?.user) {
+        if (!mounted) return;
+        setError(userErr?.message || 'Not authenticated');
+        setLeads([]);
+        setIdxAgg({});
+        setMsgAgg({});
+        setLoading(false);
         return;
       }
 
-      const { error } = await supabase.from('leads').update({ [field]: value }).eq('id', id);
-      if (!error) updateLocalLead(id, { [field]: value } as Partial<Lead>);
-    } catch (error: any) {
-      console.error(`Error updating ${String(field)}:`, error.message || error);
-    }
-  };
+      const { data: prof, error: profErr } = await supabase
+        .from('profiles')
+        .select('role, org_id')
+        .eq('id', userRes.user.id)
+        .single();
 
-  const filteredLeads = leads.filter((lead) => {
-    const matchesStatus = filter === 'All' || (lead.status ?? '').toLowerCase() === filter.toLowerCase();
-    const searchLower = search.toLowerCase();
-    const matchesSearch =
-      (lead.name ?? '').toLowerCase().includes(searchLower) ||
-      `${lead.first_name || ''} ${lead.last_name || ''}`.toLowerCase().includes(searchLower) ||
-      (lead.email || '').toLowerCase().includes(searchLower) ||
-      (lead.phone || '').toLowerCase().includes(searchLower);
-    const matchesDate = !daysFilter || dayjs(lead.created_at).isAfter(dayjs().subtract(daysFilter, 'day'));
-    return matchesStatus && matchesSearch && matchesDate;
-  });
+      if (!mounted) return;
 
-  const summary = {
-    total: filteredLeads.length,
-    today: filteredLeads.filter((l) => dayjs(l.created_at).isAfter(dayjs().startOf('day'))).length,
-    appointments: filteredLeads.filter((l) => l.status === 'Appointment Set').length,
-    sources: filteredLeads.reduce((acc, l) => {
-      if (l.lead_source) acc[l.lead_source] = (acc[l.lead_source] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>),
-  };
+      if (profErr || !prof) {
+        setError(profErr?.message || 'Profile not found');
+        setLeads([]);
+        setIdxAgg({});
+        setMsgAgg({});
+        setLoading(false);
+        return;
+      }
+      setProfile(prof as Profile);
+
+      // --- 1) Leads: try view first, then fallback to table with minimal filters ---
+      let leadsData: Lead[] | null = null;
+      let leadsErrMsg: string | null = null;
+
+      if (USE_VIEW) {
+        const { data, error } = await supabase
+          .from('leads_visible_to_me')
+          .select(
+            'id, created_at, first_name, last_name, name, email, phone, status, lead_source, appointment_type'
+          )
+          .order('created_at', { ascending: false })
+          .limit(1000);
+
+        if (error) {
+          // View path failed; we’ll fall back
+          leadsErrMsg = error.message;
+        } else {
+          leadsData = (data || []) as Lead[];
+        }
+      }
+
+      if (!leadsData) {
+        // Fallback path: minimal, role-aware filters (mirror RLS)
+        let q = supabase
+          .from('leads')
+          .select(
+            'id, created_at, first_name, last_name, name, email, phone, status, lead_source, appointment_type'
+          )
+          .order('created_at', { ascending: false })
+          .limit(1000);
+
+        if (prof.role === 'agent') {
+          q = q.eq('agent_id', userRes.user.id);
+        } else if (prof.role === 'admin') {
+          q = q.eq('org_id', prof.org_id);
+        } // platform_admin: no extra filter; RLS allows all
+
+        const { data, error } = await q;
+        if (error) {
+          if (!mounted) return;
+          setError(leadsErrMsg || error.message);
+          setLeads([]);
+          setIdxAgg({});
+          setMsgAgg({});
+          setLoading(false);
+          return;
+        }
+        leadsData = (data || []) as Lead[];
+      }
+
+      if (!mounted) return;
+      setLeads(leadsData);
+
+      const ids = leadsData.map((l) => l.id);
+      if (ids.length === 0) {
+        setIdxAgg({});
+        setMsgAgg({});
+        setLoading(false);
+        return;
+      }
+
+      // --- 2) IDX aggregation (last visit + count in last 30 days) ---
+      const { data: idxData, error: idxErr } = await supabase
+        .from('idx_views')
+        .select('lead_id, max:viewed_at, count:id')
+        .gte('viewed_at', since30dISO)
+        .in('lead_id', ids);
+
+      const idxMap: Record<string, { last: string | null; count: number }> = {};
+      if (!idxErr && idxData) {
+        (idxData as unknown as IdxAgg[]).forEach((r) => {
+          idxMap[r.lead_id] = { last: r.max, count: Number(r.count || 0) };
+        });
+      }
+
+      // --- 3) Latest comm (optional) from messages table ---
+      const { data: msgData, error: msgErr } = await supabase
+        .from('messages')
+        .select('lead_id, max:created_at')
+        .in('lead_id', ids);
+
+      const msgMap: Record<string, string | null> = {};
+      if (!msgErr && msgData) {
+        (msgData as unknown as MsgAgg[]).forEach((m) => {
+          msgMap[m.lead_id] = m.max || null;
+        });
+      }
+
+      if (!mounted) return;
+      setIdxAgg(idxMap);
+      setMsgAgg(msgMap);
+      setLoading(false);
+    };
+
+    fetchAll();
+
+    // optional: live updates on leads table
+    const channel = supabase
+      .channel('realtime:leads')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, fetchAll)
+      .subscribe();
+
+    return () => {
+      mounted = false;
+      supabase.removeChannel(channel);
+    };
+  }, [since30dISO]);
+
+  // Merge to table rows
+  const rows: TableRow[] = useMemo(() => {
+    const norm = (s?: string | null) => (s || '').trim();
+    return leads.map((l) => {
+      const first = norm(l.first_name) || (norm(l.name).split(' ')[0] || '');
+      const last =
+        norm(l.last_name) ||
+        (norm(l.name).split(' ').length > 1 ? norm(l.name).split(' ').slice(1).join(' ') : '');
+      const idx = idxAgg[l.id] || { last: null, count: 0 };
+      const latest = msgAgg[l.id] || null;
+
+      return {
+        id: l.id,
+        first,
+        last,
+        phone: norm(l.phone),
+        status: norm(l.status),
+        type: norm(l.appointment_type) || '-', // swap to your real "type" field if you have one
+        lastIdxVisit: idx.last,
+        idxViews30d: idx.count,
+        latestComm: latest,
+      };
+    });
+  }, [leads, idxAgg, msgAgg]);
+
+  // Apply filters/search/date locally
+  const filteredRows = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    const statusConf = STATUS_BUTTONS.find((b) => b.key === statusFilter);
+
+    return rows.filter((r) => {
+      const createdAt = leads.find((l) => l.id === r.id)?.created_at || null;
+
+      const matchesDate =
+        !sinceDaysISO || (createdAt ? dayjs(createdAt).isAfter(sinceDaysISO) : false);
+
+      const matchesStatus =
+        !statusConf?.match ||
+        r.status.toLowerCase() === statusConf.match ||
+        r.status.toLowerCase().includes(statusConf.match);
+
+      const matchesSearch =
+        term.length === 0 ||
+        r.first.toLowerCase().includes(term) ||
+        r.last.toLowerCase().includes(term) ||
+        r.phone.toLowerCase().includes(term) ||
+        r.status.toLowerCase().includes(term) ||
+        r.type.toLowerCase().includes(term);
+
+      return matchesDate && matchesStatus && matchesSearch;
+    });
+  }, [rows, search, statusFilter, sinceDaysISO, leads]);
 
   return (
-    <div className="p-6 bg-neutral-50 min-h-screen">
-      <div className="max-w-7xl mx-auto">
-        <h1 className="text-3xl font-bold mb-6">Leads Dashboard</h1>
+    <div className="space-y-4">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h1 className="text-2xl font-bold">Leads</h1>
 
-        {/* summary cards */}
-        <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-white p-4 rounded-xl shadow text-center">
-            <p className="text-sm text-gray-500">Total Leads</p>
-            <p className="text-2xl font-bold">{summary.total}</p>
-          </div>
-          <div className="bg-white p-4 rounded-xl shadow text-center">
-            <p className="text-sm text-gray-500">New Today</p>
-            <p className="text-2xl font-bold text-green-600">{summary.today}</p>
-          </div>
-          <div className="bg-white p-4 rounded-xl shadow text-center">
-            <p className="text-sm text-gray-500">Appointments</p>
-            <p className="text-2xl font-bold text-blue-600">{summary.appointments}</p>
-          </div>
-          <div className="bg-white p-4 rounded-xl shadow text-center">
-            <p className="text-sm text-gray-500">Top Source</p>
-            <p className="text-lg font-semibold">
-              {Object.entries(summary.sources).sort((a, b) => b[1] - a[1])[0]?.[0] || '—'}
-            </p>
-          </div>
-        </div>
-
-        {/* search + filters */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
-          <input
-            type="text"
-            placeholder="Search by name, email, or phone..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="border px-3 py-2 rounded-md w-full md:w-1/2 shadow-sm"
-          />
-          <div className="flex gap-2 flex-wrap">
-            {[0, 7, 30, null].map((days) => (
-              <button
-                key={days ?? 'all'}
-                onClick={() => setDaysFilter(days)}
-                className={`px-3 py-1 rounded-full border text-sm ${
-                  daysFilter === days ? 'bg-black text-white' : 'bg-white'
-                }`}
-              >
-                {days ? `Last ${days} Days` : 'All Time'}
-              </button>
-            ))}
+        {/* Quick status filters */}
+        <div className="flex gap-2 flex-wrap">
+          {STATUS_BUTTONS.map((b) => (
             <button
-              onClick={() => downloadCSV(filteredLeads)}
-              className="px-3 py-1 rounded-full border text-sm bg-blue-600 text-white"
-            >
-              Export CSV
-            </button>
-          </div>
-        </div>
-
-        {/* status filter buttons */}
-        <div className="flex gap-2 flex-wrap mb-6">
-          {['All', 'New', 'Contacted', 'Appointment Set', 'Archived'].map((status) => (
-            <button
-              key={status}
-              onClick={() => setFilter(status)}
-              className={`px-3 py-1 rounded-full border text-sm ${
-                filter === status ? 'bg-black text-white' : 'bg-white'
+              key={b.key}
+              onClick={() => setStatusFilter(b.key)}
+              className={`rounded-md border px-3 py-1.5 text-sm transition ${
+                statusFilter === b.key ? 'bg-gray-900 text-white' : 'bg-white hover:bg-gray-100'
               }`}
+              title={b.label}
             >
-              {status}
+              {b.label}
             </button>
           ))}
         </div>
+      </header>
 
-        {/* leads grid */}
-        {loading ? (
-          <p>Loading leads...</p>
-        ) : filteredLeads.length === 0 ? (
-          <p>No leads found.</p>
-        ) : (
-          <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-            {filteredLeads.map((lead) => (
-              <div
-                key={lead.id}
-                className="bg-white rounded-xl shadow hover:shadow-md transition p-4 flex flex-col justify-between"
-              >
-                <div>
-                  <div className="flex flex-col gap-1 mb-2">
-                    <input
-                      className="text-lg font-semibold border-b px-1"
-                      value={lead.name ?? ''}
-                      onChange={(e) => handleFieldEdit(lead.id, 'name', e.target.value)}
-                    />
-                    <input
-                      className="text-sm text-gray-600 border-b px-1"
-                      value={lead.email ?? ''}
-                      onChange={(e) => handleFieldEdit(lead.id, 'email', e.target.value)}
-                    />
-                    <input
-                      className="text-sm text-gray-600 border-b px-1"
-                      value={lead.phone ?? ''}
-                      onChange={(e) => handleFieldEdit(lead.id, 'phone', e.target.value)}
-                    />
-                  </div>
-
-                  <p className="text-sm text-gray-600">
-                    Price: {lead.price_range || '—'} • Timeline: {lead.move_timeline || '—'}
-                  </p>
-                  <p className="text-xs text-gray-400 mb-2">
-                    Created: {lead.created_at ? dayjs(lead.created_at).format('MMM D, YYYY h:mm A') : '—'}
-                  </p>
-
-                  <div className="flex flex-wrap gap-2 mb-3">
-                    <span className="px-2 py-1 rounded-full bg-gray-100 text-gray-600 text-xs">
-                      {lead.lead_source || 'Unknown'}
-                    </span>
-                    {lead.status && (
-                      <span className={`px-2 py-1 rounded-full text-xs ${getStatusBadgeColor(lead.status)}`}>
-                        {lead.status}
-                      </span>
-                    )}
-                  </div>
-
-                  <BookingForm leadId={lead.id} leadName={lead.name ?? ''} leadEmail={lead.email ?? ''} />
-                </div>
-
-                <div className="mt-4 flex justify-between items-center text-sm">
-                  <Link href={`/leads/${lead.id}`} className="text-blue-600 hover:underline">
-                    Edit
-                  </Link>
-                  <div className="flex items-center gap-2">
-                    <select
-                      className="border rounded px-2 py-1 text-sm"
-                      value={lead.status || ''}
-                      onChange={(e) => handleStatusUpdate(lead.id, e.target.value)}
-                    >
-                      <option value="">— Change Status —</option>
-                      <option value="New">New</option>
-                      <option value="Contacted">Contacted</option>
-                      <option value="Appointment Set">Appointment Set</option>
-                      <option value="Archived">Archived</option>
-                    </select>
-                    <button onClick={() => handleDelete(lead.id)} className="text-red-500 hover:underline">
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+      {/* Search + date range */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search name, phone, status, type…"
+          className="w-full sm:w-1/2 rounded-md border px-3 py-2 text-sm"
+        />
+        <div className="flex gap-2">
+          {[7, 30, null].map((d) => (
+            <button
+              key={String(d)}
+              onClick={() => setDaysFilter(d)}
+              className={`rounded-md border px-3 py-1.5 text-sm transition ${
+                daysFilter === d ? 'bg-gray-900 text-white' : 'bg-white hover:bg-gray-100'
+              }`}
+            >
+              {d ? `Last ${d} Days` : 'All Time'}
+            </button>
+          ))}
+          <span className="self-center text-xs text-gray-500">
+            Showing {filteredRows.length} of {rows.length}
+          </span>
+        </div>
       </div>
+
+      {/* Table */}
+      <div className="overflow-hidden rounded-lg border bg-white">
+        <table className="min-w-full text-sm">
+          <thead className="bg-gray-50 text-left">
+            <tr>
+              <th className="px-4 py-2">First</th>
+              <th className="px-4 py-2">Last</th>
+              <th className="px-4 py-2">Phone</th>
+              <th className="px-4 py-2">Status</th>
+              <th className="px-4 py-2">Type</th>
+              <th className="px-4 py-2">Last IDX Visit</th>
+              <th className="px-4 py-2">IDX Activity (30d)</th>
+              <th className="px-4 py-2">Latest Communication</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredRows.map((r) => (
+              <tr key={r.id} className="border-t">
+                <td className="px-4 py-2 whitespace-nowrap">{r.first || '-'}</td>
+                <td className="px-4 py-2 whitespace-nowrap">{r.last || '-'}</td>
+                <td className="px-4 py-2 whitespace-nowrap">{r.phone || '-'}</td>
+                <td className="px-4 py-2 whitespace-nowrap">{r.status || '-'}</td>
+                <td className="px-4 py-2 whitespace-nowrap">{r.type || '-'}</td>
+                <td className="px-4 py-2 whitespace-nowrap">
+                  {r.lastIdxVisit ? dayjs(r.lastIdxVisit).fromNow() : '-'}
+                </td>
+                <td className="px-4 py-2 whitespace-nowrap">{r.idxViews30d}</td>
+                <td className="px-4 py-2 whitespace-nowrap">
+                  {r.latestComm ? dayjs(r.latestComm).fromNow() : '-'}
+                </td>
+              </tr>
+            ))}
+            {filteredRows.length === 0 && (
+              <tr>
+                <td className="px-4 py-6 text-center text-gray-500" colSpan={8}>
+                  No leads match your filters.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {error && (
+        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>
+      )}
+      {loading && <div className="text-xs text-gray-500">Loading…</div>}
     </div>
   );
 }
