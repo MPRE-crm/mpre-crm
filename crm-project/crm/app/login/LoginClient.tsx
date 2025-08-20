@@ -1,115 +1,68 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { supabase } from '../../lib/supabase-browser';
+import { useState } from 'react';
+import { supabase } from '@/lib/supabase-browser';
+import { useRouter } from 'next/navigation';
 
-export default function LoginClient() {
+export default function LoginPage() {
   const router = useRouter();
-  const search = useSearchParams();
-  const redirect = useMemo(() => search?.get('redirect') || '/dashboard/leads', [search]);
-
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [err, setErr] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [resendLoading, setResendLoading] = useState(false);
 
-  useEffect(() => {
-    const { data: sub } = supabase.auth.onAuthStateChange(async (event, session) => {
-      await fetch('/auth/callback', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ event, session }),
-      });
-    });
-    return () => sub?.subscription?.unsubscribe();
-  }, []);
-
-  const onSubmit = async (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setErr(null);
     setLoading(true);
+    setError(null);
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email: email.trim().toLowerCase(),
-      password: password.trim(),
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
     });
 
     setLoading(false);
-    if (error) return setErr(error.message || 'Invalid email or password');
 
-    router.replace(redirect);
-  };
-
-  const handleResend = async () => {
-    if (!email) {
-      setErr('Enter your email above before resending.');
+    if (error) {
+      setError(error.message);
       return;
     }
-    setErr(null);
-    setResendLoading(true);
-    const { error } = await supabase.auth.resend({
-      type: 'signup',
-      email: email.trim().toLowerCase(),
-    });
-    setResendLoading(false);
-    if (error) {
-      setErr(error.message);
-    } else {
-      alert('Verification email sent!');
-    }
+
+    // Success → go to dashboard
+    router.push('/dashboard/leads');
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-neutral-50">
-      <form onSubmit={onSubmit} className="w-full max-w-sm bg-white p-6 rounded-xl shadow-sm border">
-        <h1 className="text-xl font-semibold mb-4">Sign in</h1>
-
-        <label className="block text-sm mb-1">Email</label>
-        <input
-          type="email"
-          required
-          value={email}
-          onChange={e => setEmail(e.target.value)}
-          className="w-full border rounded px-3 py-2 mb-3"
-          placeholder="you@example.com"
-          autoComplete="username"
-          disabled={loading}
-        />
-
-        <label className="block text-sm mb-1">Password</label>
-        <input
-          type="password"
-          required
-          value={password}
-          onChange={e => setPassword(e.target.value)}
-          className="w-full border rounded px-3 py-2 mb-4"
-          placeholder="••••••••"
-          autoComplete="current-password"
-          disabled={loading}
-        />
-
-        {err && <div className="text-red-600 text-sm mb-3">{err}</div>}
-
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full rounded-md border px-3 py-2 disabled:opacity-60 mb-3"
-        >
-          {loading ? 'Signing in…' : 'Sign in'}
-        </button>
-
-        <button
-          type="button"
-          onClick={handleResend}
-          disabled={resendLoading}
-          className="w-full rounded-md border px-3 py-2 disabled:opacity-60"
-        >
-          {resendLoading ? 'Sending…' : 'Resend Verification Email'}
-        </button>
-      </form>
-    </div>
+    <main className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="w-full max-w-md bg-white shadow-lg rounded-xl p-8">
+        <h1 className="text-2xl font-bold mb-6 text-center">Login to MPRE CRM</h1>
+        <form onSubmit={handleLogin} className="flex flex-col gap-4">
+          <input
+            type="email"
+            placeholder="Email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="border rounded px-3 py-2"
+            required
+          />
+          <input
+            type="password"
+            placeholder="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="border rounded px-3 py-2"
+            required
+          />
+          {error && <p className="text-red-600 text-sm">{error}</p>}
+          <button
+            type="submit"
+            disabled={loading}
+            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
+          >
+            {loading ? 'Logging in…' : 'Login'}
+          </button>
+        </form>
+      </div>
+    </main>
   );
 }
-
