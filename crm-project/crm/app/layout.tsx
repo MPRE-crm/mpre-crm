@@ -1,8 +1,7 @@
+// crm/app/layout.tsx
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import Link from "next/link";
 import "./globals.css";
-import HideOnLogin from "./HideOnLogin";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -21,34 +20,11 @@ export const metadata: Metadata = {
 
 export default function RootLayout({
   children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+}: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-        <div className="flex min-h-screen">
-          {/* Sidebar (hidden on /login via HideOnLogin) */}
-          <HideOnLogin>
-            <aside className="w-60 bg-gray-100 p-4 shadow-md">
-              <h2 className="text-xl font-bold mb-6">CRM</h2>
-              <nav className="flex flex-col space-y-4">
-                <Link href="/" className="hover:underline">
-                  Home
-                </Link>
-                <Link href="/dashboard/leads" className="hover:underline">
-                  Leads
-                </Link>
-                <Link href="/dashboard/call-logs" className="hover:underline">
-                  Call Logs
-                </Link>
-              </nav>
-            </aside>
-          </HideOnLogin>
-
-          {/* Main content */}
-          <main className="flex-1 p-6">{children}</main>
-        </div>
+        {children}
       </body>
     </html>
   );
