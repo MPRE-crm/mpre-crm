@@ -7,23 +7,29 @@ import { supabase } from '../../lib/supabase-browser';
 export default function LoginClient() {
   const router = useRouter();
   const search = useSearchParams();
-  const redirect = useMemo(() => search?.get('redirect') || '/dashboard/leads', [search]);
+  const redirect = useMemo(
+    () => search?.get('redirect') || '/dashboard/leads',
+    [search]
+  );
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [resendLoading, setResendLoading] = useState(false);
 
   useEffect(() => {
-    const { data: sub } = supabase.auth.onAuthStateChange(async (event, session) => {
-      await fetch('/auth/callback', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ event, session }),
-      });
-    });
-    return () => sub?.subscription?.unsubscribe();
+    const { data: sub } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        await fetch('/auth/callback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ event, session }),
+        });
+      }
+    );
+    return () => {
+      sub?.subscription?.unsubscribe();
+    };
   }, []);
 
   const onSubmit = async (e: React.FormEvent) => {
@@ -37,33 +43,24 @@ export default function LoginClient() {
     });
 
     setLoading(false);
-    if (error) return setErr(error.message || 'Invalid email or password');
+
+    if (error) {
+      setErr(error.message || 'Invalid email or password');
+      return;
+    }
+
+    // Mark this browser session so middleware will allow access
+    document.cookie = `app-session=1; path=/; SameSite=Lax; Secure`;
 
     router.replace(redirect);
   };
 
-  const handleResend = async () => {
-    if (!email) {
-      setErr('Enter your email above before resending.');
-      return;
-    }
-    setErr(null);
-    setResendLoading(true);
-    const { error } = await supabase.auth.resend({
-      type: 'signup',
-      email: email.trim().toLowerCase(),
-    });
-    setResendLoading(false);
-    if (error) {
-      setErr(error.message);
-    } else {
-      alert('Verification email sent!');
-    }
-  };
-
   return (
     <div className="min-h-screen flex items-center justify-center bg-neutral-50">
-      <form onSubmit={onSubmit} className="w-full max-w-sm bg-white p-6 rounded-xl shadow-sm border">
+      <form
+        onSubmit={onSubmit}
+        className="w-full max-w-sm bg-white p-6 rounded-xl shadow-sm border"
+      >
         <h1 className="text-xl font-semibold mb-4">Sign in</h1>
 
         <label className="block text-sm mb-1">Email</label>
@@ -71,7 +68,7 @@ export default function LoginClient() {
           type="email"
           required
           value={email}
-          onChange={e => setEmail(e.target.value)}
+          onChange={(e) => setEmail(e.target.value)}
           className="w-full border rounded px-3 py-2 mb-3"
           placeholder="you@example.com"
           autoComplete="username"
@@ -83,7 +80,7 @@ export default function LoginClient() {
           type="password"
           required
           value={password}
-          onChange={e => setPassword(e.target.value)}
+          onChange={(e) => setPassword(e.target.value)}
           className="w-full border rounded px-3 py-2 mb-4"
           placeholder="••••••••"
           autoComplete="current-password"
@@ -95,21 +92,11 @@ export default function LoginClient() {
         <button
           type="submit"
           disabled={loading}
-          className="w-full rounded-md border px-3 py-2 disabled:opacity-60 mb-3"
+          className="w-full rounded-md border px-3 py-2 disabled:opacity-60 mb-3 bg-blue-600 text-white"
         >
-          {loading ? 'Signing in…' : 'Sign in'}
-        </button>
-
-        <button
-          type="button"
-          onClick={handleResend}
-          disabled={resendLoading}
-          className="w-full rounded-md border px-3 py-2 disabled:opacity-60"
-        >
-          {resendLoading ? 'Sending…' : 'Resend Verification Email'}
+          {loading ? 'Logging in…' : 'Sign in'}
         </button>
       </form>
     </div>
   );
 }
-
