@@ -1,12 +1,10 @@
-// crm/app/api/public/users/[id]/route.ts
-import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 import { supabaseAdmin } from '../../../../../lib/supabaseAdmin';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: { id: string } }
 ) {
   const id = params.id;
@@ -30,5 +28,3 @@ export async function GET(
 
   return NextResponse.json(data);
 }
-
-
