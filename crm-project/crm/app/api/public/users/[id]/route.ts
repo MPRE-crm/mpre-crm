@@ -3,8 +3,11 @@ import { supabaseAdmin } from '../../../../../lib/supabaseAdmin';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(req: Request, context: { params: { id: string } }) {
-  const { id } = context.params;
+export async function GET(
+  req: Request,
+  context: { params: Promise<{ id: string }> }
+) {
+  const { id } = await context.params;
 
   const { data, error } = await supabaseAdmin
     .from('users')
@@ -25,4 +28,5 @@ export async function GET(req: Request, context: { params: { id: string } }) {
 
   return NextResponse.json(data);
 }
+
 
