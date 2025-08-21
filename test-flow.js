@@ -35,4 +35,3 @@ const fetch = require('node-fetch').default;
     console.error('Error triggering flow:', err);
   }
 })();
-
