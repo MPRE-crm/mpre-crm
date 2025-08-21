@@ -30,10 +30,10 @@ export async function POST(req: Request) {
       return new NextResponse('Missing lead_id', { status: 400 });
     }
 
-    // Pull lead + agent context
+    // Pull lead + agent context, including 'phone' property
     const { data: lead, error } = await supabase
       .from('leads')
-      .select('name, price_range, move_timeline, notes, email, agent_id, city, county, motivation, agent_status, purchase_type, appointment_date, appointment_time')
+      .select('name, price_range, move_timeline, notes, email, agent_id, city, county, motivation, agent_status, purchase_type, appointment_date, appointment_time, phone')  // Added 'phone' here
       .eq('id', lead_id)
       .single();
 
