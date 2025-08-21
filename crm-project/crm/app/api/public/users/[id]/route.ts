@@ -1,9 +1,9 @@
-import { NextResponse, NextRequest } from 'next/server';
+import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../lib/supabaseAdmin';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(req: NextRequest, context: { params: { id: string } }) {
+export async function GET(req: Request, context: { params: { id: string } }) {
   const { id } = context.params;
 
   const { data, error } = await supabaseAdmin
@@ -25,3 +25,4 @@ export async function GET(req: NextRequest, context: { params: { id: string } })
 
   return NextResponse.json(data);
 }
+
