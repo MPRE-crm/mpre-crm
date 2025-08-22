@@ -20,8 +20,8 @@ function connectOpenAI(): WebSocket {
   });
 }
 
-function handleTwilioConnection(client: WebSocket, leadIdFromUrl?: string, systemPromptB64FromUrl?: string) {
-  let leadId = leadIdFromUrl || '';
+function handleTwilioConnection(client: WebSocket, idFromUrl?: string, systemPromptB64FromUrl?: string) {
+  let id = idFromUrl || '';
   const openaiWS = connectOpenAI();
 
   openaiWS.on('open', () => {
@@ -36,7 +36,7 @@ function handleTwilioConnection(client: WebSocket, leadIdFromUrl?: string, syste
       const data = JSON.parse(buf.toString());
 
       if (data?.type === 'update_email' && data?.content) {
-        await supabase.from('leads').update({ email: data.content }).eq('id', leadId);
+        await supabase.from('leads').update({ email: data.content }).eq('id', id);
       }
 
       if (data?.type === 'update_structured' && typeof data?.content === 'object') {
@@ -50,17 +50,17 @@ function handleTwilioConnection(client: WebSocket, leadIdFromUrl?: string, syste
           }
         }
         if (Object.keys(payload).length) {
-          await supabase.from('leads').update(payload).eq('id', leadId);
+          await supabase.from('leads').update(payload).eq('id', id);
         }
       }
 
       if (data?.type === 'send_guide') {
-        console.log(`📧📱 Send relocation guide (lead ${leadId})`);
+        console.log(`📧📱 Send relocation guide (lead ${id})`);
         // TODO: email/SMS the guide
       }
 
       if (data?.type === 'conversation_summary' && typeof data?.content === 'string') {
-        await supabase.from('leads').update({ notes: data.content }).eq('id', leadId);
+        await supabase.from('leads').update({ notes: data.content }).eq('id', id);
       }
 
       if (data?.type === 'transfer_call' && data?.content) {
@@ -74,11 +74,11 @@ function handleTwilioConnection(client: WebSocket, leadIdFromUrl?: string, syste
 
       // Log escalation if needed
       if (data?.type === 'escalation' && data?.content) {
-        console.log(`⚡ Escalation detected for lead ${leadId}. Details: ${data.content}`);
+        console.log(`⚡ Escalation detected for lead ${id}. Details: ${data.content}`);
         await supabase.from('call_logs').insert({
-          call_sid: leadId,
+          call_sid: id,
           status: 'escalation',
-          lead_id: leadId,
+          lead_id: id,
           timestamp: new Date().toISOString(),
           details: data.content,
         });
@@ -99,7 +99,7 @@ function handleTwilioConnection(client: WebSocket, leadIdFromUrl?: string, syste
       if (msg.event === 'start') {
         console.log('▶️ Twilio stream started');
         const params = msg.start?.customParameters || {};
-        if (!leadId && params.leadId) leadId = params.leadId;
+        if (!id && params.id) id = params.id;
         const systemPromptB64 = params.systemPrompt;
         if (systemPromptB64 && openaiWS?.readyState === WebSocket.OPEN) {
           const prompt = Buffer.from(systemPromptB64, 'base64').toString('utf-8');
@@ -144,11 +144,11 @@ export async function GET(req: NextRequest) {
       if (!url || !url.startsWith('/api/twilio/ai-media-stream/bridge')) return;
 
       const parsed = new URL(request.url, `http://${request.headers.host}`);
-      const leadId = parsed.searchParams.get('lead_id') || undefined;
+      const id = parsed.searchParams.get('id') || undefined;
       const systemPromptB64 = parsed.searchParams.get('systemPrompt') || undefined;
 
       wss!.handleUpgrade(request, socket, head, (wsClient) => {
-        handleTwilioConnection(wsClient, leadId, systemPromptB64);
+        handleTwilioConnection(wsClient, id, systemPromptB64);
       });
     });
 

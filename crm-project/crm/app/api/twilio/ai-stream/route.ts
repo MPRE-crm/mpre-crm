@@ -1,7 +1,3 @@
-// crm-project/crm/app/api/twilio/ai-stream/route.ts
-// Twilio hits this when your outbound call connects. It decides
-// which AI media stream endpoint to send audio to, based on lead_source.
-
 import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs"; // MUST be nodejs, not edge
@@ -14,17 +10,17 @@ const supabase = createClient(
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
-    const lead_id = searchParams.get("lead_id");
+    const id = searchParams.get("id"); // Using id passed as query parameter
 
-    if (!lead_id) {
-      return new Response("Missing lead_id", { status: 400 });
+    if (!id) {
+      return new Response("Missing id", { status: 400 });
     }
 
     // Grab the lead source to decide where to send audio
     const { data: lead, error } = await supabase
       .from("leads")
       .select("id, lead_source")
-      .eq("id", lead_id)
+      .eq("id", id) // Match by id
       .single();
 
     if (error || !lead) {
@@ -48,7 +44,7 @@ export async function GET(req: Request) {
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Start>
-    <Stream url="${publicUrl}/api/twilio/ai-media-stream/${subPath}?lead_id=${lead_id}" />
+    <Stream url="${publicUrl}/api/twilio/ai-media-stream/${subPath}?lead_id=${id}" />
   </Start>
   <Say>Connecting you now. Please hold for your AI assistant.</Say>
 </Response>`;

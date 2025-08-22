@@ -16,17 +16,17 @@ const TWILIO_PHONE_NUMBER = "+12082856773"; // Your Twilio phone number
 
 export async function POST(req: Request) {
   try {
-    const { lead_id } = await req.json();
+    const { id } = await req.json(); // Change from lead_id to id
 
-    if (!lead_id) {
-      return NextResponse.json({ error: "Missing lead_id" }, { status: 400 });
+    if (!id) {
+      return NextResponse.json({ error: "Missing id" }, { status: 400 });
     }
 
     // Pull lead info from Supabase
     const { data: lead, error } = await supabase
       .from("leads")
       .select("id, name, phone")
-      .eq("id", lead_id)
+      .eq("id", id) // Match by id
       .single();
 
     if (error || !lead) {
@@ -41,7 +41,7 @@ export async function POST(req: Request) {
     const call = await twilioClient.calls.create({
       to: lead.phone,
       from: TWILIO_PHONE_NUMBER,
-      url: `https://easyrealtor.homes/api/twilio/ai-stream?lead_id=${lead_id}`,
+      url: `https://easyrealtor.homes/api/twilio/ai-stream?lead_id=${id}`, // Pass the id in the URL
     });
 
     return NextResponse.json({

@@ -24,17 +24,17 @@ function toWssBase(req: Request): string {
 export async function POST(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
-    const lead_id = searchParams.get('lead_id');
+    const id = searchParams.get('id');  // Updated to 'id' instead of 'lead_id'
     
-    if (!lead_id) {
-      return new NextResponse('Missing lead_id', { status: 400 });
+    if (!id) {
+      return new NextResponse('Missing id', { status: 400 });
     }
 
     // Pull lead + agent context, including 'phone' property
     const { data: lead, error } = await supabase
       .from('leads')
       .select('name, price_range, move_timeline, notes, email, agent_id, city, county, motivation, agent_status, purchase_type, appointment_date, appointment_time, phone')  // Added 'phone' here
-      .eq('id', lead_id)
+      .eq('id', id)  // Updated to use 'id'
       .single();
 
     if (error || !lead) {
@@ -78,7 +78,7 @@ export async function POST(req: Request) {
     `.trim();
 
     const wssBase = toWssBase(req);
-    const streamUrl = `${wssBase}/api/twilio/ai-media-stream/bridge?lead_id=${encodeURIComponent(lead_id)}`;
+    const streamUrl = `${wssBase}/api/twilio/ai-media-stream/bridge?id=${encodeURIComponent(id)}`;  // Updated to 'id'
     const systemPromptB64 = Buffer.from(systemPrompt).toString('base64');
 
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -86,7 +86,7 @@ export async function POST(req: Request) {
       <Connect>
         <Stream url="${streamUrl}">
           <Parameter name="systemPrompt" value="${systemPromptB64}"/>
-          <Parameter name="leadId" value="${lead_id}"/>
+          <Parameter name="id" value="${id}"/>  <!-- Updated to 'id' -->
         </Stream>
       </Connect>
     </Response>`;

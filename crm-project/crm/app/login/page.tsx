@@ -1,5 +1,5 @@
 import { Suspense } from 'react';
-import LoginClient from './LoginClient';
+import LoginClient from './LoginClient'; // <-- NOT LeadsClient
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
