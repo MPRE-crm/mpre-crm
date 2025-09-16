@@ -3,6 +3,18 @@ export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
 export function GET(req: Request) {
+  const url = new URL(req.url);
+
+  // HTTP probe
+  if (url.searchParams.get("probe") === "1") {
+    const hasWSPair = typeof (globalThis as any).WebSocketPair !== "undefined";
+    return new Response(JSON.stringify({ ok: true, hasWSPair }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }
+
+  // WebSocket
   if ((req.headers.get("upgrade") || "").toLowerCase() !== "websocket") {
     return new Response("Expected WebSocket", { status: 426 });
   }
@@ -20,6 +32,3 @@ export function GET(req: Request) {
 
   return new Response(null, { status: 101, webSocket: client } as any);
 }
-
-
-
