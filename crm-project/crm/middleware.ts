@@ -7,14 +7,13 @@ import { createServerClient } from '@supabase/ssr';
 const PUBLIC_PATHS = [
   '/login',
   '/auth/callback',
-  '/api/twilio',
+  '/api',                 // <-- allow ALL /api/*
   '/favicon.ico',
   '/robots.txt',
   '/sitemap.xml',
 ];
 
 // Private areas that always require auth
-// We also treat "/" as protected, so landing on the root requires auth.
 const PROTECTED_PREFIXES = ['/dashboard'];
 const BROWSER_SESSION_COOKIE = 'app-session';
 
@@ -38,7 +37,15 @@ function isProtectedPath(pathname: string) {
 export async function middleware(req: NextRequest) {
   const { pathname, search } = req.nextUrl;
 
+  // --- CRITICAL: never intercept WS handshakes ---
+  const upgrade = (req.headers.get('upgrade') || '').toLowerCase();
+  if (upgrade === 'websocket') return NextResponse.next();
+
+  // Static assets
   if (isStaticAsset(pathname)) return NextResponse.next();
+
+  // --- All API routes are public (no auth/redirects) ---
+  if (pathname.startsWith('/api/')) return NextResponse.next();
 
   let res = NextResponse.next();
 
@@ -68,7 +75,7 @@ export async function middleware(req: NextRequest) {
   const protectedPath = isProtectedPath(pathname);
   const publicPath = isPublicPath(pathname);
 
-  // If OAuth callback succeeded, mark this browser session.
+  // OAuth callback → set browser session flag
   if (isCallback && session) {
     res.cookies.set({
       name: BROWSER_SESSION_COOKIE,
@@ -81,7 +88,7 @@ export async function middleware(req: NextRequest) {
     return res;
   }
 
-  // Allow public routes; if already logged in and hits /login, bounce to dashboard.
+  // Public routes
   if (publicPath) {
     if (isLogin && session) {
       res.cookies.set({
@@ -101,7 +108,6 @@ export async function middleware(req: NextRequest) {
 
   // Protected routes (including "/")
   if (protectedPath) {
-    // No Supabase session → go login
     if (!session) {
       const url = req.nextUrl.clone();
       url.pathname = '/login';
@@ -109,9 +115,6 @@ export async function middleware(req: NextRequest) {
       return NextResponse.redirect(url);
     }
 
-    // We DO have a Supabase session but NO browser-session flag yet.
-    // This happens on first password sign-in (no /auth/callback).
-    // Set the session-scoped flag now and continue.
     if (!hasBrowserSession) {
       res.cookies.set({
         name: BROWSER_SESSION_COOKIE,
