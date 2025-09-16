@@ -6,8 +6,15 @@ import { createClient } from "@supabase/supabase-js";
 import INVESTOR_INTAKE_PROMPT from "../../../../../lib/prompts/investor-intake";
 import { getMarketSummaryText } from "../../../../../lib/market/summary";
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+// >>> set your external WS bridge (ngrok)
+const BRIDGE_WSS_URL =
+  process.env.BRIDGE_WSS_URL || "wss://aa7cfd379bd7.ngrok-free.app/bridge";
+
+const SUPABASE_URL =
+  process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+const SERVICE_KEY =
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+
 const supabase =
   SUPABASE_URL && SERVICE_KEY
     ? createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } })
@@ -18,26 +25,40 @@ function xml(strings: TemplateStringsArray, ...values: any[]) {
   return s.trim();
 }
 
-function getPublicBaseUrl() {
-  if (process.env.PUBLIC_URL) return process.env.PUBLIC_URL;
-  if (process.env.NEXT_PUBLIC_BASE_URL) return process.env.NEXT_PUBLIC_BASE_URL;
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
-  return "http://localhost:3000";
-}
-
-// http(s) -> ws(s) for Twilio Media Streams
-function toWSS(u: string) {
-  return u.replace(/^http:\/\//, "ws://").replace(/^https:\/\//, "wss://");
-}
-
 async function getOrgBranding(org_id: string) {
-  if (!supabase) return { org_display: "Your MPRE Team", brokerage_name: "NextHome Treasure Valley", reviews_url: "" };
-  const { data } = await supabase.from("orgs").select("*").eq("id", org_id).maybeSingle();
+  if (!supabase)
+    return {
+      org_display: "Your MPRE Team",
+      brokerage_name: "NextHome Treasure Valley",
+      reviews_url: "",
+    };
+  const { data } = await supabase
+    .from("orgs")
+    .select("*")
+    .eq("id", org_id)
+    .maybeSingle();
   const d: any = data || {};
   return {
-    org_display: d.org_display ?? d.display_name ?? d.name ?? d.org_name ?? d.company_name ?? "Your MPRE Team",
-    brokerage_name: d.brokerage_name ?? d.brokerage ?? d.brokerageTitle ?? d.company ?? "NextHome Treasure Valley",
-    reviews_url: d.reviews_url ?? d.reviewsUrl ?? d.reviews ?? d.review_link ?? d.reviews_link ?? "",
+    org_display:
+      d.org_display ??
+      d.display_name ??
+      d.name ??
+      d.org_name ??
+      d.company_name ??
+      "Your MPRE Team",
+    brokerage_name:
+      d.brokerage_name ??
+      d.brokerage ??
+      d.brokerageTitle ??
+      d.company ??
+      "NextHome Treasure Valley",
+    reviews_url:
+      d.reviews_url ??
+      d.reviewsUrl ??
+      d.reviews ??
+      d.review_link ??
+      d.reviews_link ??
+      "",
   };
 }
 
@@ -50,7 +71,8 @@ async function parseParams(req: NextRequest) {
   try {
     const obj = await req.json();
     const usp = new URLSearchParams();
-    for (const [k, v] of Object.entries(obj || {})) if (v !== undefined && v !== null) usp.set(k, String(v));
+    for (const [k, v] of Object.entries(obj || {}))
+      if (v !== undefined && v !== null) usp.set(k, String(v));
     return usp;
   } catch {
     return new URLSearchParams();
@@ -66,11 +88,15 @@ export async function POST(req: NextRequest) {
     const from = params.get("From") || "";
 
     const url = new URL(req.url);
-    const orgFromQuery = url.searchParams.get("org_id") || url.searchParams.get("OrgId");
-    const leadFromQuery = url.searchParams.get("lead_id") || url.searchParams.get("LeadId");
+    const orgFromQuery =
+      url.searchParams.get("org_id") || url.searchParams.get("OrgId");
+    const leadFromQuery =
+      url.searchParams.get("lead_id") || url.searchParams.get("LeadId");
 
-    const org_id = params.get("org_id") || params.get("OrgId") || orgFromQuery || "";
-    const lead_id = params.get("lead_id") || params.get("LeadId") || leadFromQuery || "";
+    const org_id =
+      params.get("org_id") || params.get("OrgId") || orgFromQuery || "";
+    const lead_id =
+      params.get("lead_id") || params.get("LeadId") || leadFromQuery || "";
 
     if (!org_id) return new NextResponse("Missing org_id", { status: 400 });
 
@@ -88,9 +114,6 @@ export async function POST(req: NextRequest) {
       .replaceAll("{{reviews_url}}", branding.reviews_url || "")
       .replaceAll("{{market_summary}}", marketSummary || "");
 
-    const publicBase = getPublicBaseUrl();
-    const streamUrl = toWSS(`${publicBase}/api/twilio/core/ai-media-stream/bridge?flow=investor-intake`);
-
     const meta = {
       org_id,
       lead_id: lead_id || null,
@@ -103,11 +126,11 @@ export async function POST(req: NextRequest) {
     };
     const metaAttr = JSON.stringify(meta).replace(/'/g, "&apos;");
 
-    // Use <Start><Stream> to keep call up; long Pause to allow streaming
+    // Keep the call connected while streaming to your external WS bridge
     const twiml = xml`
       <Response>
         <Start>
-          <Stream url="${streamUrl}">
+          <Stream url="${BRIDGE_WSS_URL}">
             <Parameter name="meta" value='${metaAttr}' />
           </Stream>
         </Start>
@@ -115,7 +138,10 @@ export async function POST(req: NextRequest) {
       </Response>
     `;
 
-    return new NextResponse(twiml, { status: 200, headers: { "content-type": "text/xml" } });
+    return new NextResponse(twiml, {
+      status: 200,
+      headers: { "content-type": "text/xml" },
+    });
   } catch {
     return new NextResponse("Internal Error", { status: 500 });
   }
