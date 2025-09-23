@@ -1,4 +1,4 @@
-// app/api/twilio/inbound/investor-intake/route.ts
+// crm/app/api/twilio/inbound/investor-intake/route.ts
 export const runtime = "edge";
 
 import { NextRequest, NextResponse } from "next/server";
@@ -6,9 +6,8 @@ import { createClient } from "@supabase/supabase-js";
 import INVESTOR_INTAKE_PROMPT from "../../../../../lib/prompts/investor-intake";
 import { getMarketSummaryText } from "../../../../../lib/market/summary";
 
-// >>> set your external WS bridge (ngrok)
 const BRIDGE_WSS_URL =
-  process.env.BRIDGE_WSS_URL || "wss://aa7cfd379bd7.ngrok-free.app/bridge";
+  process.env.PUBLIC_BRIDGE_WSS_URL || "wss://<your-ngrok>.ngrok-free.app/bridge";
 
 const SUPABASE_URL =
   process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
@@ -17,12 +16,21 @@ const SERVICE_KEY =
 
 const supabase =
   SUPABASE_URL && SERVICE_KEY
-    ? createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } })
+    ? createClient(SUPABASE_URL, SERVICE_KEY, {
+        auth: { persistSession: false },
+      })
     : (null as any);
 
 function xml(strings: TemplateStringsArray, ...values: any[]) {
-  const s = strings.reduce((acc, str, i) => acc + str + (values[i] ?? ""), "");
-  return s.trim();
+  return strings.reduce((acc, str, i) => acc + str + (values[i] ?? ""), "").trim();
+}
+
+function b64(s: string) {
+  try {
+    return btoa(unescape(encodeURIComponent(s)));
+  } catch {
+    return Buffer.from(s, "utf8").toString("base64");
+  }
 }
 
 async function getOrgBranding(org_id: string) {
@@ -62,11 +70,68 @@ async function getOrgBranding(org_id: string) {
   };
 }
 
+async function buildMeta(urlOrReqUrl: string, callParams?: URLSearchParams) {
+  const url = new URL(urlOrReqUrl);
+  const org_id = callParams?.get("org_id") || url.searchParams.get("org_id") || "unknown";
+  const lead_id = callParams?.get("lead_id") || url.searchParams.get("lead_id") || "";
+  const callSid = callParams?.get("CallSid") || "";
+  const to = callParams?.get("To") || "";
+  const from = callParams?.get("From") || "";
+
+  const branding = await getOrgBranding(org_id);
+  let marketSummary: string | null = null;
+  try {
+    marketSummary = await getMarketSummaryText();
+  } catch {}
+
+  const finalPrompt = INVESTOR_INTAKE_PROMPT
+    .replaceAll("{{org_display}}", branding.org_display)
+    .replaceAll("{{brokerage_name}}", branding.brokerage_name)
+    .replaceAll("{{reviews_url}}", branding.reviews_url)
+    .replaceAll("{{market_summary}}", marketSummary || "");
+
+  const meta = {
+    org_id,
+    lead_id,
+    call_sid: callSid,
+    to,
+    from,
+    prompt: finalPrompt,
+    flow: "investor-intake",
+  };
+  const meta_b64 = b64(JSON.stringify(meta));
+  return { meta, meta_b64, org_id };
+}
+
+// ✅ Twilio often calls your webhook with **POST**,
+// but it can be configured to use **GET**. We support both.
+// Both return the SAME TwiML (<Start><Stream>) and pass meta_b64 so Samantha greets immediately.
+
+export async function GET(req: NextRequest) {
+  const { meta_b64, org_id } = await buildMeta(req.url);
+
+  const twiml = xml`
+    <Response>
+      <Start>
+        <Stream url="${BRIDGE_WSS_URL}">
+          <Parameter name="meta_b64" value="${meta_b64}" />
+          <Parameter name="org_id" value="${org_id}" />
+        </Stream>
+      </Start>
+      <Pause length="600"/>
+    </Response>
+  `;
+
+  return new NextResponse(twiml, {
+    status: 200,
+    headers: { "content-type": "text/xml" },
+  });
+}
+
 async function parseParams(req: NextRequest) {
   const ct = req.headers.get("content-type") || "";
   if (ct.includes("application/x-www-form-urlencoded")) {
-    const text = await req.text();
-    return new URLSearchParams(text);
+    return new URLSearchParams(await req.text());
   }
   try {
     const obj = await req.json();
@@ -82,56 +147,14 @@ async function parseParams(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const params = await parseParams(req);
+    const { meta_b64, org_id } = await buildMeta(req.url, params);
 
-    const callSid = params.get("CallSid") || "";
-    const to = params.get("To") || "";
-    const from = params.get("From") || "";
-
-    const url = new URL(req.url);
-    const orgFromQuery =
-      url.searchParams.get("org_id") || url.searchParams.get("OrgId");
-    const leadFromQuery =
-      url.searchParams.get("lead_id") || url.searchParams.get("LeadId");
-
-    const org_id =
-      params.get("org_id") || params.get("OrgId") || orgFromQuery || "";
-    const lead_id =
-      params.get("lead_id") || params.get("LeadId") || leadFromQuery || "";
-
-    if (!org_id) return new NextResponse("Missing org_id", { status: 400 });
-
-    const branding = await getOrgBranding(org_id);
-    let marketSummary: string | null = null;
-    try {
-      marketSummary = await getMarketSummaryText();
-    } catch {
-      marketSummary = null;
-    }
-
-    const finalPrompt = INVESTOR_INTAKE_PROMPT
-      .replaceAll("{{org_display}}", branding.org_display || "")
-      .replaceAll("{{brokerage_name}}", branding.brokerage_name || "")
-      .replaceAll("{{reviews_url}}", branding.reviews_url || "")
-      .replaceAll("{{market_summary}}", marketSummary || "");
-
-    const meta = {
-      org_id,
-      lead_id: lead_id || null,
-      call_sid: callSid,
-      to,
-      from,
-      prompt: finalPrompt,
-      market_summary: marketSummary,
-      flow: "investor-intake",
-    };
-    const metaAttr = JSON.stringify(meta).replace(/'/g, "&apos;");
-
-    // Keep the call connected while streaming to your external WS bridge
     const twiml = xml`
       <Response>
         <Start>
           <Stream url="${BRIDGE_WSS_URL}">
-            <Parameter name="meta" value='${metaAttr}' />
+            <Parameter name="meta_b64" value="${meta_b64}" />
+            <Parameter name="org_id" value="${org_id}" />
           </Stream>
         </Start>
         <Pause length="600"/>
@@ -142,7 +165,7 @@ export async function POST(req: NextRequest) {
       status: 200,
       headers: { "content-type": "text/xml" },
     });
-  } catch {
+  } catch (e) {
     return new NextResponse("Internal Error", { status: 500 });
   }
 }

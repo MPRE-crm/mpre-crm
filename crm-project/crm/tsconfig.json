@@ -29,7 +29,7 @@
     ".next/types/**/*.ts",
     "**/*.ts",
     "**/*.tsx"
-  ],
+, "app/dashboard/flows/list", "lib/leadListener.mjs"  ],
   "exclude": [
     "node_modules"
   ]

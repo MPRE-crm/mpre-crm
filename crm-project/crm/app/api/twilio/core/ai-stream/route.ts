@@ -1,13 +1,20 @@
-// crm-project/crm/app/api/twilio/ai-stream/route.ts
+// crm/app/api/twilio/core/ai-stream/route.ts
 import { NextRequest } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-export const runtime = "edge"; // ✅ Edge runtime works for TwiML generation
+export const runtime = "edge"; // TwiML must be public/fast
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_ANON_KEY!
 );
+
+function toB64(s: string) {
+  // @ts-ignore
+  if (typeof btoa === "function") return btoa(s);
+  // @ts-ignore
+  return Buffer.from(s, "utf8").toString("base64");
+}
 
 async function readParams(req: Request): Promise<Record<string, string>> {
   if (req.method.toUpperCase() === "POST") {
@@ -16,13 +23,10 @@ async function readParams(req: Request): Promise<Record<string, string>> {
       if (form && typeof form.entries === "function") {
         return Object.fromEntries(form.entries() as Iterable<[string, string]>);
       }
-    } catch {
-      // ignore
-    }
+    } catch {}
     const bodyText = await req.text();
     return Object.fromEntries(new URLSearchParams(bodyText).entries());
   }
-
   const url = new URL(req.url);
   return Object.fromEntries(url.searchParams.entries());
 }
@@ -31,69 +35,70 @@ export async function POST(req: NextRequest) {
   try {
     const p = await readParams(req);
 
-    const id         = p["id"] || "";
-    const direction  = (p["direction"] || "outbound").toLowerCase();
-    const org_id     = p["org_id"] || "";
-    const agent_id   = p["agent_id"] || "";
-    const clientName = p["client_name"] || "";
-    const orgName    = p["org_name"] || "";
-    const agentName  = p["agent_name"] || "";
-    const from       = p["from"] || "";
-    const to         = p["to"] || "";
-    const callSid    = p["call_sid"] || "";
+    // Twilio inbound params
+    const callSid   = p["CallSid"] || p["call_sid"] || "";
+    const fromNum   = p["From"] || p["from"] || "";
+    const toNum     = p["To"] || p["to"] || "";
+    const direction = (p["direction"] || "inbound").toLowerCase();
 
-    if (!id) return new Response("Missing id", { status: 400 });
+    // Optional CRM params (may be missing on inbound)
+    const id       = p["id"] || p["lead_id"] || "";
+    const org_id   = p["org_id"] || "";
+    const agent_id = p["agent_id"] || "";
 
-    // Decide media-stream subpath
-    let subPath = "buyer-intake"; // default
-    if (direction === "outbound") {
-      const { data: lead, error } = await supabase
+    // Decide flow (default when no id)
+    let flow: "buyer" | "seller" | "investor" = "buyer";
+    if (id) {
+      const { data: lead } = await supabase
         .from("leads")
         .select("id, lead_source")
         .eq("id", id)
-        .single();
-
-      if (error || !lead) return new Response("Lead not found", { status: 404 });
-
-      if (lead.lead_source?.toLowerCase().includes("relocation")) {
-        subPath = "buyer-intake/relocation-guide";
-      }
+        .maybeSingle();
+      const src = lead?.lead_source?.toLowerCase() || "";
+      if (src.includes("seller")) flow = "seller";
+      else if (src.includes("investor")) flow = "investor";
+      else if (src.includes("relocation")) flow = "buyer";
     } else {
-      subPath = "buyer-intake/relocation-guide";
+      // If you prefer, make investor the default:
+      // flow = "investor";
+      flow = "buyer";
     }
 
-    // Base URL → ws(s)
+    // Build WS target to the bridge
     const httpBase =
       process.env.PUBLIC_URL?.replace(/\/$/, "") ||
       new URL(req.url).origin;
-
     const wsBase = httpBase.replace(/^http/i, "ws");
+    const streamUrl = `${wsBase}/api/twilio/core/ai-media-stream/bridge`;
 
-    // Build WS target with full context
-    const target = new URL(`${wsBase}/api/twilio/ai-media-stream/${subPath}`);
-    target.searchParams.set("id", id);
-    target.searchParams.set("direction", direction);
-    if (org_id)     target.searchParams.set("org_id", org_id);
-    if (agent_id)   target.searchParams.set("agent_id", agent_id);
-    if (clientName) target.searchParams.set("client_name", clientName);
-    if (orgName)    target.searchParams.set("org_name", orgName);
-    if (agentName)  target.searchParams.set("agent_name", agentName);
-    if (from)       target.searchParams.set("from", from);
-    if (to)         target.searchParams.set("to", to);
-    if (callSid)    target.searchParams.set("call_sid", callSid);
+    // Pass context to the bridge (Twilio → customParameters)
+    const meta = {
+      lead_id: id || null,
+      org_id: org_id || null,
+      agent_id: agent_id || null,
+      call_sid: callSid || null,
+      from: fromNum || null,
+      to: toNum || null,
+      direction,
+      flow, // "buyer" | "seller" | "investor"
+    };
+    const meta_b64 = toB64(JSON.stringify(meta));
 
-    // TwiML: connect media stream
+    // Always return valid TwiML (GET and POST)
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
-    <Stream url="${target.toString()}" />
+    <Stream url="${streamUrl}">
+      <Parameter name="meta_b64" value="${meta_b64}"/>
+    </Stream>
   </Connect>
 </Response>`;
 
     return new Response(twiml, { headers: { "Content-Type": "text/xml" } });
-  } catch (err: any) {
+  } catch (err) {
     console.error("ai-stream error:", err);
-    return new Response("Internal server error", { status: 500 });
+    const safe = `<?xml version="1.0" encoding="UTF-8"?><Response><Say>We are experiencing difficulties. Please try again later.</Say></Response>`;
+    return new Response(safe, { headers: { "Content-Type": "text/xml" }, status: 200 });
   }
 }
 
