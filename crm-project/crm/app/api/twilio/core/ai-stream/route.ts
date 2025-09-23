@@ -33,7 +33,7 @@ async function readParams(req: Request): Promise<Record<string, string>> {
 
 export async function POST(req: NextRequest) {
   try {
-    // DIAG: quick probe — if ?diag=1 is present, return a plain marker
+    // DIAG mode
     const url = new URL(req.url);
     if (url.searchParams.get("diag") === "1") {
       return new Response("AI-STREAM V2 LIVE", {
@@ -50,12 +50,12 @@ export async function POST(req: NextRequest) {
     const toNum     = p["To"] || p["to"] || "";
     const direction = (p["direction"] || "inbound").toLowerCase();
 
-    // Optional CRM params (may be missing on inbound)
+    // Optional CRM params
     const id       = p["id"] || p["lead_id"] || "";
     const org_id   = p["org_id"] || "";
     const agent_id = p["agent_id"] || "";
 
-    // Decide flow (default when no id)
+    // Flow decision
     let flow: "buyer" | "seller" | "investor" = "buyer";
     if (id) {
       const { data: lead } = await supabase
@@ -67,16 +67,14 @@ export async function POST(req: NextRequest) {
       if (src.includes("seller")) flow = "seller";
       else if (src.includes("investor")) flow = "investor";
       else if (src.includes("relocation")) flow = "buyer";
-    } else {
-      flow = "buyer";
     }
 
-    // Build WS target to the bridge — derive from request origin (ignore PUBLIC_URL)
-    const origin = new URL(req.url).origin;                  // https://www.easyrealtor.homes
-    const streamUrl = origin.replace(/^http/i, "ws")         // wss://www.easyrealtor.homes
-      + "/api/twilio/core/ai-media-stream/bridge";
+    // Prefer ngrok PUBLIC_BRIDGE_WSS_URL if set
+    const streamUrl =
+      process.env.PUBLIC_BRIDGE_WSS_URL ||
+      "wss://c7a792ba74cd.ngrok-free.app/bridge";
 
-    // Pass context to the bridge (Twilio → customParameters)
+    // Pass context to the bridge
     const meta = {
       lead_id: id || null,
       org_id: org_id || null,
@@ -89,7 +87,7 @@ export async function POST(req: NextRequest) {
     };
     const meta_b64 = toB64(JSON.stringify(meta));
 
-    // Always return valid TwiML (GET and POST)
+    // TwiML response
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
