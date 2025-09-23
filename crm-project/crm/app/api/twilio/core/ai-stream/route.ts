@@ -71,12 +71,10 @@ export async function POST(req: NextRequest) {
       flow = "buyer";
     }
 
-    // Build WS target to the bridge
-    const httpBase =
-      process.env.PUBLIC_URL?.replace(/\/$/, "") ||
-      new URL(req.url).origin;
-    const wsBase = httpBase.replace(/^http/i, "ws");
-    const streamUrl = `${wsBase}/api/twilio/core/ai-media-stream/bridge`;
+    // Build WS target to the bridge — derive from request origin (ignore PUBLIC_URL)
+    const origin = new URL(req.url).origin;                  // https://www.easyrealtor.homes
+    const streamUrl = origin.replace(/^http/i, "ws")         // wss://www.easyrealtor.homes
+      + "/api/twilio/core/ai-media-stream/bridge";
 
     // Pass context to the bridge (Twilio → customParameters)
     const meta = {
