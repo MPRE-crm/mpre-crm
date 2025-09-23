@@ -1,4 +1,4 @@
-// crm/app/api/twilio/core/ai-stream/route.ts
+// crm-project/crm/app/api/twilio/core/ai-stream/route.ts
 import { NextRequest } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
@@ -33,6 +33,15 @@ async function readParams(req: Request): Promise<Record<string, string>> {
 
 export async function POST(req: NextRequest) {
   try {
+    // DIAG: quick probe — if ?diag=1 is present, return a plain marker
+    const url = new URL(req.url);
+    if (url.searchParams.get("diag") === "1") {
+      return new Response("AI-STREAM V2 LIVE", {
+        status: 200,
+        headers: { "Content-Type": "text/plain" },
+      });
+    }
+
     const p = await readParams(req);
 
     // Twilio inbound params
@@ -59,8 +68,6 @@ export async function POST(req: NextRequest) {
       else if (src.includes("investor")) flow = "investor";
       else if (src.includes("relocation")) flow = "buyer";
     } else {
-      // If you prefer, make investor the default:
-      // flow = "investor";
       flow = "buyer";
     }
 
@@ -80,7 +87,7 @@ export async function POST(req: NextRequest) {
       from: fromNum || null,
       to: toNum || null,
       direction,
-      flow, // "buyer" | "seller" | "investor"
+      flow,
     };
     const meta_b64 = toB64(JSON.stringify(meta));
 
