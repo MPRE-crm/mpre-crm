@@ -167,8 +167,6 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   let leadId = searchParams.get("id") || "";
   let orgId: string | null = searchParams.get("org_id");
-  let systemPromptB64 = searchParams.get("systemPrompt") || undefined;
-
   let callSid: string | null = null;
   let flow: string | null = null;
 
@@ -182,6 +180,10 @@ export async function GET(req: Request) {
   const oaSocket = getOpenAIWS(apiKey);
   let currentTextBuffer = "";
 
+  // 🔹 Audio buffer for Twilio → OpenAI
+  let pendingAudio: string[] = [];
+  let frameCount = 0;
+
   function extractJsonBlocks(tag: string, text: string): any[] {
     const re = new RegExp(`<${tag}>\\s*({[\\s\\S]*?})\\s*</${tag}>`, "g");
     const out: any[] = [];
@@ -194,16 +196,15 @@ export async function GET(req: Request) {
     return out;
   }
 
-  // 🔑 Immediate greeting when OA socket opens
+  // 🔑 Immediate Samantha greeting
   oaSocket.addEventListener("open", () => {
-    const prompt =
-      decodeB64(systemPromptB64) ||
-      "You are Samantha, a warm and professional real estate assistant. Greet the caller right away with: 'Hi, this is Samantha with MPRE Residential. Thanks for calling! May I start by asking your name?' Then continue the intake.";
+    const greeting =
+      "Hi, this is Samantha with MPRE Residential. Thanks for calling! May I start by asking your name?";
     oaSocket.send(
       JSON.stringify({
         type: "response.create",
         response: {
-          instructions: prompt,
+          instructions: greeting,
           modalities: ["audio", "text"],
           audio: { voice: "alloy" },
         },
@@ -246,10 +247,7 @@ export async function GET(req: Request) {
             });
             await maybeUpdateLeadContact(leadId, last);
           }
-          const appts = extractJsonBlocks(
-            "APPOINTMENT",
-            currentTextBuffer
-          ) as InvestorAppt[];
+          const appts = extractJsonBlocks("APPOINTMENT", currentTextBuffer) as InvestorAppt[];
           if (appts.length) {
             const last = appts[appts.length - 1];
             await upsertInvestorIntake({
@@ -260,10 +258,7 @@ export async function GET(req: Request) {
             });
           }
         } else {
-          const captures = extractJsonBlocks(
-            "STATE",
-            currentTextBuffer
-          ) as IntakeCapture[];
+          const captures = extractJsonBlocks("STATE", currentTextBuffer) as IntakeCapture[];
           if (captures.length) {
             const last = captures[captures.length - 1];
             await persistIntake(leadId, orgId, last);
@@ -311,11 +306,21 @@ export async function GET(req: Request) {
     }
 
     if (msg.event === "media" && msg.media?.payload) {
-      oaSocket.send(
-        JSON.stringify({ type: "input_audio_buffer.append", audio: msg.media.payload })
-      );
-      oaSocket.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
-      oaSocket.send(JSON.stringify({ type: "response.create" }));
+      pendingAudio.push(msg.media.payload);
+      frameCount++;
+
+      // Commit when ~5 frames (~100ms) collected
+      if (frameCount >= 5) {
+        oaSocket.send(
+          JSON.stringify({
+            type: "input_audio_buffer.append",
+            audio: pendingAudio.join(""),
+          })
+        );
+        oaSocket.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+        frameCount = 0;
+        pendingAudio = [];
+      }
     }
 
     if (msg.event === "stop") {
