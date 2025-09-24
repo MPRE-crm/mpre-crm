@@ -55,8 +55,6 @@ function handleBridge(ws, req) {
   let meta = null;
 
   let formatReady = false;
-  let greetingQueued = false;
-
   let bytesSinceCommit = 0;
   let framesSinceCommit = 0;
   let commitTimer = null;
@@ -101,12 +99,26 @@ function handleBridge(ws, req) {
 
   oa.on("open", () => {
     console.log("[oa] connected");
-    // ✅ Tell OA we're sending PCM16 (not μ-law) and want G711u back
+    // ✅ Tell OA we're sending PCM16 in, and want G711u back out
     safeSend(oa, {
       type: "session.update",
       session: {
-        input_audio_format:  "pcm16",
+        input_audio_format: "pcm16",
         output_audio_format: "g711_ulaw",
+      },
+    });
+
+    // 🚀 Send greeting immediately
+    const instructions =
+      (meta && meta.prompt) ||
+      "You are Samantha, a warm and professional real estate assistant. Greet the caller right away with: 'Hi, this is Samantha with MPRE Residential. Thanks for calling! May I start by asking your name?' Then continue the intake.";
+    console.log("[oa] sending immediate greeting…");
+    safeSend(oa, {
+      type: "response.create",
+      response: {
+        instructions,
+        modalities: ["audio", "text"],
+        audio: { voice: "alloy", format: "g711_ulaw" },
       },
     });
   });
@@ -120,34 +132,6 @@ function handleBridge(ws, req) {
 
     if (data.type === "error") {
       console.error("[oa] error:", data);
-      return;
-    }
-
-    if (data.type === "session.updated") {
-      formatReady = true;
-      console.log("[oa] session.updated (formats ready: input=PCM16, output=G711u)");
-
-      if (!greetingQueued) {
-        greetingQueued = true;
-        const instructions =
-          (meta && meta.prompt) ||
-          "You are Samantha, a friendly real estate assistant. Greet the caller, then ask how you can help.";
-        console.log("[oa] sending greeting (first 160 chars):");
-        console.log((instructions || "").slice(0, 160), "…");
-        safeSend(oa, {
-          type: "response.create",
-          response: {
-            instructions,
-            modalities: ["audio", "text"],
-            audio: { voice: "alloy", format: "g711_ulaw" },
-          },
-        });
-      }
-      return;
-    }
-
-    if (data.type === "response.created") {
-      console.log("[oa] response.created");
       return;
     }
 
