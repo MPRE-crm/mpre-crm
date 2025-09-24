@@ -1,4 +1,4 @@
-// app/api/twilio/core/ai-media-stream/bridge/route.ts
+// crm-project/crm/app/api/twilio/core/ai-media-stream/bridge/route.ts
 export const runtime = "edge";
 
 import { createClient } from "@supabase/supabase-js";
@@ -26,7 +26,9 @@ function decodeB64(s?: string | null) {
     // @ts-ignore
     if (typeof atob === "function") {
       // @ts-ignore
-      return new TextDecoder().decode(Uint8Array.from(atob(s), (c: string) => c.charCodeAt(0)));
+      return new TextDecoder().decode(
+        Uint8Array.from(atob(s), (c: string) => c.charCodeAt(0))
+      );
     }
   } catch {}
   if (typeof Buffer !== "undefined") {
@@ -66,7 +68,11 @@ type InvestorState = {
   timeline?: string | null;
   notes?: string | null;
 };
-type InvestorAppt = { choice?: "A" | "B"; slot_iso?: string | null; slot_human?: string | null };
+type InvestorAppt = {
+  choice?: "A" | "B";
+  slot_iso?: string | null;
+  slot_human?: string | null;
+};
 
 async function upsertInvestorIntake(row: {
   org_id: string | null;
@@ -102,11 +108,16 @@ async function upsertInvestorIntake(row: {
 
   if (row.end_result) payload.end_result = row.end_result;
 
-  const { error } = await supabase.from("investor_intake").upsert(payload, { onConflict: "call_sid" });
+  const { error } = await supabase
+    .from("investor_intake")
+    .upsert(payload, { onConflict: "call_sid" });
   if (error) console.warn("❌ investor_intake upsert:", error.message);
 }
 
-async function maybeUpdateLeadContact(leadId?: string | null, state?: InvestorState | null) {
+async function maybeUpdateLeadContact(
+  leadId?: string | null,
+  state?: InvestorState | null
+) {
   if (!leadId || !state) return;
   const patch: Record<string, any> = {};
   if (state.name) patch.name = state.name;
@@ -139,9 +150,12 @@ type IntakeCapture = {
   notes?: string | null;
 };
 
-async function persistIntake(leadId: string, orgId: string | null, intake: IntakeCapture) {
+async function persistIntake(
+  leadId: string,
+  orgId: string | null,
+  intake: IntakeCapture
+) {
   // (same as your existing persistIntake function — unchanged)
-  // ...
 }
 
 // ---------------- Route: WebSocket bridge ----------------
@@ -173,34 +187,50 @@ export async function GET(req: Request) {
     const out: any[] = [];
     let m: RegExpExecArray | null;
     while ((m = re.exec(text))) {
-      try { out.push(JSON.parse(m[1])); } catch {}
+      try {
+        out.push(JSON.parse(m[1]));
+      } catch {}
     }
     return out;
   }
 
+  // 🔑 Immediate greeting when OA socket opens
   oaSocket.addEventListener("open", () => {
-    const prompt = decodeB64(systemPromptB64);
-    if (prompt) {
-      oaSocket.send(JSON.stringify({
+    const prompt =
+      decodeB64(systemPromptB64) ||
+      "You are Samantha, a warm and professional real estate assistant. Greet the caller right away with: 'Hi, this is Samantha with MPRE Residential. Thanks for calling! May I start by asking your name?' Then continue the intake.";
+    oaSocket.send(
+      JSON.stringify({
         type: "response.create",
-        response: { instructions: prompt, modalities: ["audio", "text"], audio: { voice: "alloy" } }
-      }));
-    }
+        response: {
+          instructions: prompt,
+          modalities: ["audio", "text"],
+          audio: { voice: "alloy" },
+        },
+      })
+    );
   });
 
   // ---- OpenAI → Twilio + Persistence ----
   oaSocket.addEventListener("message", async (ev) => {
     let data: any;
-    try { data = JSON.parse(ev.data.toString()); } catch { return; }
+    try {
+      data = JSON.parse(ev.data.toString());
+    } catch {
+      return;
+    }
 
     if (data?.type === "output_audio.delta" && data?.audio) {
-      twilioSocket.send(JSON.stringify({ event: "media", media: { payload: data.audio } }));
+      twilioSocket.send(
+        JSON.stringify({ event: "media", media: { payload: data.audio } })
+      );
     }
 
     const textDelta =
       (data?.type === "response.output_text.delta" && data?.delta) ||
       (data?.type === "response.delta" && data?.delta);
-    if (typeof textDelta === "string" && textDelta.length) currentTextBuffer += textDelta;
+    if (typeof textDelta === "string" && textDelta.length)
+      currentTextBuffer += textDelta;
 
     if (data?.type === "response.completed") {
       try {
@@ -208,17 +238,32 @@ export async function GET(req: Request) {
           const states = extractJsonBlocks("STATE", currentTextBuffer) as InvestorState[];
           if (states.length) {
             const last = states[states.length - 1];
-            await upsertInvestorIntake({ org_id: orgId, lead_id: leadId, call_sid: callSid, state: last });
+            await upsertInvestorIntake({
+              org_id: orgId,
+              lead_id: leadId,
+              call_sid: callSid,
+              state: last,
+            });
             await maybeUpdateLeadContact(leadId, last);
           }
-          const appts = extractJsonBlocks("APPOINTMENT", currentTextBuffer) as InvestorAppt[];
+          const appts = extractJsonBlocks(
+            "APPOINTMENT",
+            currentTextBuffer
+          ) as InvestorAppt[];
           if (appts.length) {
             const last = appts[appts.length - 1];
-            await upsertInvestorIntake({ org_id: orgId, lead_id: leadId, call_sid: callSid, appointment: last });
+            await upsertInvestorIntake({
+              org_id: orgId,
+              lead_id: leadId,
+              call_sid: callSid,
+              appointment: last,
+            });
           }
         } else {
-          // buyer/seller flows
-          const captures = extractJsonBlocks("STATE", currentTextBuffer) as IntakeCapture[];
+          const captures = extractJsonBlocks(
+            "STATE",
+            currentTextBuffer
+          ) as IntakeCapture[];
           if (captures.length) {
             const last = captures[captures.length - 1];
             await persistIntake(leadId, orgId, last);
@@ -227,7 +272,9 @@ export async function GET(req: Request) {
       } catch (e) {
         console.error("Marker parse/persist failed:", e);
       } finally {
-        twilioSocket.send(JSON.stringify({ event: "mark", name: "response_completed" }));
+        twilioSocket.send(
+          JSON.stringify({ event: "mark", name: "response_completed" })
+        );
         currentTextBuffer = "";
       }
     }
@@ -236,7 +283,11 @@ export async function GET(req: Request) {
   // ---- Twilio → OpenAI ----
   twilioSocket.addEventListener("message", (ev) => {
     let msg: any;
-    try { msg = JSON.parse(typeof ev.data === "string" ? ev.data : "{}"); } catch { return; }
+    try {
+      msg = JSON.parse(typeof ev.data === "string" ? ev.data : "{}");
+    } catch {
+      return;
+    }
 
     if (msg.event === "start") {
       const custom = msg.start?.customParameters || {};
@@ -244,28 +295,40 @@ export async function GET(req: Request) {
       let meta: any = null;
       if (typeof metaB64 === "string") {
         const decoded = decodeB64(metaB64);
-        if (decoded) { try { meta = JSON.parse(decoded); } catch {} }
+        if (decoded) {
+          try {
+            meta = JSON.parse(decoded);
+          } catch {}
+        }
       }
 
       if (meta) {
         if (meta.lead_id) leadId = String(meta.lead_id);
         if (meta.org_id) orgId = String(meta.org_id);
         if (meta.call_sid) callSid = String(meta.call_sid);
-        if (meta.flow) flow = String(meta.flow); // "buyer", "seller", "investor"
+        if (meta.flow) flow = String(meta.flow);
       }
     }
 
     if (msg.event === "media" && msg.media?.payload) {
-      oaSocket.send(JSON.stringify({ type: "input_audio_buffer.append", audio: msg.media.payload }));
+      oaSocket.send(
+        JSON.stringify({ type: "input_audio_buffer.append", audio: msg.media.payload })
+      );
       oaSocket.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
       oaSocket.send(JSON.stringify({ type: "response.create" }));
     }
 
     if (msg.event === "stop") {
-      try { oaSocket.close(); twilioSocket.close(); } catch {}
+      try {
+        oaSocket.close();
+        twilioSocket.close();
+      } catch {}
     }
   });
 
   (serverSide as any).accept();
-  return new Response(null, { status: 101, webSocket: twilioSocket } as any);
+  return new Response(null, {
+    status: 101,
+    webSocket: twilioSocket,
+  } as any);
 }
