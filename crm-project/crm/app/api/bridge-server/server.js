@@ -159,12 +159,12 @@ function handleBridge(ws, req) {
         console.log("[oa] sending greeting (first 160 chars):");
         console.log((instructions || "").slice(0, 160), "…");
 
+        // ✅ Clean response.create (removed audio_format + voice)
         safeSend(oa, {
           type: "response.create",
           response: {
             instructions,
             modalities: ["audio", "text"],
-            voice: "alloy"
           },
         });
       }
