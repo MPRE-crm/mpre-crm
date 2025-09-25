@@ -150,13 +150,12 @@ function handleBridge(ws, req) {
 
     if (data.type === "session.updated") {
       formatReady = true;
-      console.log("[oa] session.updated (formats ready: input=PCM16, output=G711u)");
+      console.log("[oa] session.updated (formats ready)");
 
       if (!greetingQueued) {
         greetingQueued = true;
 
-        // ✅ Use lib/prompts/opening.js
-        const instructions = (meta && meta.prompt) || OPENING_PROMPT;
+        const instructions = (meta && meta.opening) || OPENING_PROMPT;
         console.log("[oa] sending greeting (first 160 chars):");
         console.log((instructions || "").slice(0, 160), "…");
 
@@ -186,9 +185,6 @@ function handleBridge(ws, req) {
     ) {
       outputDeltas += 1;
       outputChars += data.audio.length;
-      console.log(
-        `[OA->Twilio audio] delta#${outputDeltas} len=${data.audio.length} (base64 chars, G711u)`
-      );
       safeSend(ws, { event: "media", streamSid, media: { payload: data.audio } });
       return;
     }
@@ -235,7 +231,7 @@ function handleBridge(ws, req) {
         console.log("[twilio] start", {
           streamSid,
           mediaFormat: frame.start?.mediaFormat,
-          hasPrompt: !!meta?.prompt,
+          hasPrompt: !!meta?.opening,
         });
         break;
       }
