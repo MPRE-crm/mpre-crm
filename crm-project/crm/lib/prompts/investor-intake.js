@@ -1,17 +1,7 @@
-// crm/lib/prompts/investor-intake.ts
-//
-// Inbound AI prompt for INVESTOR intake (Samantha).
-// Multi-market aware (Boise, Twin Falls, Idaho Falls, Coeur d’Alene).
-// Uses CONTACT VERIFICATION, structured discovery, and emits consistent markers:
-//
-// <STATE>{"intent":"invest","name":"John Doe","phone":"+12087157827","email":"john@doe.com","price_cap":750000,"min_cap_rate":6.0,"cash_or_finance":"cash|finance|mixed","units":4,"property_type":"2-4 MF","markets":"Boise; Meridian","wants_1031":true,"timeline":"30-60 days","notes":"..."} </STATE>
-// <APPOINTMENT>{"choice":"A"|"B","slot_iso":"2025-08-29T18:30:00Z","slot_human":"Fri 12:30pm MDT"} </APPOINTMENT>
-// <END>{"result":"appointment_set"|"callback_requested"|"info_sent"|"declined"} </END>
+// lib/prompts/investor-intake.js
+// Samantha persona + professional INVESTOR intake using shared opening/triage.
 
-export const SAMANTHA_OPENING_TRIAGE = `
-Start speaking immediately with a short, friendly greeting (do not wait for the caller to speak first).
-Keep a natural, helpful tone.
-`;
+const SAMANTHA_OPENING_TRIAGE = require("./opening");
 
 const INVESTOR_INTAKE_PROMPT = `
 ${SAMANTHA_OPENING_TRIAGE}
@@ -69,4 +59,4 @@ Summarize before booking, highlight agent value.
 BEGIN TRIAGE NOW.
 `.trim();
 
-export default INVESTOR_INTAKE_PROMPT;
+module.exports = INVESTOR_INTAKE_PROMPT;

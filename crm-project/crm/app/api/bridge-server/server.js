@@ -2,9 +2,10 @@ require("dotenv").config({ path: "../../../.env.local" }); // ✅ Load env vars
 
 const http = require("http");
 const WebSocket = require("ws");
+const path = require("path");
 
-// ✅ Correct relative path to opening.ts
-const OPENING_PROMPT = require("../../../lib/prompts/opening").default;
+// ✅ Import opening.js (CommonJS export)
+const OPENING_PROMPT = require("../../../lib/prompts/opening");
 
 const PORT = process.env.PORT || 8081;
 const MODEL = "gpt-4o-realtime-preview-2024-12-17";
@@ -53,7 +54,11 @@ function handleBridge(ws, req) {
   console.log("[bridge] client connected from", req.socket.remoteAddress);
 
   const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) { console.error("[bridge] Missing OPENAI_API_KEY"); ws.close(1011, "no api key"); return; }
+  if (!apiKey) {
+    console.error("[bridge] Missing OPENAI_API_KEY");
+    ws.close(1011, "no api key");
+    return;
+  }
 
   let streamSid = null;
   let meta = null;
@@ -71,15 +76,23 @@ function handleBridge(ws, req) {
   let outputChars = 0;
 
   function clearCommitTimer() {
-    if (commitTimer) { clearTimeout(commitTimer); commitTimer = null; }
+    if (commitTimer) {
+      clearTimeout(commitTimer);
+      commitTimer = null;
+    }
   }
   function startCommitTimer(ms) {
     clearCommitTimer();
     commitTimer = setTimeout(() => {
       if (bytesSinceCommit > 0 && formatReady) {
         safeSend(oa, { type: "input_audio_buffer.commit" });
-        console.log(`[commit:TIMER] PCM bytes=${bytesSinceCommit} (~${Math.round((bytesSinceCommit/1600)*100)}ms est) frames=${framesSinceCommit}`);
-        bytesSinceCommit = 0; framesSinceCommit = 0;
+        console.log(
+          `[commit:TIMER] PCM bytes=${bytesSinceCommit} (~${Math.round(
+            (bytesSinceCommit / 1600) * 100
+          )}ms est) frames=${framesSinceCommit}`
+        );
+        bytesSinceCommit = 0;
+        framesSinceCommit = 0;
         scheduleRespond();
       }
     }, ms);
@@ -95,7 +108,11 @@ function handleBridge(ws, req) {
 
   function safeSend(sock, obj) {
     if (sock.readyState === WebSocket.OPEN) {
-      try { sock.send(JSON.stringify(obj)); } catch (e) { console.error("[safeSend] send error:", e?.message || e); }
+      try {
+        sock.send(JSON.stringify(obj));
+      } catch (e) {
+        console.error("[safeSend] send error:", e?.message || e);
+      }
     } else {
       console.log("[safeSend] socket not open for", obj?.type || obj?.event);
     }
@@ -115,7 +132,12 @@ function handleBridge(ws, req) {
   });
 
   oa.on("message", (buf) => {
-    let data; try { data = JSON.parse(buf.toString()); } catch { return; }
+    let data;
+    try {
+      data = JSON.parse(buf.toString());
+    } catch {
+      return;
+    }
 
     if (data.type && !["output_audio.delta"].includes(data.type)) {
       console.log("[oa]", data.type);
@@ -133,7 +155,7 @@ function handleBridge(ws, req) {
       if (!greetingQueued) {
         greetingQueued = true;
 
-        // ✅ Use lib/prompts/opening.ts
+        // ✅ Use lib/prompts/opening.js
         const instructions = (meta && meta.prompt) || OPENING_PROMPT;
         console.log("[oa] sending greeting (first 160 chars):");
         console.log((instructions || "").slice(0, 160), "…");
@@ -144,7 +166,7 @@ function handleBridge(ws, req) {
             instructions,
             modalities: ["audio", "text"],
             voice: "alloy",
-            audio_format: "g711_ulaw"
+            audio_format: "g711_ulaw",
           },
         });
       }
@@ -156,10 +178,17 @@ function handleBridge(ws, req) {
       return;
     }
 
-    if (data.type === "output_audio.delta" && data.audio && streamSid && ws.readyState === WebSocket.OPEN) {
+    if (
+      data.type === "output_audio.delta" &&
+      data.audio &&
+      streamSid &&
+      ws.readyState === WebSocket.OPEN
+    ) {
       outputDeltas += 1;
       outputChars += data.audio.length;
-      console.log(`[OA->Twilio audio] delta#${outputDeltas} len=${data.audio.length} (base64 chars, G711u)`);
+      console.log(
+        `[OA->Twilio audio] delta#${outputDeltas} len=${data.audio.length} (base64 chars, G711u)`
+      );
       safeSend(ws, { event: "media", streamSid, media: { payload: data.audio } });
       return;
     }
@@ -173,13 +202,20 @@ function handleBridge(ws, req) {
 
   oa.on("close", (code, reason) => {
     console.log("[oa] close", code, reason?.toString());
-    try { ws.close(); } catch {}
+    try {
+      ws.close();
+    } catch {}
   });
   oa.on("error", (err) => console.error("[oa] error", err?.message || err));
 
   ws.on("message", (msg) => {
     let frame;
-    try { frame = JSON.parse(msg.toString()); } catch { console.log("[twilio] non-JSON frame"); return; }
+    try {
+      frame = JSON.parse(msg.toString());
+    } catch {
+      console.log("[twilio] non-JSON frame");
+      return;
+    }
 
     switch (frame.event) {
       case "connected":
@@ -190,7 +226,11 @@ function handleBridge(ws, req) {
         streamSid = frame.start?.streamSid || null;
         const cp = frame.start?.customParameters || {};
         if (cp.meta_b64) {
-          try { meta = JSON.parse(Buffer.from(cp.meta_b64, "base64").toString("utf8")); } catch {}
+          try {
+            meta = JSON.parse(
+              Buffer.from(cp.meta_b64, "base64").toString("utf8")
+            );
+          } catch {}
         }
         console.log("[twilio] start", {
           streamSid,
@@ -219,8 +259,13 @@ function handleBridge(ws, req) {
 
         if (bytesSinceCommit >= BYTES_PER_100MS_PCM16_8K) {
           safeSend(oa, { type: "input_audio_buffer.commit" });
-          console.log(`[commit:LIVE] PCM bytes=${bytesSinceCommit} (~${Math.round((bytesSinceCommit/1600)*100)}ms est) frames=${framesSinceCommit}`);
-          bytesSinceCommit = 0; framesSinceCommit = 0;
+          console.log(
+            `[commit:LIVE] PCM bytes=${bytesSinceCommit} (~${Math.round(
+              (bytesSinceCommit / 1600) * 100
+            )}ms est) frames=${framesSinceCommit}`
+          );
+          bytesSinceCommit = 0;
+          framesSinceCommit = 0;
           scheduleRespond();
         } else if (!commitTimer) {
           startCommitTimer(300);
@@ -236,12 +281,23 @@ function handleBridge(ws, req) {
         console.log("[twilio] stop");
         if (formatReady && bytesSinceCommit > 0) {
           safeSend(oa, { type: "input_audio_buffer.commit" });
-          console.log(`[commit:FINAL] PCM bytes=${bytesSinceCommit} (~${Math.round((bytesSinceCommit/1600)*100)}ms est) frames=${framesSinceCommit}`);
-          bytesSinceCommit = 0; framesSinceCommit = 0;
+          console.log(
+            `[commit:FINAL] PCM bytes=${bytesSinceCommit} (~${Math.round(
+              (bytesSinceCommit / 1600) * 100
+            )}ms est) frames=${framesSinceCommit}`
+          );
+          bytesSinceCommit = 0;
+          framesSinceCommit = 0;
         }
-        console.log(`[stats] IN: twilio_frames=${inputFrames}, pcm_bytes=${inputPcmBytes} | OUT: deltas=${outputDeltas}, b64chars=${outputChars}`);
-        try { oa.close(); } catch {}
-        try { ws.close(); } catch {}
+        console.log(
+          `[stats] IN: twilio_frames=${inputFrames}, pcm_bytes=${inputPcmBytes} | OUT: deltas=${outputDeltas}, b64chars=${outputChars}`
+        );
+        try {
+          oa.close();
+        } catch {}
+        try {
+          ws.close();
+        } catch {}
         break;
       }
 
@@ -253,41 +309,59 @@ function handleBridge(ws, req) {
   ws.on("close", (code, reason) => {
     clearCommitTimer();
     console.log("[bridge] client closed", code, reason?.toString());
-    try { oa.close(); } catch {}
+    try {
+      oa.close();
+    } catch {}
   });
 
   ws.on("error", (err) => {
     console.error("[bridge] ws error", err?.message || err);
-    try { oa.close(); } catch {}
+    try {
+      oa.close();
+    } catch {}
   });
 }
 
 const server = http.createServer((req, res) => {
-  if (req.url === "/health") { res.writeHead(200, { "content-type": "text/plain" }); res.end("ok"); return; }
-  res.writeHead(404); res.end();
+  if (req.url === "/health") {
+    res.writeHead(200, { "content-type": "text/plain" });
+    res.end("ok");
+    return;
+  }
+  res.writeHead(404);
+  res.end();
 });
 
 server.on("upgrade", (req, socket, head) => {
   const url = new URL(req.url || "/", "http://localhost");
   const path = url.pathname;
-  console.log("[upgrade] incoming", path, "protocol:", req.headers["sec-websocket-protocol"]);
+  console.log(
+    "[upgrade] incoming",
+    path,
+    "protocol:",
+    req.headers["sec-websocket-protocol"]
+  );
 
   const wss = new WebSocket.Server({
     noServer: true,
     handleProtocols: (protocols) => {
-      if (Array.isArray(protocols) && protocols.includes("audio.twilio.com")) return "audio.twilio.com";
+      if (Array.isArray(protocols) && protocols.includes("audio.twilio.com"))
+        return "audio.twilio.com";
       return false;
     },
   });
 
-  const accept = (handler) => wss.handleUpgrade(req, socket, head, (ws) => handler(ws, req));
+  const accept = (handler) =>
+    wss.handleUpgrade(req, socket, head, (ws) => handler(ws, req));
 
   if (path === "/bridge" || path === "/bridge/") {
     console.log("[upgrade] routing to /bridge");
     accept(handleBridge);
   } else {
     console.log("[upgrade] unknown path:", path);
-    try { socket.destroy(); } catch {}
+    try {
+      socket.destroy();
+    } catch {}
   }
 });
 

@@ -1,18 +1,7 @@
-// lib/prompts/seller-intake.ts
+// lib/prompts/seller-intake.js
 // Samantha persona + professional SELLER intake using shared opening/triage.
-// Adds CONTACT VERIFICATION (name, phone, email) with structured emissions.
-//
-// Structured markers Samantha should emit as fields become known (single-line JSON):
-// <STATE>{"intent":"sell","first_name":"Jane","last_name":"Smith","phone":"+12087157827","email":"jane@example.com","consent_sms":true,"consent_email":true} </STATE>
-// (She may re-emit <STATE> later with more fields filled.)
-//
-// Appointment selection:
-// <APPOINTMENT>{"choice":"A"|"B","slot_iso":"2025-08-29T18:30:00Z","slot_human":"Fri 12:30pm MDT"} </APPOINTMENT>
-//
-// Wrap-up/end of call:
-// <END>{"result":"appointment_set"|"callback_requested"|"info_sent"|"declined"} </END>
 
-import { SAMANTHA_OPENING_TRIAGE } from "./opening";
+const SAMANTHA_OPENING_TRIAGE = require("./opening");
 
 const SELLER_INTAKE_PROMPT = `
 You are **Samantha**, a warm, professional real estate assistant for {{org_display}} at {{brokerage_name}}.
@@ -95,4 +84,4 @@ At the very end, EMIT ONE tool event named "intake.capture" with a single JSON o
 Use {{lead_id}} for reference. Keep internal notes minimal.
 `.trim();
 
-export default SELLER_INTAKE_PROMPT;
+module.exports = SELLER_INTAKE_PROMPT;

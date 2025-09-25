@@ -1,5 +1,5 @@
-// crm/lib/prompts/buyer-intake.ts
-import { SAMANTHA_OPENING_TRIAGE } from '../prompts/opening';
+// crm/lib/prompts/buyer-intake.js
+const SAMANTHA_OPENING_TRIAGE = require("./opening");
 
 const BUYER_INTAKE_PROMPT = `
 You are **Samantha**, a warm, professional real estate assistant for {{org_name}}.
@@ -75,4 +75,4 @@ Emit one tool event named "intake.capture" with JSON:
 Always include {{lead_id}} for reference. Keep internal notes minimal.
 `.trim();
 
-export default BUYER_INTAKE_PROMPT;
+module.exports = BUYER_INTAKE_PROMPT;
