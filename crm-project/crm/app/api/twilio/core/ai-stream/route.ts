@@ -1,6 +1,7 @@
 // crm-project/crm/app/api/twilio/core/ai-stream/route.ts
 import { NextRequest } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+// ✅ Corrected relative path (5 levels up to crm/lib/prompts)
 import OPENING_PROMPT from "../../../../../lib/prompts/opening";
 
 export const runtime = "edge"; // TwiML must be public/fast
@@ -89,20 +90,8 @@ export async function POST(req: NextRequest) {
     };
     const meta_b64 = toB64(JSON.stringify(meta));
 
-    // TwiML response — only fallback if opening missing
-    let twiml: string;
-    if (!OPENING_PROMPT) {
-      twiml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Say voice="alice">Hi, this is Samantha, your Boise real estate assistant. One moment while I connect you.</Say>
-  <Connect>
-    <Stream url="${streamUrl}">
-      <Parameter name="meta_b64" value="${meta_b64}"/>
-    </Stream>
-  </Connect>
-</Response>`;
-    } else {
-      twiml = `<?xml version="1.0" encoding="UTF-8"?>
+    // TwiML response
+    const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
     <Stream url="${streamUrl}">
@@ -110,7 +99,6 @@ export async function POST(req: NextRequest) {
     </Stream>
   </Connect>
 </Response>`;
-    }
 
     return new Response(twiml, { headers: { "Content-Type": "text/xml" } });
   } catch (err) {
