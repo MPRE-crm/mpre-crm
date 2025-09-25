@@ -1,7 +1,7 @@
 // crm-project/crm/app/api/twilio/core/ai-stream/route.ts
 import { NextRequest } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-// ✅ Corrected relative path (5 levels up to crm/lib/prompts)
+// ✅ Correct relative path (5 levels up to crm/lib/prompts)
 import OPENING_PROMPT from "../../../../../lib/prompts/opening";
 
 export const runtime = "edge"; // TwiML must be public/fast
@@ -11,10 +11,8 @@ const supabase = createClient(
   process.env.SUPABASE_ANON_KEY!
 );
 
+// ✅ Fixed b64 encoding for UTF-8 (avoids InvalidCharacterError in Edge runtime)
 function toB64(s: string) {
-  // @ts-ignore
-  if (typeof btoa === "function") return btoa(s);
-  // @ts-ignore
   return Buffer.from(s, "utf8").toString("base64");
 }
 
