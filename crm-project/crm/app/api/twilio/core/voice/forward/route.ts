@@ -14,13 +14,14 @@ export async function POST(req: NextRequest) {
     }
 
     const twiml = new twilio.twiml.VoiceResponse();
-    twiml.dial(to);
+    // ✅ Forward the call safely
+    twiml.dial({ callerId: process.env.TWILIO_CALLER_ID || undefined }, to);
 
     return new Response(twiml.toString(), {
       headers: { "Content-Type": "text/xml" },
     });
   } catch (err: any) {
-    console.error("Error in /voice/forward:", err);
+    console.error("[voice/forward] Error:", err);
     return NextResponse.json(
       { error: err.message || "Unknown error" },
       { status: 500 }
@@ -28,5 +29,5 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// ✅ ensure module always exports at least one handler
+// ✅ Fallback GET handler
 export const GET = POST;

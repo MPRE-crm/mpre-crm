@@ -87,9 +87,10 @@ export async function POST(req: NextRequest) {
     };
     const meta_b64 = toB64(JSON.stringify(meta));
 
-    // TwiML response
+    // TwiML response — include immediate greeting + stream
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
+  <Say voice="alice">Hi, this is Samantha, your Boise real estate assistant. One moment while I connect you.</Say>
   <Connect>
     <Stream url="${streamUrl}">
       <Parameter name="meta_b64" value="${meta_b64}"/>

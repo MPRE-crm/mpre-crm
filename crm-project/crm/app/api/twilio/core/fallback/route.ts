@@ -1,4 +1,4 @@
-// app/api/twilio/fallback/route.ts
+// crm-project/crm/app/api/twilio/core/fallback/route.ts
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "edge";
@@ -6,7 +6,7 @@ export const runtime = "edge";
 export async function POST(req: NextRequest) {
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say>We are experiencing difficulties right now. Please try again shortly.</Say>
+  <Say voice="alice">We are experiencing difficulties right now. Please try again shortly.</Say>
   <Hangup/>
 </Response>`;
 
@@ -15,4 +15,5 @@ export async function POST(req: NextRequest) {
   });
 }
 
+// ✅ Also handle GET as a fallback
 export const GET = POST;

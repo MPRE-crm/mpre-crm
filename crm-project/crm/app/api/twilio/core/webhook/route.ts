@@ -21,11 +21,15 @@ async function readBody(req: NextRequest) {
 
 async function triggerViaFetch(req: NextRequest, id: string) {
   const origin = req.nextUrl.origin; // e.g. https://easyrealtor.homes
-  await fetch(`${origin}/api/twilio/triggerAppointmentFlow`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ id }),
-  });
+  try {
+    await fetch(`${origin}/api/twilio/triggerAppointmentFlow`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+  } catch (err) {
+    console.error("[webhook] triggerViaFetch error:", err);
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -34,6 +38,7 @@ export async function POST(req: NextRequest) {
   if (id) {
     await triggerViaFetch(req, String(id));
   }
+  // ✅ outbound only: never respond with TwiML
   return NextResponse.json({ ok: true });
 }
 
@@ -43,5 +48,6 @@ export async function GET(req: NextRequest) {
   if (id) {
     await triggerViaFetch(req, String(id));
   }
+  // ✅ outbound only: never respond with TwiML
   return NextResponse.json({ ok: true });
 }
