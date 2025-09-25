@@ -3,8 +3,8 @@ require("dotenv").config({ path: "../../../.env.local" }); // ✅ Load env vars
 const http = require("http");
 const WebSocket = require("ws");
 
-// ✅ Import your real opening script
-const OPENING_PROMPT = require("../../../../../lib/prompts/opening").default;
+// ✅ Correct relative path to opening.ts
+const OPENING_PROMPT = require("../../../lib/prompts/opening").default;
 
 const PORT = process.env.PORT || 8081;
 const MODEL = "gpt-4o-realtime-preview-2024-12-17";
@@ -133,7 +133,7 @@ function handleBridge(ws, req) {
       if (!greetingQueued) {
         greetingQueued = true;
 
-        // ✅ Use lib/prompts/opening.ts instead of inline text
+        // ✅ Use lib/prompts/opening.ts
         const instructions = (meta && meta.prompt) || OPENING_PROMPT;
         console.log("[oa] sending greeting (first 160 chars):");
         console.log((instructions || "").slice(0, 160), "…");
