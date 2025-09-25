@@ -1,8 +1,6 @@
 // crm-project/crm/app/api/twilio/core/ai-stream/route.ts
 import { NextRequest } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-// ✅ Correct relative path (5 levels up to crm/lib/prompts)
-import OPENING_PROMPT from "../../../../../lib/prompts/opening";
 
 export const runtime = "edge"; // TwiML must be public/fast
 
@@ -84,7 +82,6 @@ export async function POST(req: NextRequest) {
       to: toNum || null,
       direction,
       flow,
-      opening: OPENING_PROMPT || null,
     };
     const meta_b64 = toB64(JSON.stringify(meta));
 

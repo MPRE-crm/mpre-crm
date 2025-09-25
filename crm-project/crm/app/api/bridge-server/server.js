@@ -164,8 +164,7 @@ function handleBridge(ws, req) {
           response: {
             instructions,
             modalities: ["audio", "text"],
-            voice: "alloy",
-            audio_format: "g711_ulaw",
+            voice: "alloy"
           },
         });
       }
