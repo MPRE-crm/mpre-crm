@@ -2,7 +2,6 @@ require("dotenv").config({ path: "../../../.env.local" }); // ✅ Load env vars
 
 const http = require("http");
 const WebSocket = require("ws");
-const path = require("path");
 
 // ✅ Import opening.js (CommonJS export)
 const OPENING_PROMPT = require("../../../lib/prompts/opening");
@@ -37,7 +36,7 @@ function mulawB64ToPcm16B64(b64) {
 function b64ToBytesLen(b64) {
   const len = b64?.length || 0;
   if (!len) return 0;
-  const pad = (b64.endsWith("==") ? 2 : (b64.endsWith("=") ? 1 : 0));
+  const pad = b64.endsWith("==") ? 2 : (b64.endsWith("=") ? 1 : 0);
   return (len * 3) / 4 - pad;
 }
 
@@ -159,14 +158,13 @@ function handleBridge(ws, req) {
         console.log("[oa] sending greeting (first 160 chars):");
         console.log((instructions || "").slice(0, 160), "…");
 
-        // ✅ Correct: ensure audio is requested
+        // ✅ Clean response.create (no audio_format here, but keep voice)
         safeSend(oa, {
           type: "response.create",
           response: {
             instructions,
             modalities: ["audio", "text"],
             voice: "alloy",
-            audio_format: "g711_ulaw",
           },
         });
       }
