@@ -2,7 +2,6 @@ require("dotenv").config({ path: "../../../.env.local" }); // ✅ Load env vars
 
 const http = require("http");
 const WebSocket = require("ws");
-const path = require("path");
 
 // ✅ Import opening.js (CommonJS export)
 const OPENING_PROMPT = require("../../../lib/prompts/opening");
@@ -11,29 +10,7 @@ const PORT = process.env.PORT || 8081;
 const MODEL = "gpt-4o-realtime-preview-2024-12-17";
 const OA_URL = `wss://api.openai.com/v1/realtime?model=${MODEL}`;
 
-// ~100ms of PCM16 @ 8kHz: 0.1 * 8000 samples * 2 bytes = 1600 bytes
-const BYTES_PER_100MS_PCM16_8K = 1600;
-
-// ---------- μ-law → PCM16 decoder ----------
-const MULAW_BIAS = 0x84;
-function ulawByteToLinear(u_val) {
-  u_val = (~u_val) & 0xff;
-  const sign = u_val & 0x80;
-  const exponent = (u_val >> 4) & 0x07;
-  const mantissa = u_val & 0x0f;
-  let sample = ((mantissa << 3) + MULAW_BIAS) << exponent;
-  sample -= MULAW_BIAS;
-  return sign ? -sample : sample;
-}
-function mulawB64ToPcm16B64(b64) {
-  const ulawBuf = Buffer.from(b64, "base64");
-  const out = Buffer.alloc(ulawBuf.length * 2);
-  for (let i = 0, j = 0; i < ulawBuf.length; i++, j += 2) {
-    const s = ulawByteToLinear(ulawBuf[i]);
-    out.writeInt16LE(s, j);
-  }
-  return out.toString("base64");
-}
+// ---------- Utilities ----------
 function b64ToBytesLen(b64) {
   const len = b64?.length || 0;
   if (!len) return 0;
@@ -87,9 +64,7 @@ function handleBridge(ws, req) {
       if (bytesSinceCommit > 0 && formatReady) {
         safeSend(oa, { type: "input_audio_buffer.commit" });
         console.log(
-          `[commit:TIMER] PCM bytes=${bytesSinceCommit} (~${Math.round(
-            (bytesSinceCommit / 1600) * 100
-          )}ms est) frames=${framesSinceCommit}`
+          `[commit:TIMER] PCM bytes=${bytesSinceCommit} frames=${framesSinceCommit}`
         );
         bytesSinceCommit = 0;
         framesSinceCommit = 0;
@@ -125,8 +100,9 @@ function handleBridge(ws, req) {
     safeSend(oa, {
       type: "session.update",
       session: {
-        input_audio_format: "pcm16",      // ✅ FIXED: plain string
-        output_audio_format: "g711_ulaw", // ✅ FIXED: plain string
+        input_audio_format: "g711_ulaw",   // ✅ direct from Twilio
+        output_audio_format: "g711_ulaw",  // ✅ Twilio can play this back
+        voice: "alloy",
       },
     });
   });
@@ -240,24 +216,21 @@ function handleBridge(ws, req) {
         if (!payloadMulawB64) return;
 
         inputFrames += 1;
-
-        const pcm16b64 = mulawB64ToPcm16B64(payloadMulawB64);
-        const pcmBytes = b64ToBytesLen(pcm16b64);
+        const pcmBytes = b64ToBytesLen(payloadMulawB64);
         inputPcmBytes += pcmBytes;
 
         if (!formatReady) return;
 
-        safeSend(oa, { type: "input_audio_buffer.append", audio: pcm16b64 });
+        // ✅ Send Twilio’s μ-law base64 directly
+        safeSend(oa, { type: "input_audio_buffer.append", audio: payloadMulawB64 });
 
         bytesSinceCommit += pcmBytes;
         framesSinceCommit += 1;
 
-        if (bytesSinceCommit >= BYTES_PER_100MS_PCM16_8K) {
+        if (bytesSinceCommit >= 1600) {
           safeSend(oa, { type: "input_audio_buffer.commit" });
           console.log(
-            `[commit:LIVE] PCM bytes=${bytesSinceCommit} (~${Math.round(
-              (bytesSinceCommit / 1600) * 100
-            )}ms est) frames=${framesSinceCommit}`
+            `[commit:LIVE] PCM bytes=${bytesSinceCommit} frames=${framesSinceCommit}`
           );
           bytesSinceCommit = 0;
           framesSinceCommit = 0;
@@ -277,9 +250,7 @@ function handleBridge(ws, req) {
         if (formatReady && bytesSinceCommit > 0) {
           safeSend(oa, { type: "input_audio_buffer.commit" });
           console.log(
-            `[commit:FINAL] PCM bytes=${bytesSinceCommit} (~${Math.round(
-              (bytesSinceCommit / 1600) * 100
-            )}ms est) frames=${framesSinceCommit}`
+            `[commit:FINAL] PCM bytes=${bytesSinceCommit} frames=${framesSinceCommit}`
           );
           bytesSinceCommit = 0;
           framesSinceCommit = 0;
