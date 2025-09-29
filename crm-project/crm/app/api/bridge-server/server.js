@@ -1,8 +1,9 @@
-require("dotenv").config({ path: require("path").resolve(__dirname, "../../../../.env.local") }); // ✅ Load env vars
+// ✅ Force load env vars from root .env.local
+const path = require("path");
+require("dotenv").config({ path: path.resolve(__dirname, "../../../../.env.local") });
 
 const http = require("http");
 const WebSocket = require("ws");
-const path = require("path");
 
 // ✅ Import opening.js (CommonJS export)
 const OPENING_PROMPT = require("../../../lib/prompts/opening");
