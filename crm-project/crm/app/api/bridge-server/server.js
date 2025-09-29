@@ -8,32 +8,22 @@ const PORT = process.env.PORT || 8081;
 const MODEL = "gpt-4o-realtime-preview-2024-12-17";
 const OA_URL = `wss://api.openai.com/v1/realtime?model=${MODEL}`;
 
-// 100ms of PCM16 @ 8kHz = 1600 bytes
-const PCM16_MIN_BYTES = 1600;
+// ---- Audio constants (μ-law @ 8kHz) ----
+const INPUT_CODEC = "g711_ulaw";         // <-- use μ-law end-to-end
+const OUTPUT_CODEC = "g711_ulaw";
+const MIN_BYTES_100MS_ULAW = 800;        // 100ms * 8000 samples/s * 1 byte/sample
 
-// ---------- μ-law → PCM16 decoder ----------
-const MULAW_BIAS = 0x84;
-function ulawByteToLinear(u_val) {
-  u_val = (~u_val) & 0xff;
-  const sign = u_val & 0x80;
-  const exponent = (u_val >> 4) & 0x07;
-  const mantissa = u_val & 0x0f;
-  let sample = ((mantissa << 3) + MULAW_BIAS) << exponent;
-  sample -= MULAW_BIAS;
-  return sign ? -sample : sample;
+// ---- Heartbeats ----
+const BRIDGE_PING_MS = 15000;            // ping Twilio WS
+const OA_PING_MS = 15000;                // ping OpenAI WS
+
+function b64ToBytesLen(b64) {
+  const len = b64?.length || 0;
+  if (!len) return 0;
+  const pad = b64.endsWith("==") ? 2 : (b64.endsWith("=") ? 1 : 0);
+  return (len * 3) / 4 - pad;
 }
-function mulawB64ToPcm16Buf(b64) {
-  const ulawBuf = Buffer.from(b64, "base64");
-  const out = Buffer.alloc(ulawBuf.length * 2);
-  for (let i = 0, j = 0; i < ulawBuf.length; i++, j += 2) {
-    const s = ulawByteToLinear(ulawBuf[i]);
-    out.writeInt16LE(s, j);
-  }
-  return out;
-}
-function bufToB64(buf) {
-  return buf.toString("base64");
-}
+function bufToB64(buf) { return buf.toString("base64"); }
 
 function connectOpenAI(apiKey) {
   const headers = {
@@ -56,20 +46,21 @@ function handleBridge(ws, req) {
 
   let streamSid = null;
   let meta = null;
+
   let formatReady = false;
   let greetingQueued = false;
 
-  // Stats + buffer
+  // stats + buffering
   let inputFrames = 0;
-  let inputPcmBytes = 0;
+  let inputBytes = 0;
   let outputDeltas = 0;
-  let pcmBuffer = Buffer.alloc(0);
+
+  // accumulate raw μ-law bytes here, slice in ≥800B chunks
+  let ulawBuffer = Buffer.alloc(0);
 
   function safeSend(sock, obj) {
     if (sock.readyState === WebSocket.OPEN) {
-      try {
-        sock.send(JSON.stringify(obj));
-      } catch (e) {
+      try { sock.send(JSON.stringify(obj)); } catch (e) {
         console.error("[safeSend] send error:", e?.message || e);
       }
     }
@@ -77,24 +68,47 @@ function handleBridge(ws, req) {
 
   const oa = connectOpenAI(apiKey);
 
+  // ---- Heartbeats ----
+  let bridgePing;       // native WS ping to Twilio
+  let oaPingTimer;      // JSON ping to OpenAI (plus native ping if supported)
+
+  function startHeartbeats() {
+    stopHeartbeats();
+    bridgePing = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        try { ws.ping(); } catch {}
+      }
+    }, BRIDGE_PING_MS);
+
+    oaPingTimer = setInterval(() => {
+      if (oa.readyState === WebSocket.OPEN) {
+        // Some gateways drop native ping; send API-level ping, too.
+        safeSend(oa, { type: "ping", timestamp: Date.now() });
+        try { oa.ping?.(); } catch {}
+      }
+    }, OA_PING_MS);
+  }
+  function stopHeartbeats() {
+    if (bridgePing) { clearInterval(bridgePing); bridgePing = null; }
+    if (oaPingTimer) { clearInterval(oaPingTimer); oaPingTimer = null; }
+  }
+
   oa.on("open", () => {
     console.log("[oa] connected");
+    startHeartbeats();
+    // Tell OpenAI we speak and want μ-law in/out (8 kHz)
     safeSend(oa, {
       type: "session.update",
       session: {
-        input_audio_format: "pcm16",
-        output_audio_format: "g711_ulaw",
+        input_audio_format: INPUT_CODEC,
+        output_audio_format: OUTPUT_CODEC,
       },
     });
   });
 
   oa.on("message", (buf) => {
     let data;
-    try {
-      data = JSON.parse(buf.toString());
-    } catch {
-      return;
-    }
+    try { data = JSON.parse(buf.toString()); } catch { return; }
 
     if (data.type && !["output_audio.delta"].includes(data.type)) {
       console.log("[oa]", data.type);
@@ -127,19 +141,14 @@ function handleBridge(ws, req) {
       return;
     }
 
-    if (
-      data.type === "output_audio.delta" &&
-      data.audio &&
-      streamSid &&
-      ws.readyState === WebSocket.OPEN
-    ) {
-      outputDeltas++;
+    if (data.type === "output_audio.delta" && data.audio && streamSid && ws.readyState === WebSocket.OPEN) {
+      outputDeltas += 1;
+      // data.audio is base64 g711_ulaw — forward directly to Twilio
       safeSend(ws, { event: "media", streamSid, media: { payload: data.audio } });
       return;
     }
 
     if (data.type === "response.completed") {
-      console.log("[oa] response.completed");
       safeSend(ws, { event: "mark", streamSid, name: "response_completed" });
       return;
     }
@@ -147,6 +156,7 @@ function handleBridge(ws, req) {
 
   oa.on("close", (code, reason) => {
     console.log("[oa] close", code, reason?.toString());
+    stopHeartbeats();
     try { ws.close(); } catch {}
   });
   oa.on("error", (err) => console.error("[oa] error", err?.message || err));
@@ -158,15 +168,14 @@ function handleBridge(ws, req) {
     switch (frame.event) {
       case "connected":
         console.log("[twilio] connected");
+        startHeartbeats();
         break;
 
       case "start": {
         streamSid = frame.start?.streamSid || null;
         const cp = frame.start?.customParameters || {};
         if (cp.meta_b64) {
-          try {
-            meta = JSON.parse(Buffer.from(cp.meta_b64, "base64").toString("utf8"));
-          } catch {}
+          try { meta = JSON.parse(Buffer.from(cp.meta_b64, "base64").toString("utf8")); } catch {}
         }
         console.log("[twilio] start", {
           streamSid,
@@ -177,46 +186,41 @@ function handleBridge(ws, req) {
       }
 
       case "media": {
-        const payloadMulawB64 = frame.media?.payload;
-        if (!payloadMulawB64) return;
+        const payloadB64 = frame.media?.payload;
+        if (!payloadB64) return;
 
-        inputFrames++;
-        const pcm16buf = mulawB64ToPcm16Buf(payloadMulawB64);
-        pcmBuffer = Buffer.concat([pcmBuffer, pcm16buf]);
-        inputPcmBytes += pcm16buf.length;
+        inputFrames += 1;
+        // accumulate raw μ-law bytes
+        const chunk = Buffer.from(payloadB64, "base64");
+        ulawBuffer = Buffer.concat([ulawBuffer, chunk]);
+        inputBytes += chunk.length;
 
-        if (formatReady && pcmBuffer.length >= PCM16_MIN_BYTES) {
-          const sendBuf = pcmBuffer.slice(0, PCM16_MIN_BYTES);
-          pcmBuffer = pcmBuffer.slice(PCM16_MIN_BYTES);
+        if (!formatReady) return;
 
-          safeSend(oa, {
-            type: "input_audio_buffer.append",
-            audio: bufToB64(sendBuf),
-          });
+        while (ulawBuffer.length >= MIN_BYTES_100MS_ULAW) {
+          const sendBuf = ulawBuffer.slice(0, MIN_BYTES_100MS_ULAW);
+          ulawBuffer = ulawBuffer.slice(MIN_BYTES_100MS_ULAW);
+
+          safeSend(oa, { type: "input_audio_buffer.append", audio: bufToB64(sendBuf) });
           safeSend(oa, { type: "input_audio_buffer.commit" });
-
-          console.log(`[commit:LIVE] PCM bytes=${sendBuf.length}`);
+          console.log(`[commit:LIVE] UL bytes=${sendBuf.length}`);
         }
         break;
       }
 
       case "stop": {
         console.log("[twilio] stop");
-        if (pcmBuffer.length >= PCM16_MIN_BYTES) {
-          safeSend(oa, {
-            type: "input_audio_buffer.append",
-            audio: bufToB64(pcmBuffer),
-          });
+        // flush ≥100ms only
+        if (ulawBuffer.length >= MIN_BYTES_100MS_ULAW) {
+          safeSend(oa, { type: "input_audio_buffer.append", audio: bufToB64(ulawBuffer) });
           safeSend(oa, { type: "input_audio_buffer.commit" });
-          console.log(`[commit:FINAL] sent leftover ${pcmBuffer.length} bytes`);
-        } else if (pcmBuffer.length > 0) {
-          console.log(`[commit:SKIP] Dropping tiny leftover ${pcmBuffer.length} bytes`);
+          console.log(`[commit:FINAL] sent ${ulawBuffer.length} UL bytes`);
+        } else if (ulawBuffer.length > 0) {
+          console.log(`[commit:SKIP] Dropping tiny leftover ${ulawBuffer.length} UL bytes`);
         }
-        pcmBuffer = Buffer.alloc(0);
+        ulawBuffer = Buffer.alloc(0);
 
-        console.log(
-          `[stats] IN: frames=${inputFrames}, pcm_bytes=${inputPcmBytes} | OUT: deltas=${outputDeltas}`
-        );
+        console.log(`[stats] IN: frames=${inputFrames}, ulaw_bytes=${inputBytes} | OUT: deltas=${outputDeltas}`);
         try { oa.close(); } catch {}
         try { ws.close(); } catch {}
         break;
@@ -226,11 +230,13 @@ function handleBridge(ws, req) {
 
   ws.on("close", (code, reason) => {
     console.log("[bridge] client closed", code, reason?.toString());
+    stopHeartbeats();
     try { oa.close(); } catch {}
   });
 
   ws.on("error", (err) => {
     console.error("[bridge] ws error", err?.message || err);
+    stopHeartbeats();
     try { oa.close(); } catch {}
   });
 }
@@ -252,7 +258,7 @@ server.on("upgrade", (req, socket, head) => {
     const wss = new WebSocket.Server({ noServer: true });
     wss.handleUpgrade(req, socket, head, (ws) => handleBridge(ws, req));
   } else {
-    socket.destroy();
+    try { socket.destroy(); } catch {}
   }
 });
 
