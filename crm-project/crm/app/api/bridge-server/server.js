@@ -1,9 +1,8 @@
-// ✅ Force load env vars from root .env.local
-const path = require("path");
-require("dotenv").config({ path: path.resolve(__dirname, "../../../../.env.local") });
+require("dotenv").config({ path: "../../../.env.local" }); // ✅ Load env vars
 
 const http = require("http");
 const WebSocket = require("ws");
+const path = require("path");
 
 // ✅ Import opening.js (CommonJS export)
 const OPENING_PROMPT = require("../../../lib/prompts/opening");
@@ -126,8 +125,8 @@ function handleBridge(ws, req) {
     safeSend(oa, {
       type: "session.update",
       session: {
-        input_audio_format: "pcm16",
-        output_audio_format: "g711_ulaw",
+        input_audio_format: { type: "pcm16", sample_rate_hz: 8000, channels: 1 },
+        output_audio_format: { type: "g711_ulaw", sample_rate_hz: 8000, channels: 1 },
       },
     });
   });
