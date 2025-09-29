@@ -125,8 +125,8 @@ function handleBridge(ws, req) {
     safeSend(oa, {
       type: "session.update",
       session: {
-        input_audio_format: { type: "pcm16", sample_rate_hz: 8000, channels: 1 },
-        output_audio_format: { type: "g711_ulaw", sample_rate_hz: 8000, channels: 1 },
+        input_audio_format: "pcm16",      // ✅ FIXED: plain string
+        output_audio_format: "g711_ulaw", // ✅ FIXED: plain string
       },
     });
   });
