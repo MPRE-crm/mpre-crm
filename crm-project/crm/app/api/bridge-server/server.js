@@ -4,7 +4,7 @@ import WebSocket, { WebSocketServer } from "ws";
 import http from "http";
 import express from "express";
 
-// 🔹 Import Samantha’s opening triage prompt
+// 🔹 Import Samantha’s opening triage prompt (default fallback)
 import SAMANTHA_OPENING_TRIAGE from "../../../lib/prompts/opening.js";
 
 const app = express();
@@ -15,8 +15,8 @@ const OA_API_KEY = process.env.OPENAI_API_KEY;
 const OA_URL =
   "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17";
 
+// --- Helpers ---
 function ulawToPcm16(uLawSample) {
-  // ITU-T G.711 μ-law decode
   uLawSample = ~uLawSample & 0xff;
   const sign = uLawSample & 0x80;
   const exponent = (uLawSample >> 4) & 0x07;
@@ -34,6 +34,15 @@ function ulawBufferToPCM16(buffer) {
   return Buffer.from(pcm.buffer);
 }
 
+function decodeB64(s) {
+  try {
+    return Buffer.from(s, "base64").toString("utf8");
+  } catch {
+    return null;
+  }
+}
+
+// --- Upgrade to WS ---
 server.on("upgrade", (req, socket, head) => {
   if (req.url === "/bridge") {
     wss.handleUpgrade(req, socket, head, (ws) => {
@@ -57,6 +66,7 @@ wss.on("connection", async (ws, req) => {
 
   let oaReady = false;
   let pcmBuffer = Buffer.alloc(0);
+  let openingPrompt = SAMANTHA_OPENING_TRIAGE; // default fallback
 
   oa.on("open", () => {
     console.log("[oa] connected");
@@ -74,12 +84,12 @@ wss.on("connection", async (ws, req) => {
         console.log("[oa] session.updated (formats ready)");
         oaReady = true;
 
-        // 🔹 Inject Samantha’s opening triage from opening.js
+        // 🔹 Inject opening (from meta_b64 if present, else fallback)
         oa.send(
           JSON.stringify({
             type: "response.create",
             response: {
-              instructions: SAMANTHA_OPENING_TRIAGE,
+              instructions: openingPrompt,
               modalities: ["audio", "text"],
               audio: { voice: "alloy" },
             },
@@ -107,6 +117,21 @@ wss.on("connection", async (ws, req) => {
 
     if (data.event === "start") {
       console.log("[twilio] start", data.start);
+
+      // Check meta_b64 for dynamic opening
+      const custom = data.start?.customParameters || {};
+      if (custom.meta_b64) {
+        const decoded = decodeB64(custom.meta_b64);
+        try {
+          const meta = JSON.parse(decoded);
+          if (meta?.opening) {
+            openingPrompt = meta.opening;
+            console.log("[bridge] using opening from meta_b64");
+          }
+        } catch {
+          console.warn("[bridge] failed to parse meta_b64");
+        }
+      }
     }
 
     if (data.event === "media" && oaReady) {

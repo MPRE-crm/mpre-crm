@@ -2,6 +2,9 @@
 import { NextRequest } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
+// 🔹 Import Samantha’s opening triage prompt
+import SAMANTHA_OPENING_TRIAGE from "../../../../../lib/prompts/opening.js";
+
 export const runtime = "edge"; // TwiML must be public/fast
 
 const supabase = createClient(
@@ -68,6 +71,7 @@ export async function POST(req: NextRequest) {
       streamUrl,
     });
 
+    // 🔹 Attach Samantha’s opening prompt into meta
     const meta = {
       lead_id: id || null,
       org_id: org_id || null,
@@ -77,6 +81,7 @@ export async function POST(req: NextRequest) {
       to: toNum || null,
       direction,
       flow,
+      opening: SAMANTHA_OPENING_TRIAGE, // 🔹 now included
     };
     const meta_b64 = toB64(JSON.stringify(meta));
 
