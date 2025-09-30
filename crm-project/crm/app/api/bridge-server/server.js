@@ -11,7 +11,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // 🔹 Import Samantha’s opening triage prompt
-import OPENING from "../../../../lib/prompts/opening.js";
+import OPENING from "../../lib/prompts/opening.js";
 
 const app = express();
 const server = http.createServer(app);
