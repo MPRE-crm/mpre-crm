@@ -53,49 +53,19 @@ function splitIso(dt?: string | null): { d: string | null; t: string | null } {
 }
 
 // ---------------- Investor Intake persistence ----------------
-type InvestorState = {
-  intent?: "invest";
-  name?: string | null;
-  email?: string | null;
-  phone?: string | null;
-  price_cap?: number | null;
-  min_cap_rate?: number | null;
-  cash_or_finance?: string | null;
-  units?: number | null;
-  property_type?: string | null;
-  markets?: string | null;
-  wants_1031?: boolean | null;
-  timeline?: string | null;
-  notes?: string | null;
-};
-type InvestorAppt = {
-  choice?: "A" | "B";
-  slot_iso?: string | null;
-  slot_human?: string | null;
-};
+type InvestorState = { [k: string]: any };
+type InvestorAppt = { [k: string]: any };
 
-async function upsertInvestorIntake(row: {
-  org_id: string | null;
-  lead_id: string | null;
-  call_sid: string | null;
-  state?: InvestorState | null;
-  appointment?: InvestorAppt | null;
-  end_result?: string | null;
-}) {
+async function upsertInvestorIntake(row: any) {
   const payload: Record<string, any> = {
     org_id: row.org_id,
     lead_id: row.lead_id,
     call_sid: row.call_sid,
     updated_at: new Date().toISOString(),
   };
-
-  const s = row.state || {};
-  if (Object.keys(s).length) Object.assign(payload, s);
-
-  const a = row.appointment || {};
-  if (a.slot_iso) payload.appointment_iso = a.slot_iso;
-  if (a.slot_human) payload.appointment_human = a.slot_human;
-
+  if (row.state) Object.assign(payload, row.state);
+  if (row.appointment?.slot_iso) payload.appointment_iso = row.appointment.slot_iso;
+  if (row.appointment?.slot_human) payload.appointment_human = row.appointment.slot_human;
   if (row.end_result) payload.end_result = row.end_result;
 
   const { error } = await supabase
@@ -104,10 +74,7 @@ async function upsertInvestorIntake(row: {
   if (error) console.warn("❌ investor_intake upsert:", error.message);
 }
 
-async function maybeUpdateLeadContact(
-  leadId?: string | null,
-  state?: InvestorState | null
-) {
+async function maybeUpdateLeadContact(leadId?: string | null, state?: InvestorState | null) {
   if (!leadId || !state) return;
   const patch: Record<string, any> = {};
   if (state.name) patch.name = state.name;
@@ -116,35 +83,14 @@ async function maybeUpdateLeadContact(
 
   if (Object.keys(patch).length) {
     const { error } = await supabase.from("leads").update(patch).eq("id", leadId);
-    if (error) console.warn("❌ leads update (investor) failed:", error.message);
+    if (error) console.warn("❌ leads update failed:", error.message);
   }
 }
 
 // ---------------- Buyer/Seller intake persistence ----------------
-type IntakeCapture = {
-  intent?: "buy" | "sell";
-  first_name?: string;
-  last_name?: string;
-  email?: string;
-  phone?: string;
-  from_location?: string | null;
-  area?: string | null;
-  timeline?: string | null;
-  price?: string | null;
-  price_expectation?: string | null;
-  financing?: "cash" | "finance" | null;
-  has_agent?: boolean | null;
-  represented_elsewhere?: boolean | null;
-  motivation?: string | null;
-  appointment_at?: string | null; // ISO
-  notes?: string | null;
-};
+type IntakeCapture = { [k: string]: any };
 
-async function persistIntake(
-  leadId: string,
-  orgId: string | null,
-  intake: IntakeCapture
-) {
+async function persistIntake(leadId: string, orgId: string | null, intake: IntakeCapture) {
   const payload: Record<string, any> = {
     org_id: orgId,
     updated_at: new Date().toISOString(),
@@ -221,7 +167,10 @@ export async function GET(req: Request) {
       return;
     }
 
+    console.log("[oa msg]", data.type, data);
+
     if (data?.type === "output_audio.delta" && data?.audio) {
+      console.log("[oa -> twilio] sending audio frame");
       twilioSocket.send(
         JSON.stringify({ event: "media", media: { payload: data.audio } })
       );
@@ -237,36 +186,25 @@ export async function GET(req: Request) {
       console.log(`[flow=${flow}] response completed, parsing markers`);
       try {
         if (flow === "investor") {
-          const states = extractJsonBlocks("STATE", currentTextBuffer) as InvestorState[];
+          const states = extractJsonBlocks("STATE", currentTextBuffer);
           if (states.length) {
             const last = states[states.length - 1];
-            await upsertInvestorIntake({
-              org_id: orgId,
-              lead_id: leadId,
-              call_sid: callSid,
-              state: last,
-            });
+            await upsertInvestorIntake({ org_id: orgId, lead_id: leadId, call_sid: callSid, state: last });
             await maybeUpdateLeadContact(leadId, last);
           }
-          const appts = extractJsonBlocks("APPOINTMENT", currentTextBuffer) as InvestorAppt[];
+          const appts = extractJsonBlocks("APPOINTMENT", currentTextBuffer);
           if (appts.length) {
             const last = appts[appts.length - 1];
-            await upsertInvestorIntake({
-              org_id: orgId,
-              lead_id: leadId,
-              call_sid: callSid,
-              appointment: last,
-            });
+            await upsertInvestorIntake({ org_id: orgId, lead_id: leadId, call_sid: callSid, appointment: last });
           }
         } else if (flow === "seller") {
-          const captures = extractJsonBlocks("STATE", currentTextBuffer) as IntakeCapture[];
+          const captures = extractJsonBlocks("STATE", currentTextBuffer);
           if (captures.length) {
             const last = captures[captures.length - 1];
             await persistIntake(leadId, orgId, { ...last, intent: "sell" });
           }
         } else {
-          // default buyer
-          const captures = extractJsonBlocks("STATE", currentTextBuffer) as IntakeCapture[];
+          const captures = extractJsonBlocks("STATE", currentTextBuffer);
           if (captures.length) {
             const last = captures[captures.length - 1];
             await persistIntake(leadId, orgId, { ...last, intent: "buy" });
@@ -275,9 +213,7 @@ export async function GET(req: Request) {
       } catch (e) {
         console.error("Marker parse/persist failed:", e);
       } finally {
-        twilioSocket.send(
-          JSON.stringify({ event: "mark", name: "response_completed" })
-        );
+        twilioSocket.send(JSON.stringify({ event: "mark", name: "response_completed" }));
         currentTextBuffer = "";
       }
     }
@@ -340,8 +276,5 @@ export async function GET(req: Request) {
   });
 
   (serverSide as any).accept();
-  return new Response(null, {
-    status: 101,
-    webSocket: twilioSocket,
-  } as any);
+  return new Response(null, { status: 101, webSocket: twilioSocket } as any);
 }
