@@ -1,4 +1,4 @@
-// lib/prompts/opening.js
+// crm-project/crm/lib/prompts/opening.js
 // Shared opening + triage for Samantha across buyer/seller/investor intakes.
 
 const SAMANTHA_OPENING_TRIAGE = `
@@ -17,4 +17,4 @@ RULES
 - This opening triage should smoothly lead into the buyer, seller, or investor intake flow.
 `.trim();
 
-module.exports = SAMANTHA_OPENING_TRIAGE;
+export default SAMANTHA_OPENING_TRIAGE;
