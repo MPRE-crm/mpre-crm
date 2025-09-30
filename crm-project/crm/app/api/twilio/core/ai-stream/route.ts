@@ -9,7 +9,6 @@ const supabase = createClient(
   process.env.SUPABASE_ANON_KEY!
 );
 
-// ✅ Fixed b64 encoding for UTF-8 (avoids InvalidCharacterError in Edge runtime)
 function toB64(s: string) {
   return Buffer.from(s, "utf8").toString("base64");
 }
@@ -31,29 +30,19 @@ async function readParams(req: Request): Promise<Record<string, string>> {
 
 export async function POST(req: NextRequest) {
   try {
-    // DIAG mode
-    const url = new URL(req.url);
-    if (url.searchParams.get("diag") === "1") {
-      return new Response("AI-STREAM V2 LIVE", {
-        status: 200,
-        headers: { "Content-Type": "text/plain" },
-      });
-    }
+    console.log("📞 [ai-stream] Incoming Twilio POST");
 
     const p = await readParams(req);
 
-    // Twilio inbound params
     const callSid   = p["CallSid"] || p["call_sid"] || "";
     const fromNum   = p["From"] || p["from"] || "";
     const toNum     = p["To"] || p["to"] || "";
     const direction = (p["direction"] || "inbound").toLowerCase();
 
-    // Optional CRM params
     const id       = p["id"] || p["lead_id"] || "";
     const org_id   = p["org_id"] || "";
     const agent_id = p["agent_id"] || "";
 
-    // Flow decision
     let flow: "buyer" | "seller" | "investor" = "buyer";
     if (id) {
       const { data: lead } = await supabase
@@ -67,12 +56,18 @@ export async function POST(req: NextRequest) {
       else if (src.includes("relocation")) flow = "buyer";
     }
 
-    // Prefer ngrok PUBLIC_BRIDGE_WSS_URL if set
     const streamUrl =
       process.env.PUBLIC_BRIDGE_WSS_URL ||
-      "wss://c7a792ba74cd.ngrok-free.app/bridge";
+      "wss://MISSING_NGROK_URL/bridge";
 
-    // Pass context to the bridge
+    console.log("📡 [ai-stream] Preparing TwiML", {
+      callSid,
+      fromNum,
+      toNum,
+      flow,
+      streamUrl,
+    });
+
     const meta = {
       lead_id: id || null,
       org_id: org_id || null,
@@ -85,7 +80,6 @@ export async function POST(req: NextRequest) {
     };
     const meta_b64 = toB64(JSON.stringify(meta));
 
-    // TwiML response
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
@@ -95,9 +89,11 @@ export async function POST(req: NextRequest) {
   </Connect>
 </Response>`;
 
+    console.log("✅ [ai-stream] TwiML generated:\n", twiml);
+
     return new Response(twiml, { headers: { "Content-Type": "text/xml" } });
   } catch (err) {
-    console.error("ai-stream error:", err);
+    console.error("❌ [ai-stream] error:", err);
     const safe = `<?xml version="1.0" encoding="UTF-8"?><Response><Say>We are experiencing difficulties. Please try again later.</Say></Response>`;
     return new Response(safe, { headers: { "Content-Type": "text/xml" }, status: 200 });
   }
