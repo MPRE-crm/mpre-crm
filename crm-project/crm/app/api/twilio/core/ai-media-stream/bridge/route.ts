@@ -90,17 +90,7 @@ async function upsertInvestorIntake(row: {
   };
 
   const s = row.state || {};
-  if (Object.keys(s).length) {
-    payload.price_cap = s.price_cap ?? null;
-    payload.min_cap_rate = s.min_cap_rate ?? null;
-    payload.cash_or_finance = s.cash_or_finance ?? null;
-    payload.units = s.units ?? null;
-    payload.property_type = s.property_type ?? null;
-    payload.markets = s.markets ?? null;
-    payload.wants_1031 = s.wants_1031 ?? null;
-    payload.timeline = s.timeline ?? null;
-    payload.notes = s.notes ?? null;
-  }
+  if (Object.keys(s).length) Object.assign(payload, s);
 
   const a = row.appointment || {};
   if (a.slot_iso) payload.appointment_iso = a.slot_iso;
@@ -132,7 +122,7 @@ async function maybeUpdateLeadContact(
 
 // ---------------- Buyer/Seller intake persistence ----------------
 type IntakeCapture = {
-  intent?: "buy" | "sell" | "invest";
+  intent?: "buy" | "sell";
   first_name?: string;
   last_name?: string;
   email?: string;
@@ -155,7 +145,16 @@ async function persistIntake(
   orgId: string | null,
   intake: IntakeCapture
 ) {
-  // (same as your existing persistIntake function — unchanged)
+  const payload: Record<string, any> = {
+    org_id: orgId,
+    updated_at: new Date().toISOString(),
+  };
+  Object.assign(payload, intake);
+  const { error } = await supabase.from("intakes").upsert(
+    { lead_id: leadId, ...payload },
+    { onConflict: "lead_id" }
+  );
+  if (error) console.warn("❌ intake upsert failed:", error.message);
 }
 
 // ---------------- Route: WebSocket bridge ----------------
@@ -180,7 +179,7 @@ export async function GET(req: Request) {
   const oaSocket = getOpenAIWS(apiKey);
   let currentTextBuffer = "";
 
-  // 🔹 Audio buffer for Twilio → OpenAI
+  // 🔹 Audio buffer
   let pendingAudio: string[] = [];
   let frameCount = 0;
 
@@ -196,10 +195,11 @@ export async function GET(req: Request) {
     return out;
   }
 
-  // 🔑 Immediate Samantha greeting
+  // ---- Greeting right away ----
   oaSocket.addEventListener("open", () => {
     const greeting =
       "Hi, this is Samantha with MPRE Residential. Thanks for calling! May I start by asking your name?";
+    console.log("[oa] sending greeting");
     oaSocket.send(
       JSON.stringify({
         type: "response.create",
@@ -212,7 +212,7 @@ export async function GET(req: Request) {
     );
   });
 
-  // ---- OpenAI → Twilio + Persistence ----
+  // ---- OpenAI → Twilio ----
   oaSocket.addEventListener("message", async (ev) => {
     let data: any;
     try {
@@ -234,6 +234,7 @@ export async function GET(req: Request) {
       currentTextBuffer += textDelta;
 
     if (data?.type === "response.completed") {
+      console.log(`[flow=${flow}] response completed, parsing markers`);
       try {
         if (flow === "investor") {
           const states = extractJsonBlocks("STATE", currentTextBuffer) as InvestorState[];
@@ -257,11 +258,18 @@ export async function GET(req: Request) {
               appointment: last,
             });
           }
-        } else {
+        } else if (flow === "seller") {
           const captures = extractJsonBlocks("STATE", currentTextBuffer) as IntakeCapture[];
           if (captures.length) {
             const last = captures[captures.length - 1];
-            await persistIntake(leadId, orgId, last);
+            await persistIntake(leadId, orgId, { ...last, intent: "sell" });
+          }
+        } else {
+          // default buyer
+          const captures = extractJsonBlocks("STATE", currentTextBuffer) as IntakeCapture[];
+          if (captures.length) {
+            const last = captures[captures.length - 1];
+            await persistIntake(leadId, orgId, { ...last, intent: "buy" });
           }
         }
       } catch (e) {
@@ -302,14 +310,13 @@ export async function GET(req: Request) {
         if (meta.org_id) orgId = String(meta.org_id);
         if (meta.call_sid) callSid = String(meta.call_sid);
         if (meta.flow) flow = String(meta.flow);
+        console.log(`[twilio] start received, flow=${flow}`);
       }
     }
 
     if (msg.event === "media" && msg.media?.payload) {
       pendingAudio.push(msg.media.payload);
       frameCount++;
-
-      // Commit when ~5 frames (~100ms) collected
       if (frameCount >= 5) {
         oaSocket.send(
           JSON.stringify({
@@ -324,6 +331,7 @@ export async function GET(req: Request) {
     }
 
     if (msg.event === "stop") {
+      console.log("[twilio] stop received");
       try {
         oaSocket.close();
         twilioSocket.close();
