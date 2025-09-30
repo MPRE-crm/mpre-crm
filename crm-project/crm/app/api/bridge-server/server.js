@@ -8,14 +8,35 @@ const PORT = process.env.PORT || 8081;
 const MODEL = "gpt-4o-realtime-preview-2024-12-17";
 const OA_URL = `wss://api.openai.com/v1/realtime?model=${MODEL}`;
 
-const INPUT_FORMAT = "g711_ulaw";   // send μ-law to OpenAI
+const INPUT_FORMAT = "pcm16";       // send PCM16 to OpenAI
 const OUTPUT_FORMAT = "g711_ulaw";  // receive μ-law back for Twilio
 
-// Twilio sends 160-byte frames (20 ms each). OpenAI expects 320-byte frames.
-const FRAME_TARGET = 320;   // merge two 160-byte frames
-const COMMIT_TARGET = 1600; // commit every 100 ms (5× merged frames)
+// ---- μ-law → PCM16 ----
+const MULAW_BIAS = 0x84;
+function ulawByteToLinear(u_val) {
+  u_val = (~u_val) & 0xff;
+  const sign = u_val & 0x80;
+  const exponent = (u_val >> 4) & 0x07;
+  const mantissa = u_val & 0x0f;
+  let sample = ((mantissa << 3) + MULAW_BIAS) << exponent;
+  sample -= MULAW_BIAS;
+  return sign ? -sample : sample;
+}
+function mulawB64ToPcm16Buffer(b64) {
+  const ulawBuf = Buffer.from(b64, "base64");
+  const out = Buffer.alloc(ulawBuf.length * 2);
+  for (let i = 0, j = 0; i < ulawBuf.length; i++, j += 2) {
+    const s = ulawByteToLinear(ulawBuf[i]);
+    out.writeInt16LE(s, j);
+  }
+  return out;
+}
 
-// ---- Heartbeats ----
+// ---- thresholds ----
+const PCM_FRAME_BYTES = 320;   // 20ms at 16-bit PCM/8kHz
+const PCM_COMMIT_BYTES = 3200; // 200ms safe commit minimum
+
+// ---- heartbeats ----
 const BRIDGE_PING_MS = 15000;
 const OA_PING_MS = 15000;
 
@@ -43,12 +64,11 @@ function handleBridge(ws, req) {
   let formatReady = false;
   let greetingQueued = false;
 
-  let frameBuffer = Buffer.alloc(0); // accumulates Twilio 160-byte frames until 320
-  let ulawBuffer = Buffer.alloc(0);  // accumulates 320-byte frames for commit
+  let pcmBuffer = Buffer.alloc(0);
   let lastCommitTs = 0;
 
   let inputFrames = 0;
-  let inputBytes = 0;
+  let inputPcmBytes = 0;
   let outputDeltas = 0;
 
   function safeSend(sock, obj) {
@@ -78,22 +98,17 @@ function handleBridge(ws, req) {
     if (oaPingTimer) clearInterval(oaPingTimer), oaPingTimer = null;
   }
 
+  // commit helper
   function tryCommit(force = false) {
     const now = Date.now();
     if (!force && now - lastCommitTs < 100) return; // throttle ~10Hz
-
-    console.log(`[buffer] ulawBuffer=${ulawBuffer.length} bytes`);
-
-    if (ulawBuffer.length >= COMMIT_TARGET) {
-      const toSend = ulawBuffer.slice(0, COMMIT_TARGET);
-      ulawBuffer = ulawBuffer.slice(COMMIT_TARGET);
-      safeSend(oa, {
-        type: "input_audio_buffer.append",
-        audio: toSend.toString("base64"),
-      });
+    if (pcmBuffer.length >= PCM_COMMIT_BYTES) {
+      const toSend = pcmBuffer.slice(0, PCM_COMMIT_BYTES);
+      pcmBuffer = pcmBuffer.slice(PCM_COMMIT_BYTES);
+      safeSend(oa, { type: "input_audio_buffer.append", audio: toSend.toString("base64") });
       safeSend(oa, { type: "input_audio_buffer.commit" });
       lastCommitTs = now;
-      console.log(`[commit:LIVE] Sent ${toSend.length} bytes, remaining=${ulawBuffer.length}`);
+      console.log(`[commit:LIVE] PCM bytes=${toSend.length}, remaining=${pcmBuffer.length}`);
     }
   }
 
@@ -180,18 +195,11 @@ function handleBridge(ws, req) {
         if (!payloadB64) return;
 
         inputFrames += 1;
-        const chunk = Buffer.from(payloadB64, "base64");
-        inputBytes += chunk.length;
+        const pcmChunk = mulawB64ToPcm16Buffer(payloadB64);
+        inputPcmBytes += pcmChunk.length;
+        pcmBuffer = Buffer.concat([pcmBuffer, pcmChunk]);
 
-        frameBuffer = Buffer.concat([frameBuffer, chunk]);
-
-        // Only move into ulawBuffer when we have 320 bytes (2×160)
-        if (frameBuffer.length >= FRAME_TARGET) {
-          const block = frameBuffer.slice(0, FRAME_TARGET);
-          frameBuffer = frameBuffer.slice(FRAME_TARGET);
-          ulawBuffer = Buffer.concat([ulawBuffer, block]);
-          console.log(`[twilio] merged frame to 320 bytes, ulawBuffer=${ulawBuffer.length}`);
-        }
+        console.log(`[twilio] frame ${inputFrames}, pcmBuffer=${pcmBuffer.length} bytes`);
 
         tryCommit(false);
         break;
@@ -199,23 +207,19 @@ function handleBridge(ws, req) {
 
       case "stop": {
         console.log("[twilio] stop");
-        while (ulawBuffer.length >= COMMIT_TARGET) {
+        while (pcmBuffer.length >= PCM_COMMIT_BYTES) {
           tryCommit(true);
         }
-        if (ulawBuffer.length >= FRAME_TARGET) {
-          safeSend(oa, {
-            type: "input_audio_buffer.append",
-            audio: ulawBuffer.toString("base64"),
-          });
+        if (pcmBuffer.length >= PCM_FRAME_BYTES) {
+          safeSend(oa, { type: "input_audio_buffer.append", audio: pcmBuffer.toString("base64") });
           safeSend(oa, { type: "input_audio_buffer.commit" });
-          console.log(`[commit:FINAL] Sent ${ulawBuffer.length} bytes`);
-        } else if (ulawBuffer.length > 0) {
-          console.log(`[commit:SKIP] Dropping leftover ${ulawBuffer.length} bytes (<320)`);
+          console.log(`[commit:FINAL] Sent ${pcmBuffer.length} bytes`);
+        } else if (pcmBuffer.length > 0) {
+          console.log(`[commit:SKIP] Dropping leftover ${pcmBuffer.length} bytes (<20ms)`);
         }
-        ulawBuffer = Buffer.alloc(0);
-        frameBuffer = Buffer.alloc(0);
+        pcmBuffer = Buffer.alloc(0);
 
-        console.log(`[stats] IN: frames=${inputFrames}, bytes=${inputBytes} | OUT: deltas=${outputDeltas}`);
+        console.log(`[stats] IN: frames=${inputFrames}, pcm_bytes=${inputPcmBytes} | OUT: deltas=${outputDeltas}`);
         try { oa.close(); } catch {}
         try { ws.close(); } catch {}
         break;
