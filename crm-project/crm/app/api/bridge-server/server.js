@@ -1,4 +1,4 @@
-require("dotenv").config({ path: "../../../.env.local" }); // ✅ Load env vars
+require("dotenv").config({ path: "../../../.env.local" });
 
 const http = require("http");
 const WebSocket = require("ws");
@@ -8,14 +8,12 @@ const PORT = process.env.PORT || 8081;
 const MODEL = "gpt-4o-realtime-preview-2024-12-17";
 const OA_URL = `wss://api.openai.com/v1/realtime?model=${MODEL}`;
 
-// ---- Audio formats ----
-const INPUT_FORMAT = "g711_ulaw";   // use Twilio’s native μ-law
-const OUTPUT_FORMAT = "g711_ulaw";  // what we get back for Twilio
+const INPUT_FORMAT = "g711_ulaw";   // send μ-law to OpenAI
+const OUTPUT_FORMAT = "g711_ulaw";  // receive μ-law back for Twilio
 
-// ---- Thresholds ----
-const ULAW_20MS_BYTES = 320;    // each Twilio frame = 20ms, 320 bytes
-const ULAW_100MS_BYTES = 1600;  // 100ms minimum
-const ULAW_COMMIT_BYTES = 1600; // commit at 100ms minimum
+// Twilio sends 160-byte frames (20 ms each). OpenAI expects 320-byte frames.
+const FRAME_TARGET = 320;   // merge two 160-byte frames
+const COMMIT_TARGET = 1600; // commit every 100 ms (5× merged frames)
 
 // ---- Heartbeats ----
 const BRIDGE_PING_MS = 15000;
@@ -40,24 +38,24 @@ function handleBridge(ws, req) {
     return;
   }
 
-  // session state
   let streamSid = null;
   let meta = null;
   let formatReady = false;
   let greetingQueued = false;
 
-  // stats
+  let frameBuffer = Buffer.alloc(0); // accumulates Twilio 160-byte frames until 320
+  let ulawBuffer = Buffer.alloc(0);  // accumulates 320-byte frames for commit
+  let lastCommitTs = 0;
+
   let inputFrames = 0;
   let inputBytes = 0;
   let outputDeltas = 0;
 
-  // buffers & timers
-  let ulawBuffer = Buffer.alloc(0);
-  let lastCommitTs = 0;
-
   function safeSend(sock, obj) {
     if (sock.readyState === WebSocket.OPEN) {
-      try { sock.send(JSON.stringify(obj)); } catch (e) {
+      try {
+        sock.send(JSON.stringify(obj));
+      } catch (e) {
         console.error("[safeSend] send error:", e?.message || e);
       }
     }
@@ -80,27 +78,22 @@ function handleBridge(ws, req) {
     if (oaPingTimer) clearInterval(oaPingTimer), oaPingTimer = null;
   }
 
-  // commit helper: require ≥100ms μ-law and spacing
   function tryCommit(force = false) {
     const now = Date.now();
     if (!force && now - lastCommitTs < 100) return; // throttle ~10Hz
 
-    console.log(`[buffer] ulawBuffer=${ulawBuffer.length} bytes (~${(ulawBuffer.length / 320) * 20}ms)`);
+    console.log(`[buffer] ulawBuffer=${ulawBuffer.length} bytes`);
 
-    if (ulawBuffer.length >= ULAW_COMMIT_BYTES) {
-      const toSend = ulawBuffer.slice(0, ULAW_COMMIT_BYTES);
-      ulawBuffer = ulawBuffer.slice(ULAW_COMMIT_BYTES);
+    if (ulawBuffer.length >= COMMIT_TARGET) {
+      const toSend = ulawBuffer.slice(0, COMMIT_TARGET);
+      ulawBuffer = ulawBuffer.slice(COMMIT_TARGET);
       safeSend(oa, {
         type: "input_audio_buffer.append",
         audio: toSend.toString("base64"),
       });
       safeSend(oa, { type: "input_audio_buffer.commit" });
       lastCommitTs = now;
-      console.log(
-        `[commit:LIVE] Sent ${toSend.length} bytes (~${Math.round(
-          (toSend.length / 320) * 20
-        )}ms), remaining=${ulawBuffer.length}`
-      );
+      console.log(`[commit:LIVE] Sent ${toSend.length} bytes, remaining=${ulawBuffer.length}`);
     }
   }
 
@@ -152,19 +145,7 @@ function handleBridge(ws, req) {
       safeSend(ws, { event: "media", streamSid, media: { payload: data.audio } });
       return;
     }
-    if (data.type === "response.completed") {
-      console.log("[oa] response.completed");
-      safeSend(ws, { event: "mark", streamSid, name: "response_completed" });
-      return;
-    }
   });
-
-  oa.on("close", (code, reason) => {
-    console.log("[oa] close", code, reason?.toString());
-    stopHeartbeats();
-    try { ws.close(); } catch {}
-  });
-  oa.on("error", (err) => console.error("[oa] error", err?.message || err));
 
   ws.on("message", (msg) => {
     let frame;
@@ -196,17 +177,21 @@ function handleBridge(ws, req) {
           return;
         }
         const payloadB64 = frame.media?.payload;
-        if (!payloadB64) {
-          console.log("[twilio] media frame with no payload");
-          return;
-        }
+        if (!payloadB64) return;
 
         inputFrames += 1;
-        const ulawChunk = Buffer.from(payloadB64, "base64");
-        inputBytes += ulawChunk.length;
-        ulawBuffer = Buffer.concat([ulawBuffer, ulawChunk]);
+        const chunk = Buffer.from(payloadB64, "base64");
+        inputBytes += chunk.length;
 
-        console.log(`[twilio] media frame received, size=${ulawChunk.length}, totalBuffered=${ulawBuffer.length}`);
+        frameBuffer = Buffer.concat([frameBuffer, chunk]);
+
+        // Only move into ulawBuffer when we have 320 bytes (2×160)
+        if (frameBuffer.length >= FRAME_TARGET) {
+          const block = frameBuffer.slice(0, FRAME_TARGET);
+          frameBuffer = frameBuffer.slice(FRAME_TARGET);
+          ulawBuffer = Buffer.concat([ulawBuffer, block]);
+          console.log(`[twilio] merged frame to 320 bytes, ulawBuffer=${ulawBuffer.length}`);
+        }
 
         tryCommit(false);
         break;
@@ -214,39 +199,28 @@ function handleBridge(ws, req) {
 
       case "stop": {
         console.log("[twilio] stop");
-        while (ulawBuffer.length >= ULAW_COMMIT_BYTES) {
+        while (ulawBuffer.length >= COMMIT_TARGET) {
           tryCommit(true);
         }
-        if (ulawBuffer.length >= ULAW_100MS_BYTES) {
+        if (ulawBuffer.length >= FRAME_TARGET) {
           safeSend(oa, {
             type: "input_audio_buffer.append",
             audio: ulawBuffer.toString("base64"),
           });
           safeSend(oa, { type: "input_audio_buffer.commit" });
-          console.log(`[commit:FINAL] Sent ${ulawBuffer.length} bytes (~${(ulawBuffer.length / 320) * 20}ms)`);
+          console.log(`[commit:FINAL] Sent ${ulawBuffer.length} bytes`);
         } else if (ulawBuffer.length > 0) {
-          console.log(`[commit:SKIP] Dropping tiny leftover ${ulawBuffer.length} bytes (<100ms)`);
+          console.log(`[commit:SKIP] Dropping leftover ${ulawBuffer.length} bytes (<320)`);
         }
         ulawBuffer = Buffer.alloc(0);
+        frameBuffer = Buffer.alloc(0);
 
-        console.log(`[stats] IN: frames=${inputFrames}, ulaw_bytes=${inputBytes} | OUT: deltas=${outputDeltas}`);
+        console.log(`[stats] IN: frames=${inputFrames}, bytes=${inputBytes} | OUT: deltas=${outputDeltas}`);
         try { oa.close(); } catch {}
         try { ws.close(); } catch {}
         break;
       }
     }
-  });
-
-  ws.on("close", (code, reason) => {
-    console.log("[bridge] client closed", code, reason?.toString());
-    stopHeartbeats();
-    try { oa.close(); } catch {}
-  });
-
-  ws.on("error", (err) => {
-    console.error("[bridge] ws error", err?.message || err);
-    stopHeartbeats();
-    try { oa.close(); } catch {}
   });
 }
 
