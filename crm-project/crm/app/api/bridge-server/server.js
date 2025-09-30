@@ -3,15 +3,9 @@ import "dotenv/config";
 import WebSocket, { WebSocketServer } from "ws";
 import http from "http";
 import express from "express";
-import path from "path";
-import { fileURLToPath } from "url";
-
-// 🔹 Resolve __dirname for ES modules
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 // 🔹 Import Samantha’s opening triage prompt
-import OPENING from "../../lib/prompts/opening.js";
+import SAMANTHA_OPENING_TRIAGE from "../../lib/prompts/opening.js";
 
 const app = express();
 const server = http.createServer(app);
@@ -80,12 +74,12 @@ wss.on("connection", async (ws, req) => {
         console.log("[oa] session.updated (formats ready)");
         oaReady = true;
 
-        // 🔹 Inject Samantha’s opening triage
+        // 🔹 Inject Samantha’s opening triage from opening.js
         oa.send(
           JSON.stringify({
             type: "response.create",
             response: {
-              instructions: OPENING,
+              instructions: SAMANTHA_OPENING_TRIAGE,
               modalities: ["audio", "text"],
               audio: { voice: "alloy" },
             },
