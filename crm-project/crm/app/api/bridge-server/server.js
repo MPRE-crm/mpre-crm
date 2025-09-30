@@ -1,252 +1,131 @@
-require("dotenv").config({ path: "../../../.env.local" });
+// crm/app/api/bridge-server/server.js
+import "dotenv/config";
+import WebSocket, { WebSocketServer } from "ws";
+import http from "http";
+import express from "express";
 
-const http = require("http");
-const WebSocket = require("ws");
-const OPENING_PROMPT = require("../../../lib/prompts/opening");
+const app = express();
+const server = http.createServer(app);
+const wss = new WebSocketServer({ noServer: true });
 
-const PORT = process.env.PORT || 8081;
-const MODEL = "gpt-4o-realtime-preview-2024-12-17";
-const OA_URL = `wss://api.openai.com/v1/realtime?model=${MODEL}`;
+const OA_API_KEY = process.env.OPENAI_API_KEY;
+const OA_URL = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17";
 
-const INPUT_FORMAT = "pcm16";       // send PCM16 to OpenAI
-const OUTPUT_FORMAT = "g711_ulaw";  // receive μ-law back for Twilio
+function ulawToPcm16(uLawSample) {
+  // ITU-T G.711 μ-law decode
+  uLawSample = ~uLawSample & 0xff;
 
-// ---- μ-law → PCM16 ----
-const MULAW_BIAS = 0x84;
-function ulawByteToLinear(u_val) {
-  u_val = (~u_val) & 0xff;
-  const sign = u_val & 0x80;
-  const exponent = (u_val >> 4) & 0x07;
-  const mantissa = u_val & 0x0f;
-  let sample = ((mantissa << 3) + MULAW_BIAS) << exponent;
-  sample -= MULAW_BIAS;
-  return sign ? -sample : sample;
+  const sign = uLawSample & 0x80;
+  const exponent = (uLawSample >> 4) & 0x07;
+  const mantissa = uLawSample & 0x0f;
+  let sample = ((mantissa << 3) + 0x84) << exponent;
+
+  sample -= 0x84;
+
+  return (sign ? -sample : sample);
 }
-function mulawB64ToPcm16Buffer(b64) {
-  const ulawBuf = Buffer.from(b64, "base64");
-  const out = Buffer.alloc(ulawBuf.length * 2);
-  for (let i = 0, j = 0; i < ulawBuf.length; i++, j += 2) {
-    const s = ulawByteToLinear(ulawBuf[i]);
-    out.writeInt16LE(s, j);
+
+function ulawBufferToPCM16(buffer) {
+  const pcm = new Int16Array(buffer.length);
+  for (let i = 0; i < buffer.length; i++) {
+    pcm[i] = ulawToPcm16(buffer[i]);
   }
-  return out;
+  return Buffer.from(pcm.buffer);
 }
 
-// ---- thresholds ----
-const PCM_FRAME_BYTES = 320;   // 20ms at 16-bit PCM/8kHz
-const PCM_COMMIT_BYTES = 3200; // 200ms safe commit minimum
+server.on("upgrade", (req, socket, head) => {
+  if (req.url === "/bridge") {
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      wss.emit("connection", ws, req);
+    });
+  } else {
+    socket.destroy();
+  }
+});
 
-// ---- heartbeats ----
-const BRIDGE_PING_MS = 15000;
-const OA_PING_MS = 15000;
-
-function connectOpenAI(apiKey) {
-  const headers = {
-    Authorization: `Bearer ${apiKey}`,
-    "OpenAI-Beta": "realtime=v1",
-  };
-  return new WebSocket(OA_URL, "realtime", { headers });
-}
-
-function handleBridge(ws, req) {
-  console.log("────────────────────────────────────────────────────────");
+wss.on("connection", async (ws, req) => {
   console.log("[bridge] client connected from", req.socket.remoteAddress);
 
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    console.error("[bridge] Missing OPENAI_API_KEY");
-    ws.close(1011, "no api key");
-    return;
-  }
+  // Connect to OpenAI Realtime
+  const oa = new WebSocket(OA_URL, {
+    headers: {
+      Authorization: `Bearer ${OA_API_KEY}`,
+      "OpenAI-Beta": "realtime=v1",
+    },
+  });
 
-  let streamSid = null;
-  let meta = null;
-  let formatReady = false;
-  let greetingQueued = false;
-
+  let oaReady = false;
   let pcmBuffer = Buffer.alloc(0);
-  let lastCommitTs = 0;
-
-  let inputFrames = 0;
-  let inputPcmBytes = 0;
-  let outputDeltas = 0;
-
-  function safeSend(sock, obj) {
-    if (sock.readyState === WebSocket.OPEN) {
-      try {
-        sock.send(JSON.stringify(obj));
-      } catch (e) {
-        console.error("[safeSend] send error:", e?.message || e);
-      }
-    }
-  }
-
-  const oa = connectOpenAI(apiKey);
-
-  // heartbeats
-  let bridgePing, oaPingTimer;
-  function startHeartbeats() {
-    stopHeartbeats();
-    bridgePing = setInterval(() => { try { ws.ping(); } catch {} }, BRIDGE_PING_MS);
-    oaPingTimer = setInterval(() => {
-      safeSend(oa, { type: "ping", t: Date.now() });
-      try { oa.ping?.(); } catch {}
-    }, OA_PING_MS);
-  }
-  function stopHeartbeats() {
-    if (bridgePing) clearInterval(bridgePing), bridgePing = null;
-    if (oaPingTimer) clearInterval(oaPingTimer), oaPingTimer = null;
-  }
-
-  // commit helper
-  function tryCommit(force = false) {
-    const now = Date.now();
-    if (!force && now - lastCommitTs < 100) return; // throttle ~10Hz
-    if (pcmBuffer.length >= PCM_COMMIT_BYTES) {
-      const toSend = pcmBuffer.slice(0, PCM_COMMIT_BYTES);
-      pcmBuffer = pcmBuffer.slice(PCM_COMMIT_BYTES);
-      safeSend(oa, { type: "input_audio_buffer.append", audio: toSend.toString("base64") });
-      safeSend(oa, { type: "input_audio_buffer.commit" });
-      lastCommitTs = now;
-      console.log(`[commit:LIVE] PCM bytes=${toSend.length}, remaining=${pcmBuffer.length}`);
-    }
-  }
 
   oa.on("open", () => {
     console.log("[oa] connected");
-    startHeartbeats();
-    safeSend(oa, {
-      type: "session.update",
-      session: {
-        input_audio_format: INPUT_FORMAT,
-        output_audio_format: OUTPUT_FORMAT,
-      },
-    });
   });
 
-  oa.on("message", (buf) => {
-    let data;
-    try { data = JSON.parse(buf.toString()); } catch { return; }
-
-    if (data.type && !["output_audio.delta"].includes(data.type)) {
-      console.log("[oa]", data.type);
-    }
-    if (data.type === "error") {
-      console.error("[oa] error:", JSON.stringify(data, null, 2));
-      return;
-    }
-    if (data.type === "session.updated") {
-      formatReady = true;
-      console.log("[oa] session.updated (formats ready)");
-      if (!greetingQueued) {
-        greetingQueued = true;
-        const instructions = (meta && meta.opening) || OPENING_PROMPT;
-        console.log("[oa] sending greeting (first 160 chars):");
-        console.log((instructions || "").slice(0, 160), "…");
-        safeSend(oa, {
-          type: "response.create",
-          response: {
-            instructions,
-            modalities: ["audio", "text"],
-            voice: "alloy",
-          },
-        });
+  oa.on("message", (msg) => {
+    try {
+      const data = JSON.parse(msg.toString());
+      if (data.type === "session.created") {
+        console.log("[oa] session.created");
       }
-      return;
-    }
-    if (data.type === "output_audio.delta" && data.audio && streamSid && ws.readyState === WebSocket.OPEN) {
-      outputDeltas += 1;
-      console.log(`[oa] output_audio.delta (${data.audio.length} bytes)`);
-      safeSend(ws, { event: "media", streamSid, media: { payload: data.audio } });
-      return;
+      if (data.type === "session.updated") {
+        console.log("[oa] session.updated (formats ready)");
+        oaReady = true;
+      }
+      if (data.type === "response.created") console.log("[oa] response.created");
+      if (data.type === "response.done") console.log("[oa] response.done");
+      if (data.type === "error") console.error("[oa] error", JSON.stringify(data, null, 2));
+    } catch (e) {
+      console.error("[oa] parse error", e);
     }
   });
 
   ws.on("message", (msg) => {
-    let frame;
-    try { frame = JSON.parse(msg.toString()); } catch { return; }
+    let data;
+    try {
+      data = JSON.parse(msg.toString());
+    } catch {
+      return;
+    }
 
-    switch (frame.event) {
-      case "connected":
-        console.log("[twilio] connected");
-        startHeartbeats();
-        break;
+    if (data.event === "start") {
+      console.log("[twilio] start", data.start);
+    }
 
-      case "start": {
-        streamSid = frame.start?.streamSid || null;
-        const cp = frame.start?.customParameters || {};
-        if (cp.meta_b64) {
-          try { meta = JSON.parse(Buffer.from(cp.meta_b64, "base64").toString("utf8")); } catch {}
-        }
-        console.log("[twilio] start", {
-          streamSid,
-          mediaFormat: frame.start?.mediaFormat,
-          hasPrompt: !!meta?.opening,
-        });
-        break;
-      }
+    if (data.event === "media" && oaReady) {
+      const chunk = Buffer.from(data.media.payload, "base64");
+      const pcm = ulawBufferToPCM16(chunk);
+      pcmBuffer = Buffer.concat([pcmBuffer, pcm]);
 
-      case "media": {
-        if (!formatReady) {
-          console.log("[twilio] media ignored (format not ready)");
-          return;
-        }
-        const payloadB64 = frame.media?.payload;
-        if (!payloadB64) return;
+      // Commit every 3200 bytes (~100ms @ 16-bit, 8kHz)
+      if (pcmBuffer.length >= 3200) {
+        const commitBuf = pcmBuffer.slice(0, 3200);
+        pcmBuffer = pcmBuffer.slice(3200);
 
-        inputFrames += 1;
-        const pcmChunk = mulawB64ToPcm16Buffer(payloadB64);
-        inputPcmBytes += pcmChunk.length;
-        pcmBuffer = Buffer.concat([pcmBuffer, pcmChunk]);
+        console.log(`[commit:LIVE] PCM bytes=${commitBuf.length}, remaining=${pcmBuffer.length}`);
 
-        console.log(`[twilio] frame ${inputFrames}, pcmBuffer=${pcmBuffer.length} bytes`);
-
-        tryCommit(false);
-        break;
-      }
-
-      case "stop": {
-        console.log("[twilio] stop");
-        while (pcmBuffer.length >= PCM_COMMIT_BYTES) {
-          tryCommit(true);
-        }
-        if (pcmBuffer.length >= PCM_FRAME_BYTES) {
-          safeSend(oa, { type: "input_audio_buffer.append", audio: pcmBuffer.toString("base64") });
-          safeSend(oa, { type: "input_audio_buffer.commit" });
-          console.log(`[commit:FINAL] Sent ${pcmBuffer.length} bytes`);
-        } else if (pcmBuffer.length > 0) {
-          console.log(`[commit:SKIP] Dropping leftover ${pcmBuffer.length} bytes (<20ms)`);
-        }
-        pcmBuffer = Buffer.alloc(0);
-
-        console.log(`[stats] IN: frames=${inputFrames}, pcm_bytes=${inputPcmBytes} | OUT: deltas=${outputDeltas}`);
-        try { oa.close(); } catch {}
-        try { ws.close(); } catch {}
-        break;
+        oa.send(JSON.stringify({ type: "input_audio_buffer.append", audio: commitBuf.toString("base64") }));
+        oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
       }
     }
+
+    if (data.event === "stop") {
+      console.log("[twilio] stop");
+      if (pcmBuffer.length > 0) {
+        oa.send(JSON.stringify({ type: "input_audio_buffer.append", audio: pcmBuffer.toString("base64") }));
+        oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+        console.log(`[commit:FINAL] Sent ${pcmBuffer.length} bytes`);
+        pcmBuffer = Buffer.alloc(0);
+      }
+      oa.send(JSON.stringify({ type: "response.create" }));
+    }
   });
-}
 
-const server = http.createServer((req, res) => {
-  if (req.url === "/health") {
-    res.writeHead(200, { "content-type": "text/plain" });
-    res.end("ok");
-    return;
-  }
-  res.writeHead(404);
-  res.end();
+  ws.on("close", () => {
+    console.log("[bridge] client disconnected");
+    oa.close();
+  });
 });
 
-server.on("upgrade", (req, socket, head) => {
-  const url = new URL(req.url || "/", "http://localhost");
-  if (url.pathname === "/bridge") {
-    console.log("[upgrade] routing to /bridge");
-    const wss = new WebSocket.Server({ noServer: true });
-    wss.handleUpgrade(req, socket, head, (ws) => handleBridge(ws, req));
-  } else {
-    try { socket.destroy(); } catch {}
-  }
+server.listen(8081, () => {
+  console.log("WS bridge listening on :8081");
 });
-
-server.listen(PORT, () => console.log(`WS bridge listening on :${PORT}`));
