@@ -32,8 +32,10 @@ function mulawB64ToPcm16Buffer(b64) {
   }
   return out;
 }
-const PCM_100MS_BYTES = 1600;   // 0.1s * 8000 * 2 bytes
-const PCM_COMMIT_BYTES = 3200;  // 200ms — safer minimum
+
+// ---- Thresholds ----
+const PCM_100MS_BYTES = 1600;   // 0.1s * 8000 * 2 bytes (16-bit PCM)
+const PCM_COMMIT_BYTES = 1600;  // commit at 100ms minimum
 
 // ---- Heartbeats ----
 const BRIDGE_PING_MS = 15000;
@@ -98,17 +100,27 @@ function handleBridge(ws, req) {
     if (oaPingTimer) clearInterval(oaPingTimer), oaPingTimer = null;
   }
 
-  // commit helper: require ≥200ms PCM and 100ms spacing between commits
+  // commit helper: require ≥100ms PCM and 100ms spacing between commits
   function tryCommit(force = false) {
     const now = Date.now();
-    if (!force && now - lastCommitTs < 100) return; // throttle
+    if (!force && now - lastCommitTs < 100) return; // throttle ~10Hz
+
+    console.log(`[buffer] pcmBuffer=${pcmBuffer.length} bytes (${(pcmBuffer.length / 16).toFixed(1)}ms)`);
+
     if (pcmBuffer.length >= PCM_COMMIT_BYTES) {
       const toSend = pcmBuffer.slice(0, PCM_COMMIT_BYTES);
       pcmBuffer = pcmBuffer.slice(PCM_COMMIT_BYTES);
-      safeSend(oa, { type: "input_audio_buffer.append", audio: toSend.toString("base64") });
+      safeSend(oa, {
+        type: "input_audio_buffer.append",
+        audio: toSend.toString("base64"),
+      });
       safeSend(oa, { type: "input_audio_buffer.commit" });
       lastCommitTs = now;
-      console.log(`[commit:LIVE] PCM bytes=${toSend.length} (~${Math.round(toSend.length / 16)}ms)`);
+      console.log(
+        `[commit:LIVE] Sent ${toSend.length} bytes (~${Math.round(
+          toSend.length / 16
+        )}ms), remaining=${pcmBuffer.length}`
+      );
     }
   }
 
@@ -118,8 +130,8 @@ function handleBridge(ws, req) {
     safeSend(oa, {
       type: "session.update",
       session: {
-        input_audio_format: INPUT_FORMAT,   // "pcm16"
-        output_audio_format: OUTPUT_FORMAT, // "g711_ulaw"
+        input_audio_format: INPUT_FORMAT,
+        output_audio_format: OUTPUT_FORMAT,
       },
     });
   });
@@ -132,7 +144,7 @@ function handleBridge(ws, req) {
       console.log("[oa]", data.type);
     }
     if (data.type === "error") {
-      console.error("[oa] error:", data);
+      console.error("[oa] error:", JSON.stringify(data, null, 2));
       return;
     }
     if (data.type === "session.updated") {
@@ -156,11 +168,12 @@ function handleBridge(ws, req) {
     }
     if (data.type === "output_audio.delta" && data.audio && streamSid && ws.readyState === WebSocket.OPEN) {
       outputDeltas += 1;
-      // already μ-law from OpenAI, forward to Twilio
+      console.log(`[oa] output_audio.delta (${data.audio.length} bytes)`);
       safeSend(ws, { event: "media", streamSid, media: { payload: data.audio } });
       return;
     }
     if (data.type === "response.completed") {
+      console.log("[oa] response.completed");
       safeSend(ws, { event: "mark", streamSid, name: "response_completed" });
       return;
     }
@@ -198,38 +211,53 @@ function handleBridge(ws, req) {
       }
 
       case "media": {
-        if (!formatReady) return;
+        if (!formatReady) {
+          console.log("[twilio] media ignored (format not ready)");
+          return;
+        }
         const payloadMulawB64 = frame.media?.payload;
-        if (!payloadMulawB64) return;
+        if (!payloadMulawB64) {
+          console.log("[twilio] media frame with no payload");
+          return;
+        }
 
         inputFrames += 1;
         const pcmChunk = mulawB64ToPcm16Buffer(payloadMulawB64);
         inputPcmBytes += pcmChunk.length;
         pcmBuffer = Buffer.concat([pcmBuffer, pcmChunk]);
 
-        // commit in ≥200ms slices
+        console.log(`[twilio] media frame received, size=${pcmChunk.length}, totalBuffered=${pcmBuffer.length}`);
+
         tryCommit(false);
         break;
       }
 
       case "stop": {
         console.log("[twilio] stop");
-        // final flush: commit whole seconds worth in 200ms slices
         while (pcmBuffer.length >= PCM_COMMIT_BYTES) {
           tryCommit(true);
         }
         if (pcmBuffer.length >= PCM_100MS_BYTES) {
-          // send remaining ≥100ms as one last commit
-          safeSend(oa, { type: "input_audio_buffer.append", audio: pcmBuffer.toString("base64") });
+          safeSend(oa, {
+            type: "input_audio_buffer.append",
+            audio: pcmBuffer.toString("base64"),
+          });
           safeSend(oa, { type: "input_audio_buffer.commit" });
-          console.log(`[commit:FINAL] PCM bytes=${pcmBuffer.length} (~${Math.round(pcmBuffer.length / 16)}ms)`);
-          pcmBuffer = Buffer.alloc(0);
+          console.log(
+            `[commit:FINAL] Sent ${pcmBuffer.length} bytes (~${Math.round(
+              pcmBuffer.length / 16
+            )}ms)`
+          );
         } else if (pcmBuffer.length > 0) {
-          console.log(`[commit:SKIP] Dropping tiny leftover ${pcmBuffer.length} bytes (<100ms)`);
-          pcmBuffer = Buffer.alloc(0);
+          console.log(
+            `[commit:SKIP] Dropping tiny leftover ${pcmBuffer.length} bytes (<100ms)`
+          );
         }
+        pcmBuffer = Buffer.alloc(0);
 
-        console.log(`[stats] IN: frames=${inputFrames}, pcm_bytes=${inputPcmBytes} | OUT: deltas=${outputDeltas}`);
+        console.log(
+          `[stats] IN: frames=${inputFrames}, pcm_bytes=${inputPcmBytes} | OUT: deltas=${outputDeltas}`
+        );
         try { oa.close(); } catch {}
         try { ws.close(); } catch {}
         break;
