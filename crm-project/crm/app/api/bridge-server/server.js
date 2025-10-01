@@ -5,7 +5,7 @@ import http from "http";
 import express from "express";
 
 // 🔹 Import Samantha’s opening triage prompt (default fallback)
-import SAMANTHA_OPENING_TRIAGE from "../../../../lib/prompts/opening.js";
+import SAMANTHA_OPENING_TRIAGE from "../../../../../lib/prompts/opening.js";
 
 const app = express();
 const server = http.createServer(app);
