@@ -4,7 +4,7 @@
   "type": "module",
   "main": "crm-project/crm/app/api/bridge-server/server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node ./server.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
