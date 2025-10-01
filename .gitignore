@@ -40,3 +40,6 @@ next-env.d.ts
 
 # Ignore app-project folder
 /app-project/
+
+# Ignore accidental root server.js
+/server.js
