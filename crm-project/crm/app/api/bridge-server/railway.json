@@ -11,6 +11,6 @@
     }
   },
   "deploy": {
-    "startCommand": "node crm/app/api/bridge-server/server.js"
+    "startCommand": "node crm-project/crm/app/api/bridge-server/server.js"
   }
 }
