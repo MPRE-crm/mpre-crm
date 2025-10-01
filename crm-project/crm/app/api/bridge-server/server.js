@@ -16,24 +16,6 @@ const OA_URL =
   "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17";
 
 // --- Helpers ---
-function ulawToPcm16(uLawSample) {
-  uLawSample = ~uLawSample & 0xff;
-  const sign = uLawSample & 0x80;
-  const exponent = (uLawSample >> 4) & 0x07;
-  const mantissa = uLawSample & 0x0f;
-  let sample = ((mantissa << 3) + 0x84) << exponent;
-  sample -= 0x84;
-  return sign ? -sample : sample;
-}
-
-function ulawBufferToPCM16(buffer) {
-  const pcm = new Int16Array(buffer.length);
-  for (let i = 0; i < buffer.length; i++) {
-    pcm[i] = ulawToPcm16(buffer[i]);
-  }
-  return Buffer.from(pcm.buffer);
-}
-
 function decodeB64(s) {
   try {
     return Buffer.from(s, "base64").toString("utf8");
@@ -65,11 +47,25 @@ wss.on("connection", async (ws, req) => {
   });
 
   let oaReady = false;
-  let pcmBuffer = Buffer.alloc(0);
-  let openingPrompt = SAMANTHA_OPENING_TRIAGE; // default fallback
+  let ulawBuffer = Buffer.alloc(0);
+
+  // 🔹 Opening prompt (& source) — default to opening.js
+  let openingPrompt = SAMANTHA_OPENING_TRIAGE;
+  let openingSource = "opening.js (fallback)";
 
   oa.on("open", () => {
     console.log("[oa] connected");
+
+    // ✅ Explicitly request μ-law output
+    oa.send(
+      JSON.stringify({
+        type: "session.update",
+        session: {
+          input_audio_format: "g711_ulaw",
+          output_audio_format: "g711_ulaw",
+        },
+      })
+    );
   });
 
   oa.on("message", (msg) => {
@@ -81,24 +77,38 @@ wss.on("connection", async (ws, req) => {
       }
 
       if (data.type === "session.updated") {
-        console.log("[oa] session.updated (formats ready)");
+        console.log("🌟 [oa] SESSION UPDATED → Samantha is READY to speak!");
         oaReady = true;
 
-        // 🔹 Inject opening (from meta_b64 if present, else fallback)
-        oa.send(
-          JSON.stringify({
-            type: "response.create",
-            response: {
-              instructions: openingPrompt,
-              modalities: ["audio", "text"],
-              audio: { voice: "alloy" },
-            },
-          })
+        console.log(`🔊 [bridge] Opening source → ${openingSource}`);
+        const preview = (openingPrompt || "").replace(/\s+/g, " ").slice(0, 120);
+        console.log(
+          `📝 [bridge] Opening preview: "${preview}${
+            openingPrompt.length > 120 ? "…" : ""
+          }"`
         );
+
+        // 🔎 NEW LOG: show exactly what we send
+        const openingMsg = {
+          type: "response.create",
+          response: {
+            instructions: openingPrompt,
+            modalities: ["audio", "text"],
+            audio: { voice: "alloy" },
+          },
+        };
+        console.log("➡️ [oa][send] response.create", JSON.stringify(openingMsg, null, 2));
+
+        oa.send(JSON.stringify(openingMsg));
       }
 
-      if (data.type === "response.created")
-        console.log("[oa] response.created");
+      if (data.type === "response.created") console.log("[oa] response.created");
+      if (data.type === "response.output_audio.delta")
+        console.log(
+          `[oa][audio] delta received → ${data.delta?.length || 0} bytes`
+        );
+      if (data.type === "response.output_audio.done")
+        console.log("[oa][audio] output_audio DONE");
       if (data.type === "response.done") console.log("[oa] response.done");
       if (data.type === "error")
         console.error("[oa] error", JSON.stringify(data, null, 2));
@@ -118,7 +128,6 @@ wss.on("connection", async (ws, req) => {
     if (data.event === "start") {
       console.log("[twilio] start", data.start);
 
-      // Check meta_b64 for dynamic opening
       const custom = data.start?.customParameters || {};
       if (custom.meta_b64) {
         const decoded = decodeB64(custom.meta_b64);
@@ -126,52 +135,63 @@ wss.on("connection", async (ws, req) => {
           const meta = JSON.parse(decoded);
           if (meta?.opening) {
             openingPrompt = meta.opening;
-            console.log("[bridge] using opening from meta_b64");
+            openingSource = "meta_b64 (ai-stream)";
+            console.log(
+              "✅ [bridge] Opening overridden by meta_b64 (ai-stream)."
+            );
           }
         } catch {
-          console.warn("[bridge] failed to parse meta_b64");
+          console.warn(
+            "[bridge] failed to parse meta_b64 JSON. Using fallback."
+          );
         }
       }
     }
 
-    if (data.event === "media" && oaReady) {
-      const chunk = Buffer.from(data.media.payload, "base64");
-      const pcm = ulawBufferToPCM16(chunk);
-      pcmBuffer = Buffer.concat([pcmBuffer, pcm]);
+    if (data.event === "media") {
+      const len = data.media?.payload?.length ?? 0;
+      console.log(`[twilio][media] payload length=${len}`);
 
-      // Commit every 3200 bytes (~100ms @ 16-bit, 8kHz)
-      if (pcmBuffer.length >= 3200) {
-        const commitBuf = pcmBuffer.slice(0, 3200);
-        pcmBuffer = pcmBuffer.slice(3200);
+      if (oaReady && len > 0) {
+        const chunk = Buffer.from(data.media.payload, "base64");
+        ulawBuffer = Buffer.concat([ulawBuffer, chunk]);
 
-        console.log(
-          `[commit:LIVE] PCM bytes=${commitBuf.length}, remaining=${pcmBuffer.length}`
-        );
+        // Commit ~50ms worth of audio (800 bytes @ 8kHz μ-law)
+        if (ulawBuffer.length >= 800) {
+          const commitBuf = ulawBuffer.slice(0, 800);
+          ulawBuffer = ulawBuffer.slice(800);
 
-        oa.send(
-          JSON.stringify({
-            type: "input_audio_buffer.append",
-            audio: commitBuf.toString("base64"),
-          })
-        );
-        oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+          console.log(
+            `[commit:LIVE] μ-law bytes=${commitBuf.length}, remaining=${ulawBuffer.length}`
+          );
+
+          oa.send(
+            JSON.stringify({
+              type: "input_audio_buffer.append",
+              audio: commitBuf.toString("base64"),
+            })
+          );
+
+          if (commitBuf.length > 0) {
+            oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+          }
+        }
       }
     }
 
     if (data.event === "stop") {
       console.log("[twilio] stop");
-      if (pcmBuffer.length > 0) {
+      if (ulawBuffer.length > 0) {
         oa.send(
           JSON.stringify({
             type: "input_audio_buffer.append",
-            audio: pcmBuffer.toString("base64"),
+            audio: ulawBuffer.toString("base64"),
           })
         );
         oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
-        console.log(`[commit:FINAL] Sent ${pcmBuffer.length} bytes`);
-        pcmBuffer = Buffer.alloc(0);
+        console.log(`[commit:FINAL] Sent ${ulawBuffer.length} bytes`);
+        ulawBuffer = Buffer.alloc(0);
       }
-      // Close out gracefully
       oa.send(JSON.stringify({ type: "response.create" }));
     }
   });
