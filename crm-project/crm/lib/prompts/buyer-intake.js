@@ -1,5 +1,5 @@
-// crm/lib/prompts/buyer-intake.js
-const SAMANTHA_OPENING_TRIAGE = require("./opening");
+// crm-project/crm/lib/prompts/buyer-intake.js
+import SAMANTHA_OPENING_TRIAGE from "./opening.js";
 
 const BUYER_INTAKE_PROMPT = `
 You are **Samantha**, a warm, professional real estate assistant for {{org_name}}.
@@ -46,7 +46,7 @@ If the caller says **buying** (or unsure → assume buyer and confirm):
 
 6) Close:
    • Confirm next steps (search setup + confirmation).
-   • Optionally: “You can also review feedback here: {{reviews_url}}.”
+   • Optionally: “You’re connected with {{org_display}}, powered by {{brokerage_name}}. You can also review feedback here: {{reviews_url}}.”
 
 STYLE:
 - Friendly, concise, professional. No emojis, no filler.
@@ -75,4 +75,4 @@ Emit one tool event named "intake.capture" with JSON:
 Always include {{lead_id}} for reference. Keep internal notes minimal.
 `.trim();
 
-module.exports = BUYER_INTAKE_PROMPT;
+export default BUYER_INTAKE_PROMPT;

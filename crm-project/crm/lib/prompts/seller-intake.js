@@ -1,7 +1,7 @@
-// lib/prompts/seller-intake.js
+// crm-project/crm/lib/prompts/seller-intake.js
 // Samantha persona + professional SELLER intake using shared opening/triage.
 
-const SAMANTHA_OPENING_TRIAGE = require("./opening");
+import SAMANTHA_OPENING_TRIAGE from "./opening.js";
 
 const SELLER_INTAKE_PROMPT = `
 You are **Samantha**, a warm, professional real estate assistant for {{org_display}} at {{brokerage_name}}.
@@ -84,4 +84,4 @@ At the very end, EMIT ONE tool event named "intake.capture" with a single JSON o
 Use {{lead_id}} for reference. Keep internal notes minimal.
 `.trim();
 
-module.exports = SELLER_INTAKE_PROMPT;
+export default SELLER_INTAKE_PROMPT;

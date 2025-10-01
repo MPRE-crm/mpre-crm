@@ -96,7 +96,7 @@ async function buildMeta(urlOrReqUrl: string, callParams?: URLSearchParams) {
     call_sid: callSid,
     to,
     from,
-    prompt: finalPrompt,
+    opening: finalPrompt,   // ✅ CHANGED: use `opening` key so bridge picks it up
     flow: "investor-intake",
   };
   const meta_b64 = b64(JSON.stringify(meta));
@@ -105,7 +105,6 @@ async function buildMeta(urlOrReqUrl: string, callParams?: URLSearchParams) {
 
 // ✅ Twilio often calls your webhook with **POST**,
 // but it can be configured to use **GET**. We support both.
-// Both return the SAME TwiML (<Start><Stream>) and pass meta_b64 so Samantha greets immediately.
 
 export async function GET(req: NextRequest) {
   const { meta_b64, org_id } = await buildMeta(req.url);

@@ -1,7 +1,9 @@
+// app/auth/callback/route.ts
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { createServerClient } from '@supabase/ssr';
 
+export const runtime = 'nodejs';      // ✅ Force Node runtime (not Edge)
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {

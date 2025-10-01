@@ -1,7 +1,7 @@
-// lib/prompts/investor-intake.js
+// crm-project/crm/lib/prompts/investor-intake.js
 // Samantha persona + professional INVESTOR intake using shared opening/triage.
 
-const SAMANTHA_OPENING_TRIAGE = require("./opening");
+import SAMANTHA_OPENING_TRIAGE from "./opening.js";
 
 const INVESTOR_INTAKE_PROMPT = `
 ${SAMANTHA_OPENING_TRIAGE}
@@ -59,4 +59,4 @@ Summarize before booking, highlight agent value.
 BEGIN TRIAGE NOW.
 `.trim();
 
-module.exports = INVESTOR_INTAKE_PROMPT;
+export default INVESTOR_INTAKE_PROMPT;

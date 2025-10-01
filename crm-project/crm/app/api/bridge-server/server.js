@@ -56,7 +56,6 @@ wss.on("connection", async (ws, req) => {
   oa.on("open", () => {
     console.log("[oa] connected");
 
-    // ✅ Explicitly request μ-law output
     oa.send(
       JSON.stringify({
         type: "session.update",
@@ -66,6 +65,9 @@ wss.on("connection", async (ws, req) => {
         },
       })
     );
+
+    // 🔧 prime OA stream with an empty commit
+    oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
   });
 
   oa.on("message", (msg) => {
@@ -88,7 +90,7 @@ wss.on("connection", async (ws, req) => {
           }"`
         );
 
-        // 🔎 NEW LOG: show exactly what we send
+        // ✅ FIX: ensure `voice` is under response.audio
         const openingMsg = {
           type: "response.create",
           response: {
@@ -104,9 +106,7 @@ wss.on("connection", async (ws, req) => {
 
       if (data.type === "response.created") console.log("[oa] response.created");
       if (data.type === "response.output_audio.delta")
-        console.log(
-          `[oa][audio] delta received → ${data.delta?.length || 0} bytes`
-        );
+        console.log(`[oa][audio] delta received → ${data.delta?.length || 0} bytes`);
       if (data.type === "response.output_audio.done")
         console.log("[oa][audio] output_audio DONE");
       if (data.type === "response.done") console.log("[oa] response.done");
@@ -136,14 +136,10 @@ wss.on("connection", async (ws, req) => {
           if (meta?.opening) {
             openingPrompt = meta.opening;
             openingSource = "meta_b64 (ai-stream)";
-            console.log(
-              "✅ [bridge] Opening overridden by meta_b64 (ai-stream)."
-            );
+            console.log("✅ [bridge] Opening overridden by meta_b64 (ai-stream).");
           }
         } catch {
-          console.warn(
-            "[bridge] failed to parse meta_b64 JSON. Using fallback."
-          );
+          console.warn("[bridge] failed to parse meta_b64 JSON. Using fallback.");
         }
       }
     }
@@ -156,10 +152,10 @@ wss.on("connection", async (ws, req) => {
         const chunk = Buffer.from(data.media.payload, "base64");
         ulawBuffer = Buffer.concat([ulawBuffer, chunk]);
 
-        // Commit ~50ms worth of audio (800 bytes @ 8kHz μ-law)
-        if (ulawBuffer.length >= 800) {
-          const commitBuf = ulawBuffer.slice(0, 800);
-          ulawBuffer = ulawBuffer.slice(800);
+        // commit after 1600 bytes (~100ms μ-law)
+        if (ulawBuffer.length >= 1600) {
+          const commitBuf = ulawBuffer.slice(0, 1600);
+          ulawBuffer = ulawBuffer.slice(1600);
 
           console.log(
             `[commit:LIVE] μ-law bytes=${commitBuf.length}, remaining=${ulawBuffer.length}`
@@ -172,9 +168,7 @@ wss.on("connection", async (ws, req) => {
             })
           );
 
-          if (commitBuf.length > 0) {
-            oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
-          }
+          oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
         }
       }
     }
@@ -188,11 +182,10 @@ wss.on("connection", async (ws, req) => {
             audio: ulawBuffer.toString("base64"),
           })
         );
-        oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
-        console.log(`[commit:FINAL] Sent ${ulawBuffer.length} bytes`);
-        ulawBuffer = Buffer.alloc(0);
       }
-      oa.send(JSON.stringify({ type: "response.create" }));
+      oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+      console.log(`[commit:FINAL] Sent ${ulawBuffer.length} bytes`);
+      ulawBuffer = Buffer.alloc(0);
     }
   });
 
