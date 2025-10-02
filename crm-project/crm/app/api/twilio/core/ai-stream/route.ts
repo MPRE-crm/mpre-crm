@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
 
     const streamUrl =
       process.env.PUBLIC_BRIDGE_WSS_URL ||
-      "wss://MISSING_NGROK_URL/bridge";
+      "wss://mpre-crm-production.up.railway.app:8081/bridge";
 
     console.log("📡 [ai-stream] Preparing TwiML", {
       callSid,
