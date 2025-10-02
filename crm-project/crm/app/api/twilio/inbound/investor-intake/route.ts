@@ -3,7 +3,7 @@ export const runtime = "edge";
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import INVESTOR_INTAKE_PROMPT from "../../../../../lib/prompts/investor-intake";
+import INVESTOR_INTAKE_PROMPT from "../../../../lib/prompts/investor-intake.js";
 import { getMarketSummaryText } from "../../../../../lib/market/summary";
 
 const BRIDGE_WSS_URL =
@@ -96,15 +96,12 @@ async function buildMeta(urlOrReqUrl: string, callParams?: URLSearchParams) {
     call_sid: callSid,
     to,
     from,
-    opening: finalPrompt,   // ✅ CHANGED: use `opening` key so bridge picks it up
+    opening: finalPrompt,   // ✅ opening prompt
     flow: "investor-intake",
   };
   const meta_b64 = b64(JSON.stringify(meta));
   return { meta, meta_b64, org_id };
 }
-
-// ✅ Twilio often calls your webhook with **POST**,
-// but it can be configured to use **GET**. We support both.
 
 export async function GET(req: NextRequest) {
   const { meta_b64, org_id } = await buildMeta(req.url);

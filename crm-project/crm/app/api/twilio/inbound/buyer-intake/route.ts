@@ -5,8 +5,8 @@ export const runtime = 'edge';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-// ✅ Relative imports (no @lib)
-import BUYER_INTAKE_PROMPT from '../../../../../lib/prompts/buyer-intake';
+// ✅ Fixed relative import for buyer-intake prompt
+import BUYER_INTAKE_PROMPT from '../../../../lib/prompts/buyer-intake.js';
 import { getMarketSummaryText } from '../../../../../lib/market/summary';
 
 /** ENV

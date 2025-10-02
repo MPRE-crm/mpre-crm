@@ -2,8 +2,8 @@
 export const runtime = "edge";
 
 import { createClient } from "@supabase/supabase-js";
-// 🔹 Import Samantha’s opening prompt
-import SAMANTHA_OPENING_TRIAGE from "../../../../../../lib/prompts/opening";
+// 🔹 Import Samantha’s opening prompt (corrected path)
+import SAMANTHA_OPENING_TRIAGE from "../../../../../lib/prompts/opening.js";
 
 // ---- Supabase (service role for server-side writes) ----
 const SUPABASE_URL =

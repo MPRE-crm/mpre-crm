@@ -2,8 +2,8 @@
 import { NextRequest } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-// 🔹 Import Samantha’s opening triage prompt
-import SAMANTHA_OPENING_TRIAGE from "../../../../../lib/prompts/opening.js";
+// 🔹 Import Samantha’s opening triage prompt (corrected path)
+import SAMANTHA_OPENING_TRIAGE from "../../../../lib/prompts/opening.js";
 
 export const runtime = "edge"; // TwiML must be public/fast
 
