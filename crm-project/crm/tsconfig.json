@@ -25,11 +25,12 @@
     "strictNullChecks": true
   },
   "include": [
-    "next-env.d.ts",
     "**/*.ts",
     "**/*.tsx",
     "app/dashboard/flows/list",
-    "lib/leadListener.mjs"
+    "lib/leadListener.mjs",
+    "next-env.d.ts",
+    ".next/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

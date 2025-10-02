@@ -4,7 +4,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "concurrently \"next start\" \"node crm-project/crm/app/api/bridge-server/server.js\""
   },
   "dependencies": {
     "@next-auth/supabase-adapter": "^0.2.1",
@@ -12,6 +12,7 @@
     "@supabase/supabase-js": "^2.55.0",
     "autoprefixer": "^10.4.21",
     "axios": "^1.10.0",
+    "concurrently": "^9.2.1",
     "date-fns": "^4.1.0",
     "dotenv": "^17.2.1",
     "express": "^5.1.0",
@@ -25,6 +26,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.13",
+    "@types/qs": "^6.14.0",
     "@types/react": "^19.1.9",
     "@types/react-dom": "^19.1.7",
     "@types/react-native": "^0.72.8",

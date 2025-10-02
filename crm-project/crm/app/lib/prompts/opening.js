@@ -1,4 +1,4 @@
-// crm-project/crm/lib/prompts/opening.js
+// crm-project/crm/app/lib/prompts/opening.js
 // Shared opening + triage for Samantha across buyer/seller/investor intakes.
 
 const SAMANTHA_OPENING_TRIAGE = `

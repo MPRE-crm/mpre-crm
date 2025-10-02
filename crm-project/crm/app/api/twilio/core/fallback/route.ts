@@ -10,10 +10,7 @@ export async function POST(req: NextRequest) {
   <Hangup/>
 </Response>`;
 
-  return new NextResponse(twiml, {
-    headers: { "Content-Type": "text/xml" },
-  });
+  return new NextResponse(twiml, { headers: { "Content-Type": "text/xml" } });
 }
 
-// ✅ Also handle GET as a fallback
 export const GET = POST;

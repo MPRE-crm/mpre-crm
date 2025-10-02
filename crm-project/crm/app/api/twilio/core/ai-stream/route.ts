@@ -59,8 +59,9 @@ export async function POST(req: NextRequest) {
       else if (src.includes("relocation")) flow = "buyer";
     }
 
+    // ✅ Force the WSS bridge URL for Twilio <Stream>
     const streamUrl =
-      process.env.PUBLIC_BRIDGE_WSS_URL ||
+      process.env.PUBLIC_BRIDGE_WSS_URL?.trim() ||
       "wss://mpre-crm-production.up.railway.app:8081/bridge";
 
     console.log("📡 [ai-stream] Preparing TwiML", {
@@ -81,10 +82,11 @@ export async function POST(req: NextRequest) {
       to: toNum || null,
       direction,
       flow,
-      opening: SAMANTHA_OPENING_TRIAGE, // 🔹 now included
+      opening: SAMANTHA_OPENING_TRIAGE,
     };
     const meta_b64 = toB64(JSON.stringify(meta));
 
+    // ✅ TwiML with <Stream url="wss://...">
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>

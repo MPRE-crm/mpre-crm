@@ -42,7 +42,7 @@ async function startLeadListener() {
 }
 
 // Ensure it starts only once in dev
-if (!globalThis._leadListenerStarted) {
+if (!(globalThis as any)._leadListenerStarted) {
   startLeadListener();
-  globalThis._leadListenerStarted = true;
+  (globalThis as any)._leadListenerStarted = true;
 }
