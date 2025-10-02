@@ -6,7 +6,7 @@ const googleAuthRoutes = require('./routes/googleAuth');  // Import routes from 
 const calendarRoutes = require('./routes/calendarRoutes');  // Import routes for calendar actions
 
 // 🔹 FIX: correct relative path to opening.js
-const SAMANTHA_OPENING_TRIAGE = require('../lib/prompts/opening.js');
+const SAMANTHA_OPENING_TRIAGE = require('./lib/prompts/opening.js');
 
 dotenv.config();
 
