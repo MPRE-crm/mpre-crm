@@ -4,7 +4,7 @@ const express = require('express');
 const app = express();
 
 // 🔹 Import Samantha opening prompt
-import SAMANTHA_OPENING_TRIAGE from "./app/lib/prompts/opening.js";
+import SAMANTHA_OPENING_TRIAGE from "./crm/app/lib/prompts/opening.js";
 
 // Import routes
 const appointmentRoutes = require('./src/app/routes/appointmentRoutes');
