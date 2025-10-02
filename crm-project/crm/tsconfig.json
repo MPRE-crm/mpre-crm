@@ -26,10 +26,11 @@
   },
   "include": [
     "next-env.d.ts",
-    ".next/types/**/*.ts",
     "**/*.ts",
-    "**/*.tsx"
-, "app/dashboard/flows/list", "lib/leadListener.mjs"  ],
+    "**/*.tsx",
+    "app/dashboard/flows/list",
+    "lib/leadListener.mjs"
+  ],
   "exclude": [
     "node_modules"
   ]
