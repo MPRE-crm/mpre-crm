@@ -195,6 +195,7 @@ wss.on("connection", async (ws, req) => {
   });
 });
 
-server.listen(8081, () => {
-  console.log("WS bridge listening on :8081");
+const PORT = process.env.PORT || 8080;
+server.listen(PORT, () => {
+  console.log(`WS bridge listening on :${PORT}`);
 });
