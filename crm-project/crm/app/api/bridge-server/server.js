@@ -224,7 +224,7 @@ wss.on("connection", async (ws, req) => {
   });
 });
 
-const PORT = 8081; // force bridge to run on its own port
+const PORT = process.env.PORT || 8081;
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`WS bridge listening on :${PORT}`);
 });
