@@ -4,7 +4,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "concurrently \"next start\" \"node crm-project/crm/app/api/bridge-server/server.js\""
+    "start": "node crm-project/crm/app/api/bridge-server/server.js"
   },
   "dependencies": {
     "@next-auth/supabase-adapter": "^0.2.1",
