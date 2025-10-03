@@ -224,7 +224,7 @@ wss.on("connection", async (ws, req) => {
   });
 });
 
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT;  // remove the fallback
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`WS bridge listening on :${PORT}`);
 });
