@@ -110,7 +110,7 @@ wss.on("connection", async (ws, req) => {
       if (data.type === "response.output_audio.delta") {
         console.log(`[oa][audio] delta received → ${data.delta?.length || 0} bytes`);
 
-        // 🔹 NEW: Forward audio delta back to Twilio
+        // 🔹 Forward OA audio delta back to Twilio
         if (currentStreamSid && data.delta) {
           const twilioFrame = {
             event: "media",
@@ -164,6 +164,18 @@ wss.on("connection", async (ws, req) => {
       const len = data.media?.payload?.length ?? 0;
       console.log(`[twilio][media] payload length=${len}`);
 
+      // 🔹 ECHO TEST — send Twilio’s own audio straight back
+      if (currentStreamSid && len > 0) {
+        const echoFrame = {
+          event: "media",
+          streamSid: currentStreamSid,
+          media: { payload: data.media.payload },
+        };
+        ws.send(JSON.stringify(echoFrame));
+        console.log(`[ECHO] looped back ${len} bytes to Twilio`);
+      }
+
+      // 🔹 Normal OA pipeline
       if (oaReady && len > 0) {
         const chunk = Buffer.from(data.media.payload, "base64");
         ulawBuffer = Buffer.concat([ulawBuffer, chunk]);
@@ -212,6 +224,6 @@ wss.on("connection", async (ws, req) => {
 });
 
 const PORT = 8081; // force bridge to run on its own port
-server.listen(PORT, '0.0.0.0', () => {
+server.listen(PORT, "0.0.0.0", () => {
   console.log(`WS bridge listening on :${PORT}`);
 });
