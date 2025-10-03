@@ -48,6 +48,7 @@ wss.on("connection", async (ws, req) => {
 
   let oaReady = false;
   let ulawBuffer = Buffer.alloc(0);
+  let currentStreamSid = null; // 🔹 Track Twilio streamSid
 
   // 🔹 Opening prompt (& source) — default to opening.js
   let openingPrompt = SAMANTHA_OPENING_TRIAGE;
@@ -105,8 +106,22 @@ wss.on("connection", async (ws, req) => {
       }
 
       if (data.type === "response.created") console.log("[oa] response.created");
-      if (data.type === "response.output_audio.delta")
+
+      if (data.type === "response.output_audio.delta") {
         console.log(`[oa][audio] delta received → ${data.delta?.length || 0} bytes`);
+
+        // 🔹 NEW: Forward audio delta back to Twilio
+        if (currentStreamSid && data.delta) {
+          const twilioFrame = {
+            event: "media",
+            streamSid: currentStreamSid,
+            media: { payload: data.delta }, // already base64 μ-law from OA
+          };
+          ws.send(JSON.stringify(twilioFrame));
+          console.log(`[bridge → twilio] sent ${data.delta.length} bytes`);
+        }
+      }
+
       if (data.type === "response.output_audio.done")
         console.log("[oa][audio] output_audio DONE");
       if (data.type === "response.done") console.log("[oa] response.done");
@@ -127,6 +142,7 @@ wss.on("connection", async (ws, req) => {
 
     if (data.event === "start") {
       console.log("[twilio] start", data.start);
+      currentStreamSid = data.start?.streamSid || null; // 🔹 capture streamSid
 
       const custom = data.start?.customParameters || {};
       if (custom.meta_b64) {
@@ -195,7 +211,7 @@ wss.on("connection", async (ws, req) => {
   });
 });
 
-const PORT = 8081;
-server.listen(PORT, () => {
+const PORT = process.env.PORT || 8081;
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`WS bridge listening on :${PORT}`);
 });
