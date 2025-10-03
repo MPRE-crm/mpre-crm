@@ -26,7 +26,8 @@ function decodeB64(s) {
 
 // --- Upgrade to WS ---
 server.on("upgrade", (req, socket, head) => {
-  if (req.url === "/bridge") {
+  // 🔹 allow query params, not just exact /bridge
+  if (req.url && req.url.startsWith("/bridge")) {
     wss.handleUpgrade(req, socket, head, (ws) => {
       wss.emit("connection", ws, req);
     });
