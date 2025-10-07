@@ -102,10 +102,7 @@ wss.on("connection", async (ws, req) => {
             audio: { voice: "alloy" },
           },
         };
-        console.log(
-          "➡️ [oa][send] response.create",
-          JSON.stringify(openingMsg, null, 2)
-        );
+        console.log("➡️ [oa][send] response.create", JSON.stringify(openingMsg, null, 2));
         oa.send(JSON.stringify(openingMsg));
       }
 
@@ -119,6 +116,11 @@ wss.on("connection", async (ws, req) => {
           ws.send(JSON.stringify(twilioFrame));
         }
       }
+
+      if (data.type === "response.output_audio.done")
+        console.log("[oa] response.output_audio.done");
+      if (data.type === "response.done") console.log("[oa] response.done");
+      if (data.type === "error") console.error("[oa] error", JSON.stringify(data, null, 2));
     } catch (e) {
       console.error("[oa] parse error", e);
     }
@@ -152,15 +154,7 @@ wss.on("connection", async (ws, req) => {
     if (data.event === "media") {
       const len = data.media?.payload?.length ?? 0;
 
-      if (currentStreamSid && len > 0) {
-        const echoFrame = {
-          event: "media",
-          streamSid: currentStreamSid,
-          media: { payload: data.media.payload },
-        };
-        ws.send(JSON.stringify(echoFrame));
-      }
-
+      // 🔹 Process normal OA pipeline
       if (oaReady && len > 0) {
         const chunk = Buffer.from(data.media.payload, "base64");
         ulawBuffer = Buffer.concat([ulawBuffer, chunk]);
@@ -195,11 +189,12 @@ wss.on("connection", async (ws, req) => {
   });
 
   ws.on("close", () => {
+    console.log("[bridge] client disconnected");
     oa.close();
   });
 });
 
 const PORT = process.env.PORT;
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`WS bridge listening on :${PORT}`);
+  console.log(`✅ WS bridge listening on :${PORT}`);
 });
