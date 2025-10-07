@@ -26,12 +26,17 @@ function decodeB64(s) {
 
 // --- Upgrade to WS ---
 server.on("upgrade", (req, socket, head) => {
-  // 🔹 check for the mounted path under Next.js
-  if (req.url && (req.url === "/bridge" || req.url === "/app/api/bridge-server/bridge")) {
+  // ✅ allow Twilio to connect to /bridge or /app/api/bridge-server/bridge (with or without query params)
+  if (
+    req.url &&
+    (req.url.startsWith("/bridge") ||
+      req.url.startsWith("/app/api/bridge-server/bridge"))
+  ) {
     wss.handleUpgrade(req, socket, head, (ws) => {
       wss.emit("connection", ws, req);
     });
   } else {
+    console.warn("[bridge] rejected upgrade for URL:", req.url);
     socket.destroy();
   }
 });
@@ -83,7 +88,11 @@ wss.on("connection", async (ws, req) => {
 
         console.log(`🔊 [bridge] Opening source → ${openingSource}`);
         const preview = (openingPrompt || "").replace(/\s+/g, " ").slice(0, 120);
-        console.log(`📝 [bridge] Opening preview: "${preview}${openingPrompt.length > 120 ? "…" : ""}"`);
+        console.log(
+          `📝 [bridge] Opening preview: "${preview}${
+            openingPrompt.length > 120 ? "…" : ""
+          }"`
+        );
 
         const openingMsg = {
           type: "response.create",
@@ -93,7 +102,10 @@ wss.on("connection", async (ws, req) => {
             audio: { voice: "alloy" },
           },
         };
-        console.log("➡️ [oa][send] response.create", JSON.stringify(openingMsg, null, 2));
+        console.log(
+          "➡️ [oa][send] response.create",
+          JSON.stringify(openingMsg, null, 2)
+        );
         oa.send(JSON.stringify(openingMsg));
       }
 
@@ -191,4 +203,3 @@ const PORT = process.env.PORT;
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`WS bridge listening on :${PORT}`);
 });
-
