@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
     // ✅ Correct WSS bridge URL for Twilio <Stream>
     const streamUrl =
       process.env.PUBLIC_BRIDGE_WSS_URL?.trim() ||
-      "wss://charismatic-liberation.up.railway.app/app/api/bridge-server/bridge";
+      "wss://charismatic-liberation.up.railway.app/bridge";
 
     console.log("📡 [ai-stream] Preparing TwiML", {
       callSid,
