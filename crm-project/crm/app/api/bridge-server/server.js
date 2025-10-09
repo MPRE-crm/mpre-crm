@@ -58,23 +58,27 @@ wss.on("connection", async (ws, req) => {
       })
     );
 
-    // ✅ Fallback greeting after session update
+    // ✅ Fallback greeting if session.updated not received quickly
     setTimeout(() => {
       if (!oaReady) {
-        console.log("🌟 [oa] Fallback — sending greeting immediately");
+        console.log("🌟 [oa] Fallback — sending greeting via response.create");
         const greeting = {
           type: "response.create",
           response: {
-            modalities: ["audio", "text"],
             instructions: openingPrompt,
-            audio_format: "g711_ulaw",
-            voice: "alloy",
+            conversation: "none",
+            output_modalities: ["audio"],
+            audio: {
+              voice: "alloy",
+              format: { type: "g711_ulaw", rate: 8000 },
+            },
+            metadata: { response_purpose: "greeting" },
           },
         };
         oa.send(JSON.stringify(greeting));
         oaReady = true;
       }
-    }, 600);
+    }, 800);
   });
 
   oa.on("message", (msg) => {
@@ -84,14 +88,18 @@ wss.on("connection", async (ws, req) => {
       if (data.type === "session.updated") {
         console.log("🌟 [oa] SESSION UPDATED — now ready");
         oaReady = true;
-        // Send greeting once officially ready
+
         const greeting = {
           type: "response.create",
           response: {
-            modalities: ["audio", "text"],
             instructions: openingPrompt,
-            audio_format: "g711_ulaw",
-            voice: "alloy",
+            conversation: "none",
+            output_modalities: ["audio"],
+            audio: {
+              voice: "alloy",
+              format: { type: "g711_ulaw", rate: 8000 },
+            },
+            metadata: { response_purpose: "greeting" },
           },
         };
         oa.send(JSON.stringify(greeting));
@@ -107,7 +115,9 @@ wss.on("connection", async (ws, req) => {
         );
       }
 
-      if (data.type === "error") console.error("[oa] error", data.error?.message);
+      if (data.type === "error") {
+        console.error("[oa] error", data.error?.message || JSON.stringify(data));
+      }
     } catch (e) {
       console.error("[oa] parse error", e);
     }
