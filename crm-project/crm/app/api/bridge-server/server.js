@@ -58,7 +58,7 @@ wss.on("connection", async (ws, req) => {
       })
     );
 
-    // fallback if delayed
+    // Fallback greeting if delayed
     setTimeout(() => {
       if (!oaReady) {
         console.log("🌟 [oa] Fallback — sending greeting immediately");
@@ -68,7 +68,7 @@ wss.on("connection", async (ws, req) => {
             instructions: openingPrompt,
             modalities: ["audio"],
             conversation: "none",
-            audio: {
+            audio_output: {
               voice: "alloy",
               format: { type: "audio/pcm", rate: 24000 },
             },
@@ -95,7 +95,7 @@ wss.on("connection", async (ws, req) => {
             instructions: openingPrompt,
             modalities: ["audio"],
             conversation: "none",
-            audio: {
+            audio_output: {
               voice: "alloy",
               format: { type: "audio/pcm", rate: 24000 },
             },
