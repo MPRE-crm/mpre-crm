@@ -67,8 +67,12 @@ wss.on("connection", async (ws, req) => {
           response: {
             modalities: ["audio", "text"],
             instructions: openingPrompt,
-            audio_format: "g711_ulaw",
-            voice: "alloy",
+            audio: {
+              output: {
+                format: { type: "audio/pcm", rate: 24000 },
+                voice: "alloy",
+              },
+            },
           },
         };
         oa.send(JSON.stringify(greeting));
@@ -91,8 +95,12 @@ wss.on("connection", async (ws, req) => {
           response: {
             modalities: ["audio", "text"],
             instructions: openingPrompt,
-            audio_format: "g711_ulaw",
-            voice: "alloy",
+            audio: {
+              output: {
+                format: { type: "audio/pcm", rate: 24000 },
+                voice: "alloy",
+              },
+            },
           },
         };
         oa.send(JSON.stringify(greeting));
