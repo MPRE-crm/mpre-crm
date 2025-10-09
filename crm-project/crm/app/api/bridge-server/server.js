@@ -1,3 +1,4 @@
+// crm-project/crm/app/api/bridge-server/server.js
 import "dotenv/config";
 import WebSocket, { WebSocketServer } from "ws";
 import http from "http";
@@ -60,35 +61,45 @@ wss.on("connection", async (ws, req) => {
   });
 
   oa.on("message", (msg) => {
-    const data = JSON.parse(msg.toString());
+    try {
+      const data = JSON.parse(msg.toString());
 
-    if (data.type === "session.updated") {
-      console.log("🌟 [oa] READY — sending Samantha greeting");
-      oaReady = true;
+      if (data.type === "session.updated") {
+        console.log("🌟 [oa] READY — sending Samantha greeting");
+        oaReady = true;
 
-      const openingMsg = {
-        type: "response.create",
-        response: {
-          instructions: openingPrompt,
-          modalities: ["audio", "text"],
-          audio: { voice: "alloy" },
-        },
-      };
+        const openingMsg = {
+          type: "response.create",
+          response: {
+            instructions: openingPrompt,
+            modalities: ["audio", "text"],
+            output_audio: { voice: "alloy" },
+          },
+        };
 
-      oa.send(JSON.stringify(openingMsg));
+        console.log(
+          "➡️ [oa][send] response.create",
+          JSON.stringify(openingMsg, null, 2)
+        );
+        oa.send(JSON.stringify(openingMsg));
+      }
+
+      if (data.type === "response.output_audio.delta" && currentStreamSid && data.delta) {
+        ws.send(
+          JSON.stringify({
+            event: "media",
+            streamSid: currentStreamSid,
+            media: { payload: data.delta },
+          })
+        );
+      }
+
+      if (data.type === "error") {
+        console.error("[oa] error", JSON.stringify(data, null, 2));
+      }
+    } catch (e) {
+      console.error("[oa] parse error", e);
     }
-
-    if (data.type === "response.output_audio.delta" && currentStreamSid && data.delta) {
-      ws.send(
-        JSON.stringify({
-          event: "media",
-          streamSid: currentStreamSid,
-          media: { payload: data.delta },
-        })
-      );
-    }
-
-    if (data.type === "error") console.error("[oa] error", JSON.stringify(data, null, 2));
   });
 
   ws.on("message", (msg) => {
@@ -104,21 +115,21 @@ wss.on("connection", async (ws, req) => {
             openingPrompt = meta.opening;
             openingSource = "meta_b64 (ai-stream)";
           }
-        } catch {}
+        } catch {
+          console.warn("[bridge] failed to parse meta_b64");
+        }
       }
     }
 
     if (data.event === "media" && oaReady) {
       const chunk = Buffer.from(data.media?.payload ?? "", "base64");
       if (!chunk.length) return;
-
+      firstAudio = true;
       ulawBuffer = Buffer.concat([ulawBuffer, chunk]);
 
-      // ✅ Require at least 2400 bytes (~120ms) before commit
       if (ulawBuffer.length >= 2400) {
-        firstAudio = true;
-        const sendBuf = ulawBuffer;
-        ulawBuffer = Buffer.alloc(0);
+        const sendBuf = ulawBuffer.slice(0, 2400);
+        ulawBuffer = ulawBuffer.slice(2400);
 
         oa.send(
           JSON.stringify({
@@ -140,6 +151,8 @@ wss.on("connection", async (ws, req) => {
           })
         );
         oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+      } else {
+        console.log("[bridge] no buffered audio; skipping commit");
       }
       ulawBuffer = Buffer.alloc(0);
     }
@@ -151,7 +164,7 @@ wss.on("connection", async (ws, req) => {
   });
 });
 
-const PORT = process.env.PORT;
+const PORT = process.env.PORT || 8080;
 server.listen(PORT, "0.0.0.0", () =>
   console.log(`✅ WS bridge listening on :${PORT}`)
 );
