@@ -62,19 +62,23 @@ wss.on("connection", async (ws, req) => {
 
   oa.on("message", (msg) => {
     const data = JSON.parse(msg.toString());
+
     if (data.type === "session.updated") {
-      console.log("🌟 [oa] READY");
+      console.log("🌟 [oa] READY — sending Samantha’s greeting");
+
       oaReady = true;
-      oa.send(
-        JSON.stringify({
-          type: "response.create",
-          response: {
-            instructions: openingPrompt,
-            modalities: ["audio", "text"],
-            output_audio: { voice: "alloy" },
-          },
-        })
-      );
+
+      const openingMsg = {
+        type: "response.create",
+        response: {
+          instructions: openingPrompt,
+          modalities: ["audio", "text"],
+          audio: { voice: "alloy" }, // ✅ fixed key
+        },
+      };
+
+      console.log("[oa][send]", JSON.stringify(openingMsg));
+      oa.send(JSON.stringify(openingMsg));
     }
 
     if (data.type === "response.output_audio.delta" && currentStreamSid && data.delta) {
@@ -87,8 +91,7 @@ wss.on("connection", async (ws, req) => {
       );
     }
 
-    if (data.type === "error")
-      console.error("[oa] error", JSON.stringify(data, null, 2));
+    if (data.type === "error") console.error("[oa] error", JSON.stringify(data, null, 2));
   });
 
   ws.on("message", (msg) => {
@@ -112,7 +115,6 @@ wss.on("connection", async (ws, req) => {
       const chunk = Buffer.from(data.media?.payload ?? "", "base64");
       if (!chunk.length) return;
 
-      // Append and only start committing after we have 8+ frames (~1600 bytes)
       ulawBuffer = Buffer.concat([ulawBuffer, chunk]);
 
       if (ulawBuffer.length >= 1600) {
