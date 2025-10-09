@@ -46,7 +46,9 @@ wss.on("connection", async (ws, req) => {
   let openingPrompt = SAMANTHA_OPENING_TRIAGE;
 
   oa.on("open", () => {
-    console.log("[oa] connected — updating session");
+    console.log("[oa] connected — initializing Samantha session");
+
+    // ✅ Send session.update (not session.create)
     oa.send(
       JSON.stringify({
         type: "session.update",
@@ -57,28 +59,29 @@ wss.on("connection", async (ws, req) => {
         },
       })
     );
+
+    // ✅ Fallback: trigger greeting immediately after open
+    setTimeout(() => {
+      console.log("🌟 [oa] Fallback — sending greeting immediately");
+      const greeting = {
+        type: "response.create",
+        response: {
+          modalities: ["audio", "text"],
+          instructions: openingPrompt,
+          output_audio: { voice: "alloy" },
+        },
+      };
+      oa.send(JSON.stringify(greeting));
+      oaReady = true;
+    }, 500); // half-second delay for handshake stability
   });
 
   oa.on("message", (msg) => {
     try {
       const data = JSON.parse(msg.toString());
-
       if (data.type === "session.updated") {
-        console.log("🌟 [oa] SESSION UPDATED — ready to speak");
+        console.log("🌟 [oa] SESSION UPDATED — now ready");
         oaReady = true;
-
-        // ✅ Use correct key `output_audio` instead of `response.audio`
-        const greeting = {
-          type: "response.create",
-          response: {
-            modalities: ["audio", "text"],
-            instructions: openingPrompt,
-            output_audio: { voice: "alloy" },
-          },
-        };
-
-        console.log("➡️ [oa][send] response.create (greeting)");
-        oa.send(JSON.stringify(greeting));
       }
 
       if (data.type === "response.output_audio.delta" && currentStreamSid && data.delta) {
@@ -91,7 +94,9 @@ wss.on("connection", async (ws, req) => {
         );
       }
 
-      if (data.type === "error") console.error("[oa] error", data.error?.message);
+      if (data.type === "error") {
+        console.error("[oa] error", data.error?.message);
+      }
     } catch (e) {
       console.error("[oa] parse error", e);
     }
@@ -121,24 +126,21 @@ wss.on("connection", async (ws, req) => {
     if (data.event === "media" && oaReady) {
       const chunk = Buffer.from(data.media?.payload ?? "", "base64");
       if (!chunk.length) return;
-      firstAudio = true;
+
       ulawBuffer = Buffer.concat([ulawBuffer, chunk]);
+      if (ulawBuffer.length < 800) return; // wait for 100ms of audio
 
-      if (ulawBuffer.length >= 2000) {
-        const sendBuf = ulawBuffer.slice(0, 2000);
-        ulawBuffer = ulawBuffer.slice(2000);
+      firstAudio = true;
+      const sendBuf = ulawBuffer.slice(0, 800);
+      ulawBuffer = ulawBuffer.slice(800);
 
-        oa.send(
-          JSON.stringify({
-            type: "input_audio_buffer.append",
-            audio: sendBuf.toString("base64"),
-          })
-        );
-
-        if (sendBuf.length >= 2000) {
-          oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
-        }
-      }
+      oa.send(
+        JSON.stringify({
+          type: "input_audio_buffer.append",
+          audio: sendBuf.toString("base64"),
+        })
+      );
+      oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
     }
 
     if (data.event === "stop") {
