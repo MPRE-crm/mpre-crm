@@ -1,4 +1,3 @@
-// crm-project/crm/app/api/bridge-server/server.js
 import "dotenv/config";
 import WebSocket, { WebSocketServer } from "ws";
 import http from "http";
@@ -64,8 +63,7 @@ wss.on("connection", async (ws, req) => {
     const data = JSON.parse(msg.toString());
 
     if (data.type === "session.updated") {
-      console.log("🌟 [oa] READY — sending Samantha’s greeting");
-
+      console.log("🌟 [oa] READY — sending Samantha greeting");
       oaReady = true;
 
       const openingMsg = {
@@ -73,11 +71,10 @@ wss.on("connection", async (ws, req) => {
         response: {
           instructions: openingPrompt,
           modalities: ["audio", "text"],
-          audio: { voice: "alloy" }, // ✅ fixed key
+          audio: { voice: "alloy" },
         },
       };
 
-      console.log("[oa][send]", JSON.stringify(openingMsg));
       oa.send(JSON.stringify(openingMsg));
     }
 
@@ -117,7 +114,8 @@ wss.on("connection", async (ws, req) => {
 
       ulawBuffer = Buffer.concat([ulawBuffer, chunk]);
 
-      if (ulawBuffer.length >= 1600) {
+      // ✅ Require at least 2400 bytes (~120ms) before commit
+      if (ulawBuffer.length >= 2400) {
         firstAudio = true;
         const sendBuf = ulawBuffer;
         ulawBuffer = Buffer.alloc(0);
