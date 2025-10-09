@@ -58,7 +58,7 @@ wss.on("connection", async (ws, req) => {
       })
     );
 
-    // ✅ Fallback greeting if delayed
+    // fallback if delayed
     setTimeout(() => {
       if (!oaReady) {
         console.log("🌟 [oa] Fallback — sending greeting immediately");
@@ -69,10 +69,8 @@ wss.on("connection", async (ws, req) => {
             modalities: ["audio"],
             conversation: "none",
             audio: {
-              output: {
-                format: { type: "audio/pcm", rate: 24000 },
-                voice: "alloy",
-              },
+              voice: "alloy",
+              format: { type: "audio/pcm", rate: 24000 },
             },
           },
         };
@@ -91,7 +89,6 @@ wss.on("connection", async (ws, req) => {
         console.log("🌟 [oa] SESSION UPDATED — now ready");
         oaReady = true;
 
-        // ✅ Explicit greeting trigger per OpenAI Realtime spec
         const greeting = {
           type: "response.create",
           response: {
@@ -99,10 +96,8 @@ wss.on("connection", async (ws, req) => {
             modalities: ["audio"],
             conversation: "none",
             audio: {
-              output: {
-                format: { type: "audio/pcm", rate: 24000 },
-                voice: "alloy",
-              },
+              voice: "alloy",
+              format: { type: "audio/pcm", rate: 24000 },
             },
           },
         };
@@ -148,15 +143,12 @@ wss.on("connection", async (ws, req) => {
       }
     }
 
-    // Append continuously — do NOT commit until stop or silence
     if (data.event === "media" && oaReady) {
       const chunk = Buffer.from(data.media?.payload ?? "", "base64");
       if (!chunk.length) return;
-
       ulawBuffer = Buffer.concat([ulawBuffer, chunk]);
       firstAudio = true;
 
-      // Append without committing (collect multiple chunks)
       if (ulawBuffer.length >= 1600) {
         oa.send(
           JSON.stringify({
@@ -164,11 +156,10 @@ wss.on("connection", async (ws, req) => {
             audio: ulawBuffer.toString("base64"),
           })
         );
-        ulawBuffer = Buffer.alloc(0); // reset local buffer
+        ulawBuffer = Buffer.alloc(0);
       }
     }
 
-    // Commit only when stop event (end of speech)
     if (data.event === "stop") {
       console.log("[bridge] stop received");
       if (firstAudio) {
