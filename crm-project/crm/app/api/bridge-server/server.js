@@ -14,6 +14,7 @@ const OA_PROJECT_ID = process.env.OPENAI_PROJECT_ID;
 const OA_URL =
   "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17";
 
+// --- Helpers ---
 function decodeB64(s) {
   try {
     return Buffer.from(s, "base64").toString("utf8");
@@ -22,6 +23,7 @@ function decodeB64(s) {
   }
 }
 
+// --- Upgrade handler ---
 server.on("upgrade", (req, socket, head) => {
   if (req.url?.includes("/bridge")) {
     wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
@@ -31,6 +33,7 @@ server.on("upgrade", (req, socket, head) => {
 wss.on("connection", async (ws, req) => {
   console.log("[bridge] client connected from", req.socket.remoteAddress);
 
+  // Create connection to OpenAI realtime API
   const oa = new WebSocket(OA_URL, {
     headers: {
       Authorization: `Bearer ${OA_API_KEY}`,
@@ -43,16 +46,16 @@ wss.on("connection", async (ws, req) => {
   let ulawBuffer = Buffer.alloc(0);
   let currentStreamSid = null;
   let firstAudio = false;
-
   let openingPrompt = SAMANTHA_OPENING_TRIAGE;
-  let openingSource = "opening.js (fallback)";
 
+  // --- OpenAI Handshake ---
   oa.on("open", () => {
-    console.log("[oa] connected");
+    console.log("[oa] connected — initializing session");
     oa.send(
       JSON.stringify({
-        type: "session.update",
+        type: "session.create",
         session: {
+          voice: "alloy",
           input_audio_format: "g711_ulaw",
           output_audio_format: "g711_ulaw",
         },
@@ -60,30 +63,30 @@ wss.on("connection", async (ws, req) => {
     );
   });
 
+  // --- Handle OpenAI messages ---
   oa.on("message", (msg) => {
     try {
       const data = JSON.parse(msg.toString());
 
-      if (data.type === "session.updated") {
-        console.log("🌟 [oa] READY — sending Samantha greeting");
+      // Session confirmation
+      if (data.type === "session.created") {
+        console.log("🌟 [oa] SESSION CREATED — ready to speak");
         oaReady = true;
 
-        const openingMsg = {
+        // Send the opening greeting
+        const greeting = {
           type: "response.create",
           response: {
-            instructions: openingPrompt,
             modalities: ["audio", "text"],
-            output_audio: { voice: "alloy" },
+            instructions: openingPrompt,
+            audio: { voice: "alloy" },
           },
         };
-
-        console.log(
-          "➡️ [oa][send] response.create",
-          JSON.stringify(openingMsg, null, 2)
-        );
-        oa.send(JSON.stringify(openingMsg));
+        console.log("➡️ [oa][send] response.create (greeting)");
+        oa.send(JSON.stringify(greeting));
       }
 
+      // Stream Samantha’s audio back to Twilio
       if (data.type === "response.output_audio.delta" && currentStreamSid && data.delta) {
         ws.send(
           JSON.stringify({
@@ -94,16 +97,20 @@ wss.on("connection", async (ws, req) => {
         );
       }
 
-      if (data.type === "error") {
-        console.error("[oa] error", JSON.stringify(data, null, 2));
-      }
+      if (data.type === "error") console.error("[oa] error", data.error?.message);
     } catch (e) {
       console.error("[oa] parse error", e);
     }
   });
 
+  // --- Handle Twilio stream events ---
   ws.on("message", (msg) => {
-    const data = JSON.parse(msg.toString());
+    let data;
+    try {
+      data = JSON.parse(msg.toString());
+    } catch {
+      return;
+    }
 
     if (data.event === "start") {
       currentStreamSid = data.start?.streamSid;
@@ -111,10 +118,7 @@ wss.on("connection", async (ws, req) => {
       if (meta_b64) {
         try {
           const meta = JSON.parse(decodeB64(meta_b64));
-          if (meta?.opening) {
-            openingPrompt = meta.opening;
-            openingSource = "meta_b64 (ai-stream)";
-          }
+          if (meta?.opening) openingPrompt = meta.opening;
         } catch {
           console.warn("[bridge] failed to parse meta_b64");
         }
@@ -124,12 +128,14 @@ wss.on("connection", async (ws, req) => {
     if (data.event === "media" && oaReady) {
       const chunk = Buffer.from(data.media?.payload ?? "", "base64");
       if (!chunk.length) return;
-      firstAudio = true;
-      ulawBuffer = Buffer.concat([ulawBuffer, chunk]);
 
-      if (ulawBuffer.length >= 2400) {
-        const sendBuf = ulawBuffer.slice(0, 2400);
-        ulawBuffer = ulawBuffer.slice(2400);
+      ulawBuffer = Buffer.concat([ulawBuffer, chunk]);
+      firstAudio = true;
+
+      // Only commit when we have >= 2000 bytes (~100ms) of audio
+      if (ulawBuffer.length >= 2000) {
+        const sendBuf = ulawBuffer.slice(0, 2000);
+        ulawBuffer = ulawBuffer.slice(2000);
 
         oa.send(
           JSON.stringify({
@@ -137,13 +143,17 @@ wss.on("connection", async (ws, req) => {
             audio: sendBuf.toString("base64"),
           })
         );
-        oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+
+        // Commit only if buffer had real audio
+        if (sendBuf.length >= 2000) {
+          oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+        }
       }
     }
 
     if (data.event === "stop") {
       console.log("[bridge] stop received");
-      if (ulawBuffer.length > 0 && firstAudio) {
+      if (firstAudio && ulawBuffer.length > 0) {
         oa.send(
           JSON.stringify({
             type: "input_audio_buffer.append",
@@ -151,8 +161,6 @@ wss.on("connection", async (ws, req) => {
           })
         );
         oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
-      } else {
-        console.log("[bridge] no buffered audio; skipping commit");
       }
       ulawBuffer = Buffer.alloc(0);
     }
