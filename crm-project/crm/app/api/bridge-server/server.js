@@ -1,3 +1,4 @@
+// crm-project/crm/app/api/bridge-server/server.js
 import "dotenv/config";
 import WebSocket, { WebSocketServer } from "ws";
 import http from "http";
@@ -22,7 +23,7 @@ function decodeB64(s) {
 }
 
 server.on("upgrade", (req, socket, head) => {
-  if (req.url?.startsWith("/bridge") || req.url?.startsWith("/app/api/bridge-server/bridge")) {
+  if (req.url?.includes("/bridge")) {
     wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
   } else socket.destroy();
 });
@@ -41,8 +42,7 @@ wss.on("connection", async (ws, req) => {
   let oaReady = false;
   let ulawBuffer = Buffer.alloc(0);
   let currentStreamSid = null;
-  let opened = false;
-  let commitInterval = null;
+  let firstAudio = false;
 
   let openingPrompt = SAMANTHA_OPENING_TRIAGE;
   let openingSource = "opening.js (fallback)";
@@ -62,19 +62,19 @@ wss.on("connection", async (ws, req) => {
 
   oa.on("message", (msg) => {
     const data = JSON.parse(msg.toString());
-    if (data.type === "session.created") console.log("[oa] session.created");
     if (data.type === "session.updated") {
-      console.log("🌟 [oa] SESSION UPDATED → Samantha is READY to speak!");
+      console.log("🌟 [oa] READY");
       oaReady = true;
-      const openingMsg = {
-        type: "response.create",
-        response: {
-          instructions: openingPrompt,
-          modalities: ["audio", "text"],
-          output_audio: { voice: "alloy" },
-        },
-      };
-      oa.send(JSON.stringify(openingMsg));
+      oa.send(
+        JSON.stringify({
+          type: "response.create",
+          response: {
+            instructions: openingPrompt,
+            modalities: ["audio", "text"],
+            output_audio: { voice: "alloy" },
+          },
+        })
+      );
     }
 
     if (data.type === "response.output_audio.delta" && currentStreamSid && data.delta) {
@@ -91,17 +91,15 @@ wss.on("connection", async (ws, req) => {
       console.error("[oa] error", JSON.stringify(data, null, 2));
   });
 
-  // ------------- Twilio → OA streaming -------------
   ws.on("message", (msg) => {
     const data = JSON.parse(msg.toString());
 
     if (data.event === "start") {
-      currentStreamSid = data.start?.streamSid || null;
-      const custom = data.start?.customParameters || {};
-      if (custom.meta_b64) {
-        const decoded = decodeB64(custom.meta_b64);
+      currentStreamSid = data.start?.streamSid;
+      const meta_b64 = data.start?.customParameters?.meta_b64;
+      if (meta_b64) {
         try {
-          const meta = JSON.parse(decoded);
+          const meta = JSON.parse(decodeB64(meta_b64));
           if (meta?.opening) {
             openingPrompt = meta.opening;
             openingSource = "meta_b64 (ai-stream)";
@@ -112,48 +110,48 @@ wss.on("connection", async (ws, req) => {
 
     if (data.event === "media" && oaReady) {
       const chunk = Buffer.from(data.media?.payload ?? "", "base64");
-      if (!opened) {
-        console.log("[bridge] first audio chunk received from Twilio");
-        opened = true;
-        commitInterval = setInterval(() => {
-          if (ulawBuffer.length >= 1600) {
-            const sendBuf = ulawBuffer;
-            ulawBuffer = Buffer.alloc(0);
-            oa.send(
-              JSON.stringify({
-                type: "input_audio_buffer.append",
-                audio: sendBuf.toString("base64"),
-              })
-            );
-            oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
-          }
-        }, 250); // every 250 ms
-      }
+      if (!chunk.length) return;
+
+      // Append and only start committing after we have 8+ frames (~1600 bytes)
       ulawBuffer = Buffer.concat([ulawBuffer, chunk]);
+
+      if (ulawBuffer.length >= 1600) {
+        firstAudio = true;
+        const sendBuf = ulawBuffer;
+        ulawBuffer = Buffer.alloc(0);
+
+        oa.send(
+          JSON.stringify({
+            type: "input_audio_buffer.append",
+            audio: sendBuf.toString("base64"),
+          })
+        );
+        oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+      }
     }
 
     if (data.event === "stop") {
-      console.log("[bridge] stop event received");
-      if (commitInterval) clearInterval(commitInterval);
-      if (ulawBuffer.length > 0) {
+      console.log("[bridge] stop received");
+      if (ulawBuffer.length > 0 && firstAudio) {
         oa.send(
           JSON.stringify({
             type: "input_audio_buffer.append",
             audio: ulawBuffer.toString("base64"),
           })
         );
+        oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
       }
-      oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
       ulawBuffer = Buffer.alloc(0);
     }
   });
 
   ws.on("close", () => {
     console.log("[bridge] client disconnected");
-    if (commitInterval) clearInterval(commitInterval);
     oa.close();
   });
 });
 
 const PORT = process.env.PORT;
-server.listen(PORT, "0.0.0.0", () => console.log(`✅ WS bridge listening on :${PORT}`));
+server.listen(PORT, "0.0.0.0", () =>
+  console.log(`✅ WS bridge listening on :${PORT}`)
+);
