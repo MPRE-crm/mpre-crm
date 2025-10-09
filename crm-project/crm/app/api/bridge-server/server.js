@@ -12,6 +12,7 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({ noServer: true });
 
 const OA_API_KEY = process.env.OPENAI_API_KEY;
+const OA_PROJECT_ID = process.env.OPENAI_PROJECT_ID; // 👈 added
 const OA_URL =
   "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17";
 
@@ -26,7 +27,6 @@ function decodeB64(s) {
 
 // --- Upgrade to WS ---
 server.on("upgrade", (req, socket, head) => {
-  // ✅ allow Twilio to connect to /bridge or /app/api/bridge-server/bridge (with or without query params)
   if (
     req.url &&
     (req.url.startsWith("/bridge") ||
@@ -44,11 +44,12 @@ server.on("upgrade", (req, socket, head) => {
 wss.on("connection", async (ws, req) => {
   console.log("[bridge] client connected from", req.socket.remoteAddress);
 
-  // Connect to OpenAI Realtime
+  // ✅ Include Project header for sk-proj- keys
   const oa = new WebSocket(OA_URL, {
     headers: {
       Authorization: `Bearer ${OA_API_KEY}`,
       "OpenAI-Beta": "realtime=v1",
+      "OpenAI-Project": OA_PROJECT_ID, // 👈 critical for sk-proj keys
     },
   });
 
@@ -154,7 +155,6 @@ wss.on("connection", async (ws, req) => {
     if (data.event === "media") {
       const len = data.media?.payload?.length ?? 0;
 
-      // 🔹 Process normal OA pipeline
       if (oaReady && len > 0) {
         const chunk = Buffer.from(data.media.payload, "base64");
         ulawBuffer = Buffer.concat([ulawBuffer, chunk]);
