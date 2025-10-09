@@ -71,6 +71,12 @@ wss.on("connection", async (ws, req) => {
             response: {
               conversation: "none",
               instructions: openingPrompt,
+              audio: {
+                output: {
+                  format: { type: "g711_ulaw", rate: 8000 },
+                  voice: "alloy",
+                },
+              },
             },
           })
         );
@@ -86,18 +92,24 @@ wss.on("connection", async (ws, req) => {
         console.log("🌟 [oa] SESSION UPDATED — now ready");
         oaReady = true;
 
-        // ✅ Explicit greeting before any audio (guarantees Samantha speaks)
+        // ✅ Explicit greeting with μ-law format (ensures playback on Twilio)
         const greetingEvent = {
           type: "response.create",
           response: {
             conversation: "none",
             instructions: openingPrompt,
             metadata: { phase: "greeting" },
+            audio: {
+              output: {
+                format: { type: "g711_ulaw", rate: 8000 },
+                voice: "alloy",
+              },
+            },
           },
         };
 
         oa.send(JSON.stringify(greetingEvent));
-        console.log("🎤 [oa] Greeting explicitly sent before any audio");
+        console.log("🎤 [oa] Greeting explicitly sent with μ-law format");
       }
 
       if (data.type === "response.output_audio.delta" && currentStreamSid && data.delta) {
