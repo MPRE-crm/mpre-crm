@@ -12,7 +12,7 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({ noServer: true });
 
 const OA_API_KEY = process.env.OPENAI_API_KEY;
-const OA_PROJECT_ID = process.env.OPENAI_PROJECT_ID; // 👈 added
+const OA_PROJECT_ID = process.env.OPENAI_PROJECT_ID;
 const OA_URL =
   "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17";
 
@@ -49,7 +49,7 @@ wss.on("connection", async (ws, req) => {
     headers: {
       Authorization: `Bearer ${OA_API_KEY}`,
       "OpenAI-Beta": "realtime=v1",
-      "OpenAI-Project": OA_PROJECT_ID, // 👈 critical for sk-proj keys
+      "OpenAI-Project": OA_PROJECT_ID,
     },
   });
 
@@ -73,7 +73,6 @@ wss.on("connection", async (ws, req) => {
         },
       })
     );
-
     oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
   });
 
@@ -95,15 +94,19 @@ wss.on("connection", async (ws, req) => {
           }"`
         );
 
+        // ✅ updated to use response.output_audio instead of response.audio
         const openingMsg = {
           type: "response.create",
           response: {
             instructions: openingPrompt,
             modalities: ["audio", "text"],
-            audio: { voice: "alloy" },
+            output_audio: { voice: "alloy" },
           },
         };
-        console.log("➡️ [oa][send] response.create", JSON.stringify(openingMsg, null, 2));
+        console.log(
+          "➡️ [oa][send] response.create",
+          JSON.stringify(openingMsg, null, 2)
+        );
         oa.send(JSON.stringify(openingMsg));
       }
 
@@ -121,7 +124,8 @@ wss.on("connection", async (ws, req) => {
       if (data.type === "response.output_audio.done")
         console.log("[oa] response.output_audio.done");
       if (data.type === "response.done") console.log("[oa] response.done");
-      if (data.type === "error") console.error("[oa] error", JSON.stringify(data, null, 2));
+      if (data.type === "error")
+        console.error("[oa] error", JSON.stringify(data, null, 2));
     } catch (e) {
       console.error("[oa] parse error", e);
     }
@@ -159,9 +163,10 @@ wss.on("connection", async (ws, req) => {
         const chunk = Buffer.from(data.media.payload, "base64");
         ulawBuffer = Buffer.concat([ulawBuffer, chunk]);
 
-        if (ulawBuffer.length >= 1600) {
-          const commitBuf = ulawBuffer.slice(0, 1600);
-          ulawBuffer = ulawBuffer.slice(1600);
+        // ✅ make sure we send at least 100 ms (800 bytes) per commit
+        if (ulawBuffer.length >= 800) {
+          const commitBuf = ulawBuffer.slice(0, 800);
+          ulawBuffer = ulawBuffer.slice(800);
 
           oa.send(
             JSON.stringify({
