@@ -14,7 +14,6 @@ const OA_PROJECT_ID = process.env.OPENAI_PROJECT_ID;
 const OA_URL =
   "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17";
 
-// --- Helpers ---
 function decodeB64(s) {
   try {
     return Buffer.from(s, "base64").toString("utf8");
@@ -23,7 +22,6 @@ function decodeB64(s) {
   }
 }
 
-// --- Upgrade handler ---
 server.on("upgrade", (req, socket, head) => {
   if (req.url?.includes("/bridge")) {
     wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
@@ -33,7 +31,6 @@ server.on("upgrade", (req, socket, head) => {
 wss.on("connection", async (ws, req) => {
   console.log("[bridge] client connected from", req.socket.remoteAddress);
 
-  // Create connection to OpenAI realtime API
   const oa = new WebSocket(OA_URL, {
     headers: {
       Authorization: `Bearer ${OA_API_KEY}`,
@@ -48,12 +45,11 @@ wss.on("connection", async (ws, req) => {
   let firstAudio = false;
   let openingPrompt = SAMANTHA_OPENING_TRIAGE;
 
-  // --- OpenAI Handshake ---
   oa.on("open", () => {
-    console.log("[oa] connected — initializing session");
+    console.log("[oa] connected — updating session");
     oa.send(
       JSON.stringify({
-        type: "session.create",
+        type: "session.update",
         session: {
           voice: "alloy",
           input_audio_format: "g711_ulaw",
@@ -63,30 +59,28 @@ wss.on("connection", async (ws, req) => {
     );
   });
 
-  // --- Handle OpenAI messages ---
   oa.on("message", (msg) => {
     try {
       const data = JSON.parse(msg.toString());
 
-      // Session confirmation
-      if (data.type === "session.created") {
-        console.log("🌟 [oa] SESSION CREATED — ready to speak");
+      if (data.type === "session.updated") {
+        console.log("🌟 [oa] SESSION UPDATED — ready to speak");
         oaReady = true;
 
-        // Send the opening greeting
+        // ✅ Use correct key `output_audio` instead of `response.audio`
         const greeting = {
           type: "response.create",
           response: {
             modalities: ["audio", "text"],
             instructions: openingPrompt,
-            audio: { voice: "alloy" },
+            output_audio: { voice: "alloy" },
           },
         };
+
         console.log("➡️ [oa][send] response.create (greeting)");
         oa.send(JSON.stringify(greeting));
       }
 
-      // Stream Samantha’s audio back to Twilio
       if (data.type === "response.output_audio.delta" && currentStreamSid && data.delta) {
         ws.send(
           JSON.stringify({
@@ -103,7 +97,6 @@ wss.on("connection", async (ws, req) => {
     }
   });
 
-  // --- Handle Twilio stream events ---
   ws.on("message", (msg) => {
     let data;
     try {
@@ -128,11 +121,9 @@ wss.on("connection", async (ws, req) => {
     if (data.event === "media" && oaReady) {
       const chunk = Buffer.from(data.media?.payload ?? "", "base64");
       if (!chunk.length) return;
-
-      ulawBuffer = Buffer.concat([ulawBuffer, chunk]);
       firstAudio = true;
+      ulawBuffer = Buffer.concat([ulawBuffer, chunk]);
 
-      // Only commit when we have >= 2000 bytes (~100ms) of audio
       if (ulawBuffer.length >= 2000) {
         const sendBuf = ulawBuffer.slice(0, 2000);
         ulawBuffer = ulawBuffer.slice(2000);
@@ -144,7 +135,6 @@ wss.on("connection", async (ws, req) => {
           })
         );
 
-        // Commit only if buffer had real audio
         if (sendBuf.length >= 2000) {
           oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
         }
