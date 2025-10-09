@@ -86,17 +86,18 @@ wss.on("connection", async (ws, req) => {
         console.log("🌟 [oa] SESSION UPDATED — now ready");
         oaReady = true;
 
-        // ✅ Trigger Samantha greeting (no unsupported keys)
-        oa.send(
-          JSON.stringify({
-            type: "response.create",
-            response: {
-              conversation: "none",
-              instructions: openingPrompt,
-            },
-          })
-        );
-        console.log("🎤 [oa] Greeting sent (response.create)");
+        // ✅ Explicit greeting before any audio (guarantees Samantha speaks)
+        const greetingEvent = {
+          type: "response.create",
+          response: {
+            conversation: "none",
+            instructions: openingPrompt,
+            metadata: { phase: "greeting" },
+          },
+        };
+
+        oa.send(JSON.stringify(greetingEvent));
+        console.log("🎤 [oa] Greeting explicitly sent before any audio");
       }
 
       if (data.type === "response.output_audio.delta" && currentStreamSid && data.delta) {
