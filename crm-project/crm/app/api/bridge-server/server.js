@@ -48,7 +48,6 @@ wss.on("connection", async (ws, req) => {
   oa.on("open", () => {
     console.log("[oa] connected — initializing Samantha session");
 
-    // ✅ Send session.update (not session.create)
     oa.send(
       JSON.stringify({
         type: "session.update",
@@ -60,7 +59,7 @@ wss.on("connection", async (ws, req) => {
       })
     );
 
-    // ✅ Fallback: trigger greeting immediately after open
+    // Fallback — speak even if no update arrives
     setTimeout(() => {
       console.log("🌟 [oa] Fallback — sending greeting immediately");
       const greeting = {
@@ -68,12 +67,13 @@ wss.on("connection", async (ws, req) => {
         response: {
           modalities: ["audio", "text"],
           instructions: openingPrompt,
-          output_audio: { voice: "alloy" },
+          // ✅ FIXED: correct property is 'audio'
+          audio: { voice: "alloy" },
         },
       };
       oa.send(JSON.stringify(greeting));
       oaReady = true;
-    }, 500); // half-second delay for handshake stability
+    }, 500);
   });
 
   oa.on("message", (msg) => {
@@ -126,9 +126,8 @@ wss.on("connection", async (ws, req) => {
     if (data.event === "media" && oaReady) {
       const chunk = Buffer.from(data.media?.payload ?? "", "base64");
       if (!chunk.length) return;
-
       ulawBuffer = Buffer.concat([ulawBuffer, chunk]);
-      if (ulawBuffer.length < 800) return; // wait for 100ms of audio
+      if (ulawBuffer.length < 800) return;
 
       firstAudio = true;
       const sendBuf = ulawBuffer.slice(0, 800);
