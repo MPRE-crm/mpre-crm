@@ -73,7 +73,8 @@ wss.on("connection", async (ws, req) => {
         },
       })
     );
-    oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+
+    // ❌ removed premature commit — wait until Twilio sends audio
   });
 
   oa.on("message", (msg) => {
@@ -94,7 +95,7 @@ wss.on("connection", async (ws, req) => {
           }"`
         );
 
-        // ✅ updated to use response.output_audio instead of response.audio
+        // ✅ use response.output_audio instead of response.audio
         const openingMsg = {
           type: "response.create",
           response: {
@@ -203,3 +204,4 @@ const PORT = process.env.PORT;
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`✅ WS bridge listening on :${PORT}`);
 });
+
