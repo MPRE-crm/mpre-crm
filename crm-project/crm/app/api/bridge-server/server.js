@@ -67,8 +67,8 @@ wss.on("connection", async (ws, req) => {
         response: {
           modalities: ["text", "audio"],
           instructions: openingPrompt,
-          // ✅ CORRECT field
-          audio: { voice: "alloy" },
+          // ✅ Correct parameter per Realtime spec
+          output_audio: { voice: "alloy" },
         },
       };
       oa.send(JSON.stringify(greeting));
@@ -103,7 +103,11 @@ wss.on("connection", async (ws, req) => {
 
   ws.on("message", (msg) => {
     let data;
-    try { data = JSON.parse(msg.toString()); } catch { return; }
+    try {
+      data = JSON.parse(msg.toString());
+    } catch {
+      return;
+    }
 
     if (data.event === "start") {
       currentStreamSid = data.start?.streamSid;
@@ -128,20 +132,24 @@ wss.on("connection", async (ws, req) => {
       const sendBuf = ulawBuffer.slice(0, 800);
       ulawBuffer = ulawBuffer.slice(800);
 
-      oa.send(JSON.stringify({
-        type: "input_audio_buffer.append",
-        audio: sendBuf.toString("base64"),
-      }));
+      oa.send(
+        JSON.stringify({
+          type: "input_audio_buffer.append",
+          audio: sendBuf.toString("base64"),
+        })
+      );
       oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
     }
 
     if (data.event === "stop") {
       console.log("[bridge] stop received");
       if (firstAudio && ulawBuffer.length > 0) {
-        oa.send(JSON.stringify({
-          type: "input_audio_buffer.append",
-          audio: ulawBuffer.toString("base64"),
-        }));
+        oa.send(
+          JSON.stringify({
+            type: "input_audio_buffer.append",
+            audio: ulawBuffer.toString("base64"),
+          })
+        );
         oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
       }
       ulawBuffer = Buffer.alloc(0);
