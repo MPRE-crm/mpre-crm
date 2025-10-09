@@ -47,7 +47,7 @@ wss.on("connection", async (ws, req) => {
   oa.on("open", () => {
     console.log("[oa] connected — initializing Samantha session");
 
-    // ✅ Session configuration (no unsupported params)
+    // ✅ Configure μ-law audio output for Twilio once per session
     oa.send(
       JSON.stringify({
         type: "session.update",
@@ -61,7 +61,7 @@ wss.on("connection", async (ws, req) => {
       })
     );
 
-    // Fallback if no session.updated received
+    // Fallback greeting if session.updated doesn't arrive
     setTimeout(() => {
       if (!oaReady) {
         console.log("🌟 [oa] Fallback — sending greeting manually");
@@ -71,12 +71,6 @@ wss.on("connection", async (ws, req) => {
             response: {
               conversation: "none",
               instructions: openingPrompt,
-              audio: {
-                output: {
-                  format: { type: "g711_ulaw", rate: 8000 },
-                  voice: "alloy",
-                },
-              },
             },
           })
         );
@@ -92,24 +86,18 @@ wss.on("connection", async (ws, req) => {
         console.log("🌟 [oa] SESSION UPDATED — now ready");
         oaReady = true;
 
-        // ✅ Explicit greeting with μ-law format (ensures playback on Twilio)
+        // ✅ Trigger greeting using session’s configured voice
         const greetingEvent = {
           type: "response.create",
           response: {
             conversation: "none",
             instructions: openingPrompt,
             metadata: { phase: "greeting" },
-            audio: {
-              output: {
-                format: { type: "g711_ulaw", rate: 8000 },
-                voice: "alloy",
-              },
-            },
           },
         };
 
         oa.send(JSON.stringify(greetingEvent));
-        console.log("🎤 [oa] Greeting explicitly sent with μ-law format");
+        console.log("🎤 [oa] Greeting sent (no response.audio block)");
       }
 
       if (data.type === "response.output_audio.delta" && currentStreamSid && data.delta) {
@@ -151,7 +139,6 @@ wss.on("connection", async (ws, req) => {
       }
     }
 
-    // Stream caller audio → OpenAI
     if (data.event === "media" && oaReady) {
       const chunk = Buffer.from(data.media?.payload ?? "", "base64");
       if (!chunk.length) return;
@@ -169,7 +156,6 @@ wss.on("connection", async (ws, req) => {
       }
     }
 
-    // Commit audio when Twilio signals end of speech
     if (data.event === "stop") {
       console.log("[bridge] stop received");
       if (firstAudio) {
