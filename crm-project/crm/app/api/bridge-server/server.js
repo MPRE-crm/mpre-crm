@@ -56,6 +56,7 @@ wss.on("connection", async (ws, req) => {
   let oaReady = false;
   let ulawBuffer = Buffer.alloc(0);
   let currentStreamSid = null;
+  let commitTimer = null;
 
   // 🔹 Opening prompt
   let openingPrompt = SAMANTHA_OPENING_TRIAGE;
@@ -63,7 +64,6 @@ wss.on("connection", async (ws, req) => {
 
   oa.on("open", () => {
     console.log("[oa] connected");
-
     oa.send(
       JSON.stringify({
         type: "session.update",
@@ -73,14 +73,11 @@ wss.on("connection", async (ws, req) => {
         },
       })
     );
-
-    // ❌ removed premature commit — wait until Twilio sends audio
   });
 
   oa.on("message", (msg) => {
     try {
       const data = JSON.parse(msg.toString());
-
       if (data.type === "session.created") console.log("[oa] session.created");
 
       if (data.type === "session.updated") {
@@ -95,7 +92,6 @@ wss.on("connection", async (ws, req) => {
           }"`
         );
 
-        // ✅ use response.output_audio instead of response.audio
         const openingMsg = {
           type: "response.create",
           response: {
@@ -104,22 +100,17 @@ wss.on("connection", async (ws, req) => {
             output_audio: { voice: "alloy" },
           },
         };
-        console.log(
-          "➡️ [oa][send] response.create",
-          JSON.stringify(openingMsg, null, 2)
-        );
         oa.send(JSON.stringify(openingMsg));
       }
 
-      if (data.type === "response.output_audio.delta") {
-        if (currentStreamSid && data.delta) {
-          const twilioFrame = {
+      if (data.type === "response.output_audio.delta" && currentStreamSid && data.delta) {
+        ws.send(
+          JSON.stringify({
             event: "media",
             streamSid: currentStreamSid,
             media: { payload: data.delta },
-          };
-          ws.send(JSON.stringify(twilioFrame));
-        }
+          })
+        );
       }
 
       if (data.type === "response.output_audio.done")
@@ -132,6 +123,7 @@ wss.on("connection", async (ws, req) => {
     }
   });
 
+  // --- Twilio events ---
   ws.on("message", (msg) => {
     let data;
     try {
@@ -157,30 +149,32 @@ wss.on("connection", async (ws, req) => {
       }
     }
 
-    if (data.event === "media") {
-      const len = data.media?.payload?.length ?? 0;
+    if (data.event === "media" && oaReady) {
+      const chunk = Buffer.from(data.media?.payload ?? "", "base64");
+      if (chunk.length === 0) return;
 
-      if (oaReady && len > 0) {
-        const chunk = Buffer.from(data.media.payload, "base64");
-        ulawBuffer = Buffer.concat([ulawBuffer, chunk]);
+      ulawBuffer = Buffer.concat([ulawBuffer, chunk]);
 
-        // ✅ make sure we send at least 100 ms (800 bytes) per commit
-        if (ulawBuffer.length >= 800) {
-          const commitBuf = ulawBuffer.slice(0, 800);
-          ulawBuffer = ulawBuffer.slice(800);
+      // Commit every 150 ms or ≥1600 bytes (about 200 ms of audio)
+      if (ulawBuffer.length >= 1600 && !commitTimer) {
+        commitTimer = setTimeout(() => {
+          const sendBuf = ulawBuffer;
+          ulawBuffer = Buffer.alloc(0);
+          commitTimer = null;
 
           oa.send(
             JSON.stringify({
               type: "input_audio_buffer.append",
-              audio: commitBuf.toString("base64"),
+              audio: sendBuf.toString("base64"),
             })
           );
           oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
-        }
+        }, 150);
       }
     }
 
     if (data.event === "stop") {
+      if (commitTimer) clearTimeout(commitTimer);
       if (ulawBuffer.length > 0) {
         oa.send(
           JSON.stringify({
@@ -196,6 +190,7 @@ wss.on("connection", async (ws, req) => {
 
   ws.on("close", () => {
     console.log("[bridge] client disconnected");
+    if (commitTimer) clearTimeout(commitTimer);
     oa.close();
   });
 });
@@ -204,4 +199,3 @@ const PORT = process.env.PORT;
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`✅ WS bridge listening on :${PORT}`);
 });
-
