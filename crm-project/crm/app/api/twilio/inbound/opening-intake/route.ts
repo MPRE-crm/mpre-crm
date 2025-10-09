@@ -23,7 +23,9 @@ export async function POST(req: NextRequest) {
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Start>
-    <Stream url="${baseUrl.replace(/\/$/, "")}/bridge" />
+    <Stream url="${baseUrl.replace(/\/$/, "")}/bridge">
+      <Parameter name="meta_b64" value="default" />
+    </Stream>
   </Start>
   <Say voice="Polly.Joanna">Connecting you to Samantha now.</Say>
 </Response>`;
