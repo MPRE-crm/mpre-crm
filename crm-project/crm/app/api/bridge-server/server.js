@@ -52,23 +52,23 @@ wss.on("connection", async (ws, req) => {
       JSON.stringify({
         type: "session.update",
         session: {
-          voice: "alloy",
           input_audio_format: "g711_ulaw",
           output_audio_format: "g711_ulaw",
+          voice: "alloy",
         },
       })
     );
 
-    // Fallback — speak even if no update arrives
+    // ✅ Fallback greeting
     setTimeout(() => {
       console.log("🌟 [oa] Fallback — sending greeting immediately");
       const greeting = {
         type: "response.create",
         response: {
-          modalities: ["audio", "text"],
+          modalities: ["text", "audio"],
           instructions: openingPrompt,
-          // ✅ FIXED: correct property is 'audio'
-          audio: { voice: "alloy" },
+          // ✅ FIXED again: correct field is 'speech'
+          speech: { voice: "alloy" },
         },
       };
       oa.send(JSON.stringify(greeting));
@@ -79,6 +79,7 @@ wss.on("connection", async (ws, req) => {
   oa.on("message", (msg) => {
     try {
       const data = JSON.parse(msg.toString());
+
       if (data.type === "session.updated") {
         console.log("🌟 [oa] SESSION UPDATED — now ready");
         oaReady = true;
