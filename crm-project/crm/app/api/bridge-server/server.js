@@ -54,28 +54,26 @@ wss.on("connection", async (ws, req) => {
         session: {
           input_audio_format: "g711_ulaw",
           output_audio_format: "g711_ulaw",
+          voice: "alloy",
         },
       })
     );
 
-    // Fallback greeting if session update delays
+    // fallback if delayed
     setTimeout(() => {
       if (!oaReady) {
         console.log("🌟 [oa] Fallback — sending greeting immediately");
-        const greeting = {
-          type: "response.create",
-          response: {
-            modalities: ["audio", "text"],
-            instructions: openingPrompt,
-            audio: {
-              output: {
-                format: { type: "audio/pcm", rate: 24000 },
-                voice: "alloy",
-              },
+        oa.send(
+          JSON.stringify({
+            type: "response.create",
+            response: {
+              modalities: ["audio", "text"],
+              instructions: openingPrompt,
+              output_audio_format: "g711_ulaw",
+              voice: "alloy",
             },
-          },
-        };
-        oa.send(JSON.stringify(greeting));
+          })
+        );
         oaReady = true;
       }
     }, 800);
@@ -89,21 +87,17 @@ wss.on("connection", async (ws, req) => {
         console.log("🌟 [oa] SESSION UPDATED — now ready");
         oaReady = true;
 
-        // Send greeting once session is officially ready
-        const greeting = {
-          type: "response.create",
-          response: {
-            modalities: ["audio", "text"],
-            instructions: openingPrompt,
-            audio: {
-              output: {
-                format: { type: "audio/pcm", rate: 24000 },
-                voice: "alloy",
-              },
+        oa.send(
+          JSON.stringify({
+            type: "response.create",
+            response: {
+              modalities: ["audio", "text"],
+              instructions: openingPrompt,
+              output_audio_format: "g711_ulaw",
+              voice: "alloy",
             },
-          },
-        };
-        oa.send(JSON.stringify(greeting));
+          })
+        );
       }
 
       if (data.type === "response.output_audio.delta" && currentStreamSid && data.delta) {
@@ -143,15 +137,12 @@ wss.on("connection", async (ws, req) => {
       }
     }
 
-    // Append continuously — do NOT commit until stop or silence
     if (data.event === "media" && oaReady) {
       const chunk = Buffer.from(data.media?.payload ?? "", "base64");
       if (!chunk.length) return;
-
       ulawBuffer = Buffer.concat([ulawBuffer, chunk]);
       firstAudio = true;
 
-      // Append without committing (collect multiple chunks)
       if (ulawBuffer.length >= 1600) {
         oa.send(
           JSON.stringify({
@@ -159,11 +150,10 @@ wss.on("connection", async (ws, req) => {
             audio: ulawBuffer.toString("base64"),
           })
         );
-        ulawBuffer = Buffer.alloc(0); // reset local buffer
+        ulawBuffer = Buffer.alloc(0);
       }
     }
 
-    // Commit only when stop event (end of speech)
     if (data.event === "stop") {
       console.log("[bridge] stop received");
       if (firstAudio) {
