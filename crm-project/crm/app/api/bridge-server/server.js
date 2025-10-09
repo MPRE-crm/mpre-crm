@@ -1,10 +1,7 @@
-// crm-project/crm/app/api/bridge-server/server.js
 import "dotenv/config";
 import WebSocket, { WebSocketServer } from "ws";
 import http from "http";
 import express from "express";
-
-// 🔹 Import Samantha’s opening triage prompt (default fallback)
 import SAMANTHA_OPENING_TRIAGE from "../../lib/prompts/opening.js";
 
 const app = express();
@@ -16,7 +13,6 @@ const OA_PROJECT_ID = process.env.OPENAI_PROJECT_ID;
 const OA_URL =
   "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17";
 
-// --- Helpers ---
 function decodeB64(s) {
   try {
     return Buffer.from(s, "base64").toString("utf8");
@@ -25,26 +21,15 @@ function decodeB64(s) {
   }
 }
 
-// --- Upgrade to WS ---
 server.on("upgrade", (req, socket, head) => {
-  if (
-    req.url &&
-    (req.url.startsWith("/bridge") ||
-      req.url.startsWith("/app/api/bridge-server/bridge"))
-  ) {
-    wss.handleUpgrade(req, socket, head, (ws) => {
-      wss.emit("connection", ws, req);
-    });
-  } else {
-    console.warn("[bridge] rejected upgrade for URL:", req.url);
-    socket.destroy();
-  }
+  if (req.url?.startsWith("/bridge") || req.url?.startsWith("/app/api/bridge-server/bridge")) {
+    wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
+  } else socket.destroy();
 });
 
 wss.on("connection", async (ws, req) => {
   console.log("[bridge] client connected from", req.socket.remoteAddress);
 
-  // ✅ Include Project header for sk-proj- keys
   const oa = new WebSocket(OA_URL, {
     headers: {
       Authorization: `Bearer ${OA_API_KEY}`,
@@ -56,9 +41,9 @@ wss.on("connection", async (ws, req) => {
   let oaReady = false;
   let ulawBuffer = Buffer.alloc(0);
   let currentStreamSid = null;
-  let commitTimer = null;
+  let opened = false;
+  let commitInterval = null;
 
-  // 🔹 Opening prompt
   let openingPrompt = SAMANTHA_OPENING_TRIAGE;
   let openingSource = "opening.js (fallback)";
 
@@ -76,61 +61,39 @@ wss.on("connection", async (ws, req) => {
   });
 
   oa.on("message", (msg) => {
-    try {
-      const data = JSON.parse(msg.toString());
-      if (data.type === "session.created") console.log("[oa] session.created");
-
-      if (data.type === "session.updated") {
-        console.log("🌟 [oa] SESSION UPDATED → Samantha is READY to speak!");
-        oaReady = true;
-
-        console.log(`🔊 [bridge] Opening source → ${openingSource}`);
-        const preview = (openingPrompt || "").replace(/\s+/g, " ").slice(0, 120);
-        console.log(
-          `📝 [bridge] Opening preview: "${preview}${
-            openingPrompt.length > 120 ? "…" : ""
-          }"`
-        );
-
-        const openingMsg = {
-          type: "response.create",
-          response: {
-            instructions: openingPrompt,
-            modalities: ["audio", "text"],
-            output_audio: { voice: "alloy" },
-          },
-        };
-        oa.send(JSON.stringify(openingMsg));
-      }
-
-      if (data.type === "response.output_audio.delta" && currentStreamSid && data.delta) {
-        ws.send(
-          JSON.stringify({
-            event: "media",
-            streamSid: currentStreamSid,
-            media: { payload: data.delta },
-          })
-        );
-      }
-
-      if (data.type === "response.output_audio.done")
-        console.log("[oa] response.output_audio.done");
-      if (data.type === "response.done") console.log("[oa] response.done");
-      if (data.type === "error")
-        console.error("[oa] error", JSON.stringify(data, null, 2));
-    } catch (e) {
-      console.error("[oa] parse error", e);
+    const data = JSON.parse(msg.toString());
+    if (data.type === "session.created") console.log("[oa] session.created");
+    if (data.type === "session.updated") {
+      console.log("🌟 [oa] SESSION UPDATED → Samantha is READY to speak!");
+      oaReady = true;
+      const openingMsg = {
+        type: "response.create",
+        response: {
+          instructions: openingPrompt,
+          modalities: ["audio", "text"],
+          output_audio: { voice: "alloy" },
+        },
+      };
+      oa.send(JSON.stringify(openingMsg));
     }
+
+    if (data.type === "response.output_audio.delta" && currentStreamSid && data.delta) {
+      ws.send(
+        JSON.stringify({
+          event: "media",
+          streamSid: currentStreamSid,
+          media: { payload: data.delta },
+        })
+      );
+    }
+
+    if (data.type === "error")
+      console.error("[oa] error", JSON.stringify(data, null, 2));
   });
 
-  // --- Twilio events ---
+  // ------------- Twilio → OA streaming -------------
   ws.on("message", (msg) => {
-    let data;
-    try {
-      data = JSON.parse(msg.toString());
-    } catch {
-      return;
-    }
+    const data = JSON.parse(msg.toString());
 
     if (data.event === "start") {
       currentStreamSid = data.start?.streamSid || null;
@@ -143,38 +106,35 @@ wss.on("connection", async (ws, req) => {
             openingPrompt = meta.opening;
             openingSource = "meta_b64 (ai-stream)";
           }
-        } catch {
-          console.warn("[bridge] failed to parse meta_b64 JSON. Using fallback.");
-        }
+        } catch {}
       }
     }
 
     if (data.event === "media" && oaReady) {
       const chunk = Buffer.from(data.media?.payload ?? "", "base64");
-      if (chunk.length === 0) return;
-
-      ulawBuffer = Buffer.concat([ulawBuffer, chunk]);
-
-      // Commit every 150 ms or ≥1600 bytes (about 200 ms of audio)
-      if (ulawBuffer.length >= 1600 && !commitTimer) {
-        commitTimer = setTimeout(() => {
-          const sendBuf = ulawBuffer;
-          ulawBuffer = Buffer.alloc(0);
-          commitTimer = null;
-
-          oa.send(
-            JSON.stringify({
-              type: "input_audio_buffer.append",
-              audio: sendBuf.toString("base64"),
-            })
-          );
-          oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
-        }, 150);
+      if (!opened) {
+        console.log("[bridge] first audio chunk received from Twilio");
+        opened = true;
+        commitInterval = setInterval(() => {
+          if (ulawBuffer.length >= 1600) {
+            const sendBuf = ulawBuffer;
+            ulawBuffer = Buffer.alloc(0);
+            oa.send(
+              JSON.stringify({
+                type: "input_audio_buffer.append",
+                audio: sendBuf.toString("base64"),
+              })
+            );
+            oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+          }
+        }, 250); // every 250 ms
       }
+      ulawBuffer = Buffer.concat([ulawBuffer, chunk]);
     }
 
     if (data.event === "stop") {
-      if (commitTimer) clearTimeout(commitTimer);
+      console.log("[bridge] stop event received");
+      if (commitInterval) clearInterval(commitInterval);
       if (ulawBuffer.length > 0) {
         oa.send(
           JSON.stringify({
@@ -190,12 +150,10 @@ wss.on("connection", async (ws, req) => {
 
   ws.on("close", () => {
     console.log("[bridge] client disconnected");
-    if (commitTimer) clearTimeout(commitTimer);
+    if (commitInterval) clearInterval(commitInterval);
     oa.close();
   });
 });
 
 const PORT = process.env.PORT;
-server.listen(PORT, "0.0.0.0", () => {
-  console.log(`✅ WS bridge listening on :${PORT}`);
-});
+server.listen(PORT, "0.0.0.0", () => console.log(`✅ WS bridge listening on :${PORT}`));
