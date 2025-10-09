@@ -48,31 +48,39 @@ wss.on("connection", async (ws, req) => {
   oa.on("open", () => {
     console.log("[oa] connected — initializing Samantha session");
 
-    // Configure the session for audio in/out once
+    // Configure the session for μ-law (Twilio 8kHz) voice I/O
     oa.send(
       JSON.stringify({
         type: "session.update",
         session: {
-          // Twilio sends μ-law @ 8kHz
-          input_audio_format: "g711_ulaw",
-          // Ask the model to emit μ-law @ 8kHz (what Twilio expects)
-          output_audio_format: "g711_ulaw",
-          // Pick the TTS voice on the session
-          voice: "alloy",
+          type: "realtime",
+          model: "gpt-4o-realtime-preview-2024-12-17",
+          output_modalities: ["audio"],
+          audio: {
+            input: {
+              format: { type: "audio/pcmu", rate: 8000 },
+              turn_detection: null, // manual mode for Twilio
+            },
+            output: {
+              format: { type: "audio/pcmu", rate: 8000 },
+              voice: "alloy",
+            },
+          },
+          instructions: openingPrompt,
         },
       })
     );
 
-    // Safety fallback in case we never see session.updated
+    // Fallback: ensure greeting if no session.updated arrives
     setTimeout(() => {
       if (!oaReady) {
-        console.log("🌟 [oa] Fallback — sending greeting");
+        console.log("🌟 [oa] Fallback — sending greeting manually");
         oa.send(
           JSON.stringify({
             type: "response.create",
             response: {
+              conversation: "none",
               instructions: openingPrompt,
-              // This is the ONLY thing you need for speaking here
               output_modalities: ["audio"],
             },
           })
@@ -89,11 +97,12 @@ wss.on("connection", async (ws, req) => {
         console.log("🌟 [oa] SESSION UPDATED — now ready");
         oaReady = true;
 
-        // Trigger Samantha to speak (no audio fields here)
+        // Send Samantha's greeting
         oa.send(
           JSON.stringify({
             type: "response.create",
             response: {
+              conversation: "none",
               instructions: openingPrompt,
               output_modalities: ["audio"],
             },
@@ -102,7 +111,7 @@ wss.on("connection", async (ws, req) => {
         console.log("🎤 [oa] Greeting sent (response.create)");
       }
 
-      // Stream model audio back to Twilio
+      // Stream Samantha's output audio to Twilio
       if (data.type === "response.output_audio.delta" && currentStreamSid && data.delta) {
         ws.send(
           JSON.stringify({
@@ -142,7 +151,7 @@ wss.on("connection", async (ws, req) => {
       }
     }
 
-    // Collect caller audio and push to OA in reasonable chunks.
+    // Receive caller audio and send to OpenAI in chunks
     if (data.event === "media" && oaReady) {
       const chunk = Buffer.from(data.media?.payload ?? "", "base64");
       if (!chunk.length) return;
@@ -150,7 +159,7 @@ wss.on("connection", async (ws, req) => {
       ulawBuffer = Buffer.concat([ulawBuffer, chunk]);
       firstAudio = true;
 
-      // ~10x 20ms frames (Twilio μ-law frames are 160 bytes each) ≈ 200ms
+      // Flush roughly every 200ms of audio (μ-law 160 bytes per 20ms frame)
       if (ulawBuffer.length >= 1600) {
         oa.send(
           JSON.stringify({
@@ -162,7 +171,7 @@ wss.on("connection", async (ws, req) => {
       }
     }
 
-    // Commit at end of speech (Twilio sends stop when user pauses or call ends)
+    // Commit buffered audio when speech stops or call ends
     if (data.event === "stop") {
       console.log("[bridge] stop received");
       if (firstAudio) {
@@ -175,6 +184,7 @@ wss.on("connection", async (ws, req) => {
           );
         }
         oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+        oa.send(JSON.stringify({ type: "response.create" }));
       }
       ulawBuffer = Buffer.alloc(0);
     }
