@@ -43,6 +43,7 @@ wss.on("connection", async (ws, req) => {
   let currentStreamSid = null;
   let firstAudio = false;
   let openingPrompt = SAMANTHA_OPENING_TRIAGE;
+  let commitTimer = null;
 
   oa.on("open", () => {
     console.log("[oa] connected — initializing Samantha session");
@@ -137,38 +138,46 @@ wss.on("connection", async (ws, req) => {
           console.warn("[bridge] failed to parse meta_b64");
         }
       }
+
+      // 🕐 Start 100 ms commit loop
+      if (!commitTimer) {
+        commitTimer = setInterval(() => {
+          if (oaReady && ulawBuffer.length >= 1600) {
+            oa.send(
+              JSON.stringify({
+                type: "input_audio_buffer.append",
+                audio: ulawBuffer.toString("base64"),
+              })
+            );
+            oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+            ulawBuffer = Buffer.alloc(0);
+
+            if (!firstAudio) {
+              firstAudio = true;
+              oa.send(JSON.stringify({ type: "response.create" }));
+            }
+          }
+        }, 100);
+      }
     }
 
     if (data.event === "media" && oaReady) {
       const chunk = Buffer.from(data.media?.payload ?? "", "base64");
       if (!chunk.length) return;
       ulawBuffer = Buffer.concat([ulawBuffer, chunk]);
-      firstAudio = true;
+    }
 
-      if (ulawBuffer.length >= 1600) {
+    if (data.event === "stop") {
+      console.log("[bridge] stop received");
+      if (commitTimer) clearInterval(commitTimer);
+      if (firstAudio && ulawBuffer.length > 0) {
         oa.send(
           JSON.stringify({
             type: "input_audio_buffer.append",
             audio: ulawBuffer.toString("base64"),
           })
         );
-        ulawBuffer = Buffer.alloc(0);
-      }
-    }
-
-    if (data.event === "stop") {
-      console.log("[bridge] stop received");
-      if (firstAudio) {
-        if (ulawBuffer.length > 0) {
-          oa.send(
-            JSON.stringify({
-              type: "input_audio_buffer.append",
-              audio: ulawBuffer.toString("base64"),
-            })
-          );
-        }
         oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
-        oa.send(JSON.stringify({ type: "response.create" }));
       }
       ulawBuffer = Buffer.alloc(0);
     }
@@ -176,6 +185,7 @@ wss.on("connection", async (ws, req) => {
 
   ws.on("close", () => {
     console.log("[bridge] client disconnected");
+    if (commitTimer) clearInterval(commitTimer);
     oa.close();
   });
 });
