@@ -10,15 +10,14 @@ const wss = new WebSocketServer({ noServer: true });
 
 const OA_API_KEY = process.env.OPENAI_API_KEY;
 const OA_PROJECT_ID = process.env.OPENAI_PROJECT_ID;
-const OA_URL =
-  "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17";
+const OA_URL = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17";
 
-// --- μ-law → PCM16 decoder ---
+// --- μ-law → PCM16 decode ---
 const MULAW_DECODE_TABLE = new Int16Array(256);
 (function buildMuLawTable() {
   for (let i = 0; i < 256; i++) {
     let u = ~i;
-    let sign = u & 0x80 ? -1 : 1;
+    let sign = (u & 0x80) ? -1 : 1;
     let exponent = (u >> 4) & 7;
     let mantissa = u & 0x0f;
     let magnitude = ((mantissa << 4) + 8) << (exponent + 3);
@@ -32,7 +31,7 @@ function ulawToPCM16(buf) {
   return out;
 }
 
-// --- 8 kHz → 16 kHz upsample (duplicate samples) ---
+// --- upsample 8kHz → 16kHz ---
 function upsample8kTo16k(pcm8) {
   const out = Buffer.alloc(pcm8.length * 2);
   for (let i = 0; i < pcm8.length; i += 2) {
@@ -43,31 +42,13 @@ function upsample8kTo16k(pcm8) {
   return out;
 }
 
-// --- helper: simple RMS energy (average amplitude) ---
-function rmsAmplitude(pcm) {
-  if (!pcm || pcm.length < 2) return 0;
-  let sum = 0;
-  for (let i = 0; i < pcm.length; i += 2) {
-    const sample = pcm.readInt16LE(i);
-    sum += sample * sample;
-  }
-  const mean = sum / (pcm.length / 2);
-  return Math.sqrt(mean) / 32768;
-}
-
 function decodeB64(s) {
-  try {
-    return Buffer.from(s, "base64").toString("utf8");
-  } catch {
-    return null;
-  }
+  try { return Buffer.from(s, "base64").toString("utf8"); } catch { return null; }
 }
 
 server.on("upgrade", (req, socket, head) => {
   if (req.url?.includes("/bridge"))
-    wss.handleUpgrade(req, socket, head, (ws) =>
-      wss.emit("connection", ws, req)
-    );
+    wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
   else socket.destroy();
 });
 
@@ -91,20 +72,19 @@ wss.on("connection", async (ws, req) => {
 
   oa.on("open", () => {
     console.log("[oa] connected — initializing Samantha session");
-    oa.send(
-      JSON.stringify({
-        type: "session.update",
-        session: {
-          model: "gpt-4o-realtime-preview-2024-12-17",
-          input_audio_format: "pcm16",
-          output_audio_format: "g711_ulaw",
-          voice: "alloy",
-          instructions: openingPrompt,
-        },
-      })
-    );
+    oa.send(JSON.stringify({
+      type: "session.update",
+      session: {
+        model: "gpt-4o-realtime-preview-2024-12-17",
+        input_audio_format: "pcm16",
+        output_audio_format: "g711_ulaw",
+        voice: "alloy",
+        instructions: openingPrompt,
+      },
+    }));
   });
 
+  // 🟢 OpenAI message handling
   oa.on("message", (msg) => {
     try {
       const data = JSON.parse(msg.toString());
@@ -114,57 +94,35 @@ wss.on("connection", async (ws, req) => {
         if (preBuffer.length > 0) {
           console.log(`🔊 Flushing ${preBuffer.length} pre-buffered chunks`);
           for (const b of preBuffer)
-            oa.send(
-              JSON.stringify({
-                type: "input_audio_buffer.append",
-                audio: b.toString("base64"),
-              })
-            );
-          oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+            oa.send(JSON.stringify({ type: "input_audio_buffer.append" }));
           preBuffer = [];
         }
-        oa.send(
-          JSON.stringify({
-            type: "response.create",
-            response: {
-              conversation: "none",
-              instructions: openingPrompt,
-              metadata: { phase: "greeting" },
-            },
-          })
-        );
+        oa.send(JSON.stringify({
+          type: "response.create",
+          response: { conversation: "none", instructions: openingPrompt, metadata: { phase: "greeting" } },
+        }));
         console.log("🎤 [oa] Greeting sent");
       }
 
-      if (
-        data.type === "response.output_audio.delta" &&
-        currentStreamSid &&
-        data.delta
-      ) {
-        ws.send(
-          JSON.stringify({
-            event: "media",
-            streamSid: currentStreamSid,
-            media: { payload: data.delta },
-          })
-        );
+      // send OpenAI's voice to Twilio
+      if (data.type === "response.output_audio.delta" && currentStreamSid && data.delta) {
+        ws.send(JSON.stringify({
+          event: "media",
+          streamSid: currentStreamSid,
+          media: { payload: data.delta },
+        }));
       }
 
-      if (data.type === "error")
-        console.error("[oa] error", data.error?.message || data);
+      if (data.type === "error") console.error("[oa] error", data.error?.message || data);
     } catch (e) {
       console.error("[oa] parse error", e);
     }
   });
 
-  // --- Twilio → OpenAI ---
+  // 🔵 Twilio → OpenAI audio bridge
   ws.on("message", (msg) => {
     let data;
-    try {
-      data = JSON.parse(msg.toString());
-    } catch {
-      return;
-    }
+    try { data = JSON.parse(msg.toString()); } catch { return; }
 
     if (data.event === "start") {
       currentStreamSid = data.start?.streamSid;
@@ -173,9 +131,7 @@ wss.on("connection", async (ws, req) => {
         try {
           const meta = JSON.parse(decodeB64(meta_b64));
           if (meta?.opening) openingPrompt = meta.opening;
-        } catch {
-          console.warn("[bridge] failed to parse meta_b64");
-        }
+        } catch { console.warn("[bridge] failed to parse meta_b64"); }
       }
     }
 
@@ -185,28 +141,14 @@ wss.on("connection", async (ws, req) => {
       const pcm8 = ulawToPCM16(uLaw);
       const pcm16 = upsample8kTo16k(pcm8);
 
-      const level = rmsAmplitude(pcm16);
-      if (level < 0.001)
-        console.log("⚠️ silent frame detected (RMS ~0)");
-      else
-        console.log(`🎧 audio detected (RMS=${level.toFixed(3)})`);
-
-      if (!oaReady) {
-        preBuffer.push(pcm16);
-        return;
-      }
+      if (!oaReady) { preBuffer.push(pcm16); return; }
 
       pcmBuffer = Buffer.concat([pcmBuffer, pcm16]);
       if (pcmBuffer.length >= 16000) {
-        console.log(
-          `[bridge] committing ${pcmBuffer.length} bytes (PCM16/16kHz)`
-        );
-        oa.send(
-          JSON.stringify({
-            type: "input_audio_buffer.append",
-            audio: pcmBuffer.toString("base64"),
-          })
-        );
+        console.log(`[bridge] sending binary frame (${pcmBuffer.length} bytes)`);
+        const header = Buffer.from(JSON.stringify({ type: "input_audio_buffer.append" }) + "\n");
+        oa.send(header);
+        oa.send(pcmBuffer, { binary: true });  // 🔥 REAL PCM BYTES, not base64 JSON
         oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
         pcmBuffer = Buffer.alloc(0);
         if (!firstAudio) {
@@ -219,25 +161,17 @@ wss.on("connection", async (ws, req) => {
     if (data.event === "stop") {
       console.log("[bridge] stop received");
       if (pcmBuffer.length > 0) {
-        oa.send(
-          JSON.stringify({
-            type: "input_audio_buffer.append",
-            audio: pcmBuffer.toString("base64"),
-          })
-        );
+        const header = Buffer.from(JSON.stringify({ type: "input_audio_buffer.append" }) + "\n");
+        oa.send(header);
+        oa.send(pcmBuffer, { binary: true });
         oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
       }
       pcmBuffer = Buffer.alloc(0);
     }
   });
 
-  ws.on("close", () => {
-    console.log("[bridge] client disconnected");
-    oa.close();
-  });
+  ws.on("close", () => { console.log("[bridge] client disconnected"); oa.close(); });
 });
 
 const PORT = process.env.PORT || 8080;
-server.listen(PORT, "0.0.0.0", () =>
-  console.log(`✅ WS bridge listening on :${PORT}`)
-);
+server.listen(PORT, "0.0.0.0", () => console.log(`✅ WS bridge listening on :${PORT}`));
