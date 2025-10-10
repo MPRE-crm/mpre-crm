@@ -43,6 +43,18 @@ function upsample8kTo16k(pcm8) {
   return out;
 }
 
+// --- helper: simple RMS energy (average amplitude) ---
+function rmsAmplitude(pcm) {
+  if (!pcm || pcm.length < 2) return 0;
+  let sum = 0;
+  for (let i = 0; i < pcm.length; i += 2) {
+    const sample = pcm.readInt16LE(i);
+    sum += sample * sample;
+  }
+  const mean = sum / (pcm.length / 2);
+  return Math.sqrt(mean) / 32768;
+}
+
 function decodeB64(s) {
   try {
     return Buffer.from(s, "base64").toString("utf8");
@@ -51,7 +63,6 @@ function decodeB64(s) {
   }
 }
 
-// --- WebSocket Upgrade ---
 server.on("upgrade", (req, socket, head) => {
   if (req.url?.includes("/bridge"))
     wss.handleUpgrade(req, socket, head, (ws) =>
@@ -60,7 +71,6 @@ server.on("upgrade", (req, socket, head) => {
   else socket.destroy();
 });
 
-// --- Bridge Handler ---
 wss.on("connection", async (ws, req) => {
   console.log("[bridge] client connected from", req.socket.remoteAddress);
 
@@ -173,7 +183,13 @@ wss.on("connection", async (ws, req) => {
       const uLaw = Buffer.from(data.media?.payload ?? "", "base64");
       if (!uLaw.length) return;
       const pcm8 = ulawToPCM16(uLaw);
-      const pcm16 = upsample8kTo16k(pcm8); // ✅ now true 16 kHz audio
+      const pcm16 = upsample8kTo16k(pcm8);
+
+      const level = rmsAmplitude(pcm16);
+      if (level < 0.001)
+        console.log("⚠️ silent frame detected (RMS ~0)");
+      else
+        console.log(`🎧 audio detected (RMS=${level.toFixed(3)})`);
 
       if (!oaReady) {
         preBuffer.push(pcm16);
@@ -182,8 +198,9 @@ wss.on("connection", async (ws, req) => {
 
       pcmBuffer = Buffer.concat([pcmBuffer, pcm16]);
       if (pcmBuffer.length >= 16000) {
-        // ✅ commit every ~100 ms (≈16 kB)
-        console.log(`[bridge] committing ${pcmBuffer.length} bytes (PCM16/16kHz)`);
+        console.log(
+          `[bridge] committing ${pcmBuffer.length} bytes (PCM16/16kHz)`
+        );
         oa.send(
           JSON.stringify({
             type: "input_audio_buffer.append",
