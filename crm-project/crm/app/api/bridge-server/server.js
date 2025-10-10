@@ -43,7 +43,6 @@ wss.on("connection", async (ws, req) => {
   let currentStreamSid = null;
   let firstAudio = false;
   let openingPrompt = SAMANTHA_OPENING_TRIAGE;
-  let commitTimer = null;
 
   oa.on("open", () => {
     console.log("[oa] connected — initializing Samantha session");
@@ -135,38 +134,36 @@ wss.on("connection", async (ws, req) => {
           console.warn("[bridge] failed to parse meta_b64");
         }
       }
-
-      if (!commitTimer) {
-        commitTimer = setInterval(() => {
-          if (oaReady && ulawBuffer.length >= 1600) {
-            oa.send(
-              JSON.stringify({
-                type: "input_audio_buffer.append",
-                audio: ulawBuffer.toString("base64"),
-              })
-            );
-            oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
-            ulawBuffer = Buffer.alloc(0);
-
-            if (!firstAudio) {
-              firstAudio = true;
-              oa.send(JSON.stringify({ type: "response.create" }));
-            }
-          }
-        }, 100);
-      }
     }
 
     if (data.event === "media" && oaReady) {
       const chunk = Buffer.from(data.media?.payload ?? "", "base64");
-      console.log("[twilio] media", chunk.length); // 👈 diagnostic line added
+      console.log("[twilio] media", chunk.length);
       if (!chunk.length) return;
+
+      // accumulate audio
       ulawBuffer = Buffer.concat([ulawBuffer, chunk]);
+
+      // once we have ~1600 bytes (~100ms), send to OpenAI
+      if (ulawBuffer.length >= 1600) {
+        oa.send(
+          JSON.stringify({
+            type: "input_audio_buffer.append",
+            audio: ulawBuffer.toString("base64"),
+          })
+        );
+        oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+        ulawBuffer = Buffer.alloc(0);
+
+        if (!firstAudio) {
+          firstAudio = true;
+          oa.send(JSON.stringify({ type: "response.create" }));
+        }
+      }
     }
 
     if (data.event === "stop") {
       console.log("[bridge] stop received");
-      if (commitTimer) clearInterval(commitTimer);
       if (firstAudio && ulawBuffer.length > 0) {
         oa.send(
           JSON.stringify({
@@ -182,7 +179,6 @@ wss.on("connection", async (ws, req) => {
 
   ws.on("close", () => {
     console.log("[bridge] client disconnected");
-    if (commitTimer) clearInterval(commitTimer);
     oa.close();
   });
 });
