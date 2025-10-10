@@ -48,7 +48,6 @@ wss.on("connection", async (ws, req) => {
   oa.on("open", () => {
     console.log("[oa] connected — initializing Samantha session");
 
-    // ✅ Configure μ-law audio output for Twilio once per session
     oa.send(
       JSON.stringify({
         type: "session.update",
@@ -62,7 +61,6 @@ wss.on("connection", async (ws, req) => {
       })
     );
 
-    // Fallback greeting if session.updated doesn't arrive
     setTimeout(() => {
       if (!oaReady) {
         console.log("🌟 [oa] Fallback — sending greeting manually");
@@ -87,7 +85,6 @@ wss.on("connection", async (ws, req) => {
         console.log("🌟 [oa] SESSION UPDATED — now ready");
         oaReady = true;
 
-        // ✅ Trigger greeting using session’s configured voice
         const greetingEvent = {
           type: "response.create",
           response: {
@@ -139,7 +136,6 @@ wss.on("connection", async (ws, req) => {
         }
       }
 
-      // 🕐 Start 100 ms commit loop
       if (!commitTimer) {
         commitTimer = setInterval(() => {
           if (oaReady && ulawBuffer.length >= 1600) {
@@ -163,6 +159,7 @@ wss.on("connection", async (ws, req) => {
 
     if (data.event === "media" && oaReady) {
       const chunk = Buffer.from(data.media?.payload ?? "", "base64");
+      console.log("[twilio] media", chunk.length); // 👈 diagnostic line added
       if (!chunk.length) return;
       ulawBuffer = Buffer.concat([ulawBuffer, chunk]);
     }
