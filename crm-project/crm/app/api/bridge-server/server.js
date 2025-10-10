@@ -11,7 +11,7 @@ const wss = new WebSocketServer({ noServer: true });
 
 const OA_API_KEY = process.env.OPENAI_API_KEY;
 const OA_PROJECT_ID = process.env.OPENAI_PROJECT_ID;
-const OA_URL = "wss://api.openai.com/v1/realtime?model=gpt-realtime-preview";
+const OA_URL = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17";
 
 // --- μ-law → PCM16 using lookup table ---
 const MULAW_DECODE_TABLE = new Int16Array(256);
@@ -36,7 +36,8 @@ function decodeB64(s) {
 }
 
 server.on("upgrade", (req, socket, head) => {
-  if (req.url?.includes("/bridge")) wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
+  if (req.url?.includes("/api/bridge-server"))
+    wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
   else socket.destroy();
 });
 
@@ -63,7 +64,7 @@ wss.on("connection", async (ws, req) => {
     oa.send(JSON.stringify({
       type: "session.update",
       session: {
-        model: "gpt-realtime-preview",
+        model: "gpt-4o-realtime-preview-2024-12-17",
         input_audio_format: "pcm16",
         output_audio_format: "g711_ulaw",
         voice: "alloy",

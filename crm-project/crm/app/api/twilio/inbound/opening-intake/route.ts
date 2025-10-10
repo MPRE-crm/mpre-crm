@@ -25,11 +25,11 @@ export async function POST(req: NextRequest) {
       })
     ).toString("base64");
 
-    // ✅ Proper TwiML: metadata embedded directly inside <Parameter>
+    // ✅ TwiML sends stream to the bridge server with encoded metadata
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Start>
-    <Stream url="${baseUrl.replace(/\/$/, "")}/bridge">
+    <Stream url="${baseUrl.replace(/\/$/, "")}/api/bridge-server">
       <Parameter name="meta_b64" value="${meta_b64}" />
     </Stream>
   </Start>
