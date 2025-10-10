@@ -31,11 +31,21 @@ function ulawToPCM16(buf) {
   return out;
 }
 
+// --- simple 8kHz -> 16kHz upsample (duplicate samples) ---
+function upsample8kTo16k(pcm8) {
+  const out = Buffer.alloc(pcm8.length * 2);
+  for (let i = 0; i < pcm8.length; i += 2) {
+    const sample = pcm8.readInt16LE(i);
+    out.writeInt16LE(sample, i * 2);
+    out.writeInt16LE(sample, i * 2 + 2);
+  }
+  return out;
+}
+
 function decodeB64(s) {
   try { return Buffer.from(s, "base64").toString("utf8"); } catch { return null; }
 }
 
-// ✅ Match the /bridge path for Twilio Stream URL
 server.on("upgrade", (req, socket, head) => {
   if (req.url?.includes("/bridge"))
     wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
@@ -121,13 +131,14 @@ wss.on("connection", async (ws, req) => {
     if (data.event === "media") {
       const uLaw = Buffer.from(data.media?.payload ?? "", "base64");
       if (!uLaw.length) return;
-      const pcm = ulawToPCM16(uLaw);
+      const pcm8 = ulawToPCM16(uLaw);
+      const pcm16 = upsample8kTo16k(pcm8); // ✅ upsample to 16kHz
 
-      if (!oaReady) { preBuffer.push(pcm); return; }
+      if (!oaReady) { preBuffer.push(pcm16); return; }
 
-      pcmBuffer = Buffer.concat([pcmBuffer, pcm]);
-      if (pcmBuffer.length >= 3200) {
-        console.log(`[bridge] committing ${pcmBuffer.length} bytes (PCM16)`);
+      pcmBuffer = Buffer.concat([pcmBuffer, pcm16]);
+      if (pcmBuffer.length >= 6400) { // ~100ms @ 16kHz
+        console.log(`[bridge] committing ${pcmBuffer.length} bytes (PCM16/16kHz)`);
         oa.send(JSON.stringify({ type: "input_audio_buffer.append", audio: pcmBuffer.toString("base64") }));
         oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
         pcmBuffer = Buffer.alloc(0);
