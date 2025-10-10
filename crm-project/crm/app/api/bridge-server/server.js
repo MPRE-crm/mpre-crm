@@ -10,7 +10,8 @@ const wss = new WebSocketServer({ noServer: true });
 
 const OA_API_KEY = process.env.OPENAI_API_KEY;
 const OA_PROJECT_ID = process.env.OPENAI_PROJECT_ID;
-const OA_URL = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17";
+const OA_URL =
+  "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17";
 
 // --- μ-law → PCM16 decode ---
 const MULAW_DECODE_TABLE = new Int16Array(256);
@@ -43,12 +44,18 @@ function upsample8kTo16k(pcm8) {
 }
 
 function decodeB64(s) {
-  try { return Buffer.from(s, "base64").toString("utf8"); } catch { return null; }
+  try {
+    return Buffer.from(s, "base64").toString("utf8");
+  } catch {
+    return null;
+  }
 }
 
 server.on("upgrade", (req, socket, head) => {
   if (req.url?.includes("/bridge"))
-    wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
+    wss.handleUpgrade(req, socket, head, (ws) =>
+      wss.emit("connection", ws, req)
+    );
   else socket.destroy();
 });
 
@@ -72,16 +79,18 @@ wss.on("connection", async (ws, req) => {
 
   oa.on("open", () => {
     console.log("[oa] connected — initializing Samantha session");
-    oa.send(JSON.stringify({
-      type: "session.update",
-      session: {
-        model: "gpt-4o-realtime-preview-2024-12-17",
-        input_audio_format: "pcm16",
-        output_audio_format: "g711_ulaw",
-        voice: "alloy",
-        instructions: openingPrompt,
-      },
-    }));
+    oa.send(
+      JSON.stringify({
+        type: "session.update",
+        session: {
+          model: "gpt-4o-realtime-preview-2024-12-17",
+          input_audio_format: "pcm16",
+          output_audio_format: "g711_ulaw",
+          voice: "alloy",
+          instructions: openingPrompt,
+        },
+      })
+    );
   });
 
   // --- Handle OpenAI responses ---
@@ -94,28 +103,41 @@ wss.on("connection", async (ws, req) => {
         if (preBuffer.length > 0) {
           console.log(`🔊 Flushing ${preBuffer.length} pre-buffered chunks`);
           for (const b of preBuffer) {
-            oa.send(JSON.stringify({ type: "input_audio_buffer.append" }));
+            oa.send(JSON.stringify({ type: "input_audio_buffer.append", audio: true }));
             oa.send(b, { binary: true });
           }
           oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
           preBuffer = [];
         }
-        oa.send(JSON.stringify({
-          type: "response.create",
-          response: { conversation: "none", instructions: openingPrompt, metadata: { phase: "greeting" } },
-        }));
+        oa.send(
+          JSON.stringify({
+            type: "response.create",
+            response: {
+              conversation: "none",
+              instructions: openingPrompt,
+              metadata: { phase: "greeting" },
+            },
+          })
+        );
         console.log("🎤 [oa] Greeting sent");
       }
 
-      if (data.type === "response.output_audio.delta" && currentStreamSid && data.delta) {
-        ws.send(JSON.stringify({
-          event: "media",
-          streamSid: currentStreamSid,
-          media: { payload: data.delta },
-        }));
+      if (
+        data.type === "response.output_audio.delta" &&
+        currentStreamSid &&
+        data.delta
+      ) {
+        ws.send(
+          JSON.stringify({
+            event: "media",
+            streamSid: currentStreamSid,
+            media: { payload: data.delta },
+          })
+        );
       }
 
-      if (data.type === "error") console.error("[oa] error", data.error?.message || data);
+      if (data.type === "error")
+        console.error("[oa] error", data.error?.message || data);
     } catch (e) {
       console.error("[oa] parse error", e);
     }
@@ -124,7 +146,11 @@ wss.on("connection", async (ws, req) => {
   // --- Handle Twilio inbound stream ---
   ws.on("message", (msg) => {
     let data;
-    try { data = JSON.parse(msg.toString()); } catch { return; }
+    try {
+      data = JSON.parse(msg.toString());
+    } catch {
+      return;
+    }
 
     if (data.event === "start") {
       currentStreamSid = data.start?.streamSid;
@@ -133,7 +159,9 @@ wss.on("connection", async (ws, req) => {
         try {
           const meta = JSON.parse(decodeB64(meta_b64));
           if (meta?.opening) openingPrompt = meta.opening;
-        } catch { console.warn("[bridge] failed to parse meta_b64"); }
+        } catch {
+          console.warn("[bridge] failed to parse meta_b64");
+        }
       }
     }
 
@@ -150,13 +178,16 @@ wss.on("connection", async (ws, req) => {
       rms = rms / (pcm16.length / 2);
       console.log(`🎧 audio detected (RMS=${rms.toFixed(3)})`);
 
-      if (!oaReady) { preBuffer.push(pcm16); return; }
+      if (!oaReady) {
+        preBuffer.push(pcm16);
+        return;
+      }
 
       pcmBuffer = Buffer.concat([pcmBuffer, pcm16]);
       if (pcmBuffer.length >= 16000) {
         console.log(`[bridge] sending binary frame (${pcmBuffer.length} bytes)`);
-        oa.send(JSON.stringify({ type: "input_audio_buffer.append" }));
-        oa.send(pcmBuffer, { binary: true }); // ✅ No newline separator
+        oa.send(JSON.stringify({ type: "input_audio_buffer.append", audio: true }));
+        oa.send(pcmBuffer, { binary: true });
         oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
         pcmBuffer = Buffer.alloc(0);
         if (!firstAudio) {
@@ -169,7 +200,7 @@ wss.on("connection", async (ws, req) => {
     if (data.event === "stop") {
       console.log("[bridge] stop received");
       if (pcmBuffer.length > 0) {
-        oa.send(JSON.stringify({ type: "input_audio_buffer.append" }));
+        oa.send(JSON.stringify({ type: "input_audio_buffer.append", audio: true }));
         oa.send(pcmBuffer, { binary: true });
         oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
       }
@@ -177,8 +208,13 @@ wss.on("connection", async (ws, req) => {
     }
   });
 
-  ws.on("close", () => { console.log("[bridge] client disconnected"); oa.close(); });
+  ws.on("close", () => {
+    console.log("[bridge] client disconnected");
+    oa.close();
+  });
 });
 
 const PORT = process.env.PORT || 8080;
-server.listen(PORT, "0.0.0.0", () => console.log(`✅ WS bridge listening on :${PORT}`));
+server.listen(PORT, "0.0.0.0", () =>
+  console.log(`✅ WS bridge listening on :${PORT}`)
+);
