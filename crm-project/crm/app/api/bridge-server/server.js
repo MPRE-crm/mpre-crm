@@ -13,6 +13,26 @@ const OA_API_KEY = process.env.OPENAI_API_KEY;
 const OA_PROJECT_ID = process.env.OPENAI_PROJECT_ID;
 const OA_URL = "wss://api.openai.com/v1/realtime?model=gpt-realtime-preview";
 
+// 🔹 Simple μ-law → PCM16 decoder (Twilio sends μ-law)
+function decodeULawSample(uLawByte) {
+  const MULAW_MAX = 0x1FFF;
+  const MULAW_BIAS = 33;
+  uLawByte = ~uLawByte;
+  let sign = (uLawByte & 0x80) ? -1 : 1;
+  let exponent = (uLawByte >> 4) & 0x07;
+  let mantissa = uLawByte & 0x0F;
+  let magnitude = ((mantissa << 4) + MULAW_BIAS) << (exponent + 3);
+  return sign * (magnitude > MULAW_MAX ? MULAW_MAX : magnitude);
+}
+
+function ulawToPCM16(uLawBuffer) {
+  const pcm16 = new Int16Array(uLawBuffer.length);
+  for (let i = 0; i < uLawBuffer.length; i++) {
+    pcm16[i] = decodeULawSample(uLawBuffer[i]);
+  }
+  return Buffer.from(pcm16.buffer);
+}
+
 function decodeB64(s) {
   try {
     return Buffer.from(s, "base64").toString("utf8");
@@ -39,21 +59,20 @@ wss.on("connection", async (ws, req) => {
   });
 
   let oaReady = false;
-  let ulawBuffer = Buffer.alloc(0);
-  let preBuffer = []; // store Twilio audio before OA ready
+  let pcmBuffer = Buffer.alloc(0);
+  let preBuffer = [];
   let currentStreamSid = null;
   let firstAudio = false;
   let openingPrompt = SAMANTHA_OPENING_TRIAGE;
 
   oa.on("open", () => {
     console.log("[oa] connected — initializing Samantha session");
-
     oa.send(
       JSON.stringify({
         type: "session.update",
         session: {
           model: "gpt-realtime-preview",
-          input_audio_format: "g711_ulaw",
+          input_audio_format: "pcm16",
           output_audio_format: "g711_ulaw",
           voice: "alloy",
           instructions: openingPrompt,
@@ -65,19 +84,17 @@ wss.on("connection", async (ws, req) => {
   oa.on("message", (msg) => {
     try {
       const data = JSON.parse(msg.toString());
-
       if (data.type === "session.updated") {
         console.log("🌟 [oa] SESSION UPDATED — now ready");
         oaReady = true;
 
-        // Flush any audio that arrived before OA was ready
         if (preBuffer.length > 0) {
-          console.log(`🔊 Flushing ${preBuffer.length} pre-buffered chunks to OpenAI`);
-          preBuffer.forEach((chunk) => {
+          console.log(`🔊 Flushing ${preBuffer.length} pre-buffered chunks`);
+          preBuffer.forEach((b) => {
             oa.send(
               JSON.stringify({
                 type: "input_audio_buffer.append",
-                audio: chunk.toString("base64"),
+                audio: b.toString("base64"),
               })
             );
           });
@@ -85,7 +102,6 @@ wss.on("connection", async (ws, req) => {
           preBuffer = [];
         }
 
-        // Send Samantha greeting
         oa.send(
           JSON.stringify({
             type: "response.create",
@@ -139,23 +155,23 @@ wss.on("connection", async (ws, req) => {
     }
 
     if (data.event === "media") {
-      const chunk = Buffer.from(data.media?.payload ?? "", "base64");
-      if (!chunk.length) return;
+      const uLawChunk = Buffer.from(data.media?.payload ?? "", "base64");
+      if (!uLawChunk.length) return;
+      const pcmChunk = ulawToPCM16(uLawChunk);
 
       if (!oaReady) {
-        preBuffer.push(chunk);
+        preBuffer.push(pcmChunk);
         return;
       }
 
-      ulawBuffer = Buffer.concat([ulawBuffer, chunk]);
+      pcmBuffer = Buffer.concat([pcmBuffer, pcmChunk]);
 
-      // when 1600 bytes (≈100ms) collected, send to OA
-      if (ulawBuffer.length >= 1600) {
-        const base64Chunk = ulawBuffer.toString("base64");
-        console.log(`[bridge] committing ${ulawBuffer.length} bytes to OA`);
+      if (pcmBuffer.length >= 3200) {
+        const base64Chunk = pcmBuffer.toString("base64");
+        console.log(`[bridge] committing ${pcmBuffer.length} bytes (PCM16)`);
         oa.send(JSON.stringify({ type: "input_audio_buffer.append", audio: base64Chunk }));
         oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
-        ulawBuffer = Buffer.alloc(0);
+        pcmBuffer = Buffer.alloc(0);
 
         if (!firstAudio) {
           firstAudio = true;
@@ -166,17 +182,17 @@ wss.on("connection", async (ws, req) => {
 
     if (data.event === "stop") {
       console.log("[bridge] stop received");
-      if (ulawBuffer.length > 0) {
-        console.log(`[bridge] final commit of ${ulawBuffer.length} bytes`);
+      if (pcmBuffer.length > 0) {
+        console.log(`[bridge] final commit ${pcmBuffer.length} bytes`);
         oa.send(
           JSON.stringify({
             type: "input_audio_buffer.append",
-            audio: ulawBuffer.toString("base64"),
+            audio: pcmBuffer.toString("base64"),
           })
         );
         oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
       }
-      ulawBuffer = Buffer.alloc(0);
+      pcmBuffer = Buffer.alloc(0);
     }
   });
 
