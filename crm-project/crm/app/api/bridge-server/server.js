@@ -13,24 +13,17 @@ const OA_API_KEY = process.env.OPENAI_API_KEY;
 const OA_PROJECT_ID = process.env.OPENAI_PROJECT_ID;
 const OA_URL = "wss://api.openai.com/v1/realtime?model=gpt-realtime-preview";
 
-// 🔹 Simple μ-law → PCM16 decoder (Twilio sends μ-law)
-function decodeULawSample(uLawByte) {
-  const MULAW_MAX = 0x1FFF;
-  const MULAW_BIAS = 33;
-  uLawByte = ~uLawByte;
-  let sign = (uLawByte & 0x80) ? -1 : 1;
-  let exponent = (uLawByte >> 4) & 0x07;
-  let mantissa = uLawByte & 0x0F;
-  let magnitude = ((mantissa << 4) + MULAW_BIAS) << (exponent + 3);
-  return sign * (magnitude > MULAW_MAX ? MULAW_MAX : magnitude);
-}
-
+// --- Proper μ-law → PCM16 decoder (16-bit signed little-endian) ---
 function ulawToPCM16(uLawBuffer) {
-  const pcm16 = new Int16Array(uLawBuffer.length);
+  const out = Buffer.alloc(uLawBuffer.length * 2);
   for (let i = 0; i < uLawBuffer.length; i++) {
-    pcm16[i] = decodeULawSample(uLawBuffer[i]);
+    let u = ~uLawBuffer[i];
+    let t = ((u & 0x0F) << 3) + 132;
+    t <<= (u & 0x70) >> 4;
+    if (u & 0x80) t = -t;
+    out.writeInt16LE(t, i * 2);
   }
-  return Buffer.from(pcm16.buffer);
+  return out;
 }
 
 function decodeB64(s) {
@@ -90,14 +83,9 @@ wss.on("connection", async (ws, req) => {
 
         if (preBuffer.length > 0) {
           console.log(`🔊 Flushing ${preBuffer.length} pre-buffered chunks`);
-          preBuffer.forEach((b) => {
-            oa.send(
-              JSON.stringify({
-                type: "input_audio_buffer.append",
-                audio: b.toString("base64"),
-              })
-            );
-          });
+          preBuffer.forEach((b) =>
+            oa.send(JSON.stringify({ type: "input_audio_buffer.append", audio: b.toString("base64") }))
+          );
           oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
           preBuffer = [];
         }
@@ -105,29 +93,17 @@ wss.on("connection", async (ws, req) => {
         oa.send(
           JSON.stringify({
             type: "response.create",
-            response: {
-              conversation: "none",
-              instructions: openingPrompt,
-              metadata: { phase: "greeting" },
-            },
+            response: { conversation: "none", instructions: openingPrompt, metadata: { phase: "greeting" } },
           })
         );
         console.log("🎤 [oa] Greeting sent");
       }
 
       if (data.type === "response.output_audio.delta" && currentStreamSid && data.delta) {
-        ws.send(
-          JSON.stringify({
-            event: "media",
-            streamSid: currentStreamSid,
-            media: { payload: data.delta },
-          })
-        );
+        ws.send(JSON.stringify({ event: "media", streamSid: currentStreamSid, media: { payload: data.delta } }));
       }
 
-      if (data.type === "error") {
-        console.error("[oa] error", data.error?.message || data);
-      }
+      if (data.type === "error") console.error("[oa] error", data.error?.message || data);
     } catch (e) {
       console.error("[oa] parse error", e);
     }
@@ -167,9 +143,8 @@ wss.on("connection", async (ws, req) => {
       pcmBuffer = Buffer.concat([pcmBuffer, pcmChunk]);
 
       if (pcmBuffer.length >= 3200) {
-        const base64Chunk = pcmBuffer.toString("base64");
         console.log(`[bridge] committing ${pcmBuffer.length} bytes (PCM16)`);
-        oa.send(JSON.stringify({ type: "input_audio_buffer.append", audio: base64Chunk }));
+        oa.send(JSON.stringify({ type: "input_audio_buffer.append", audio: pcmBuffer.toString("base64") }));
         oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
         pcmBuffer = Buffer.alloc(0);
 
@@ -184,12 +159,7 @@ wss.on("connection", async (ws, req) => {
       console.log("[bridge] stop received");
       if (pcmBuffer.length > 0) {
         console.log(`[bridge] final commit ${pcmBuffer.length} bytes`);
-        oa.send(
-          JSON.stringify({
-            type: "input_audio_buffer.append",
-            audio: pcmBuffer.toString("base64"),
-          })
-        );
+        oa.send(JSON.stringify({ type: "input_audio_buffer.append", audio: pcmBuffer.toString("base64") }));
         oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
       }
       pcmBuffer = Buffer.alloc(0);
