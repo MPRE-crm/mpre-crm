@@ -40,6 +40,7 @@ wss.on("connection", async (ws, req) => {
 
   let oaReady = false;
   let ulawBuffer = Buffer.alloc(0);
+  let preBuffer = []; // buffer media chunks before OA ready
   let currentStreamSid = null;
   let firstAudio = false;
   let openingPrompt = SAMANTHA_OPENING_TRIAGE;
@@ -84,6 +85,22 @@ wss.on("connection", async (ws, req) => {
         console.log("🌟 [oa] SESSION UPDATED — now ready");
         oaReady = true;
 
+        // Flush any pre-buffered audio once OA ready
+        if (preBuffer.length > 0) {
+          console.log(`🔊 Flushing ${preBuffer.length} pre-buffered chunks`);
+          preBuffer.forEach((chunk) => {
+            oa.send(
+              JSON.stringify({
+                type: "input_audio_buffer.append",
+                audio: chunk.toString("base64"),
+              })
+            );
+          });
+          oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+          preBuffer = [];
+        }
+
+        // Send greeting
         const greetingEvent = {
           type: "response.create",
           response: {
@@ -92,7 +109,6 @@ wss.on("connection", async (ws, req) => {
             metadata: { phase: "greeting" },
           },
         };
-
         oa.send(JSON.stringify(greetingEvent));
         console.log("🎤 [oa] Greeting sent (no response.audio block)");
       }
@@ -136,15 +152,17 @@ wss.on("connection", async (ws, req) => {
       }
     }
 
-    if (data.event === "media" && oaReady) {
+    if (data.event === "media") {
       const chunk = Buffer.from(data.media?.payload ?? "", "base64");
-      console.log("[twilio] media", chunk.length);
       if (!chunk.length) return;
 
-      // accumulate audio
-      ulawBuffer = Buffer.concat([ulawBuffer, chunk]);
+      // Always buffer audio, even before OA ready
+      if (!oaReady) {
+        preBuffer.push(chunk);
+        return;
+      }
 
-      // once we have ~1600 bytes (~100ms), send to OpenAI
+      ulawBuffer = Buffer.concat([ulawBuffer, chunk]);
       if (ulawBuffer.length >= 1600) {
         oa.send(
           JSON.stringify({
