@@ -35,8 +35,9 @@ function decodeB64(s) {
   try { return Buffer.from(s, "base64").toString("utf8"); } catch { return null; }
 }
 
+// ✅ Match the /bridge path for Twilio Stream URL
 server.on("upgrade", (req, socket, head) => {
-  if (req.url?.includes("/api/bridge-server"))
+  if (req.url?.includes("/bridge"))
     wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
   else socket.destroy();
 });
