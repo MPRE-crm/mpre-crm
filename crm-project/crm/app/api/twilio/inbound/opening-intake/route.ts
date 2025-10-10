@@ -1,15 +1,7 @@
-// crm-project/crm/app/api/twilio/inbound/opening-intake/route.ts
-// Handles Samantha’s initial greeting before routing to buyer/seller/investor flows.
-
 export const runtime = "edge";
 
 import { NextRequest, NextResponse } from "next/server";
 import SAMANTHA_OPENING_TRIAGE from "../../../../lib/prompts/opening.js";
-
-/**
- * ENV
- * PUBLIC_URL – your public HTTPS base (e.g. https://charismatic-liberation-production.up.railway.app)
- */
 
 export async function POST(req: NextRequest) {
   try {
@@ -17,7 +9,6 @@ export async function POST(req: NextRequest) {
       process.env.PUBLIC_URL ||
       "https://charismatic-liberation-production.up.railway.app";
 
-    // ✅ Encode Samantha's opening prompt and stage metadata
     const meta_b64 = Buffer.from(
       JSON.stringify({
         opening: SAMANTHA_OPENING_TRIAGE,
@@ -25,7 +16,6 @@ export async function POST(req: NextRequest) {
       })
     ).toString("base64");
 
-    // ✅ TwiML sends stream to the bridge server (correct path: /bridge)
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Start>
