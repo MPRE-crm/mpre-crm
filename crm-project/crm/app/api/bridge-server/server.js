@@ -40,7 +40,7 @@ wss.on("connection", async (ws, req) => {
 
   let oaReady = false;
   let ulawBuffer = Buffer.alloc(0);
-  let preBuffer = []; // buffer media chunks before OA ready
+  let preBuffer = []; // store Twilio audio before OA ready
   let currentStreamSid = null;
   let firstAudio = false;
   let openingPrompt = SAMANTHA_OPENING_TRIAGE;
@@ -60,21 +60,6 @@ wss.on("connection", async (ws, req) => {
         },
       })
     );
-
-    setTimeout(() => {
-      if (!oaReady) {
-        console.log("🌟 [oa] Fallback — sending greeting manually");
-        oa.send(
-          JSON.stringify({
-            type: "response.create",
-            response: {
-              conversation: "none",
-              instructions: openingPrompt,
-            },
-          })
-        );
-      }
-    }, 800);
   });
 
   oa.on("message", (msg) => {
@@ -85,9 +70,9 @@ wss.on("connection", async (ws, req) => {
         console.log("🌟 [oa] SESSION UPDATED — now ready");
         oaReady = true;
 
-        // Flush any pre-buffered audio once OA ready
+        // Flush any audio that arrived before OA was ready
         if (preBuffer.length > 0) {
-          console.log(`🔊 Flushing ${preBuffer.length} pre-buffered chunks`);
+          console.log(`🔊 Flushing ${preBuffer.length} pre-buffered chunks to OpenAI`);
           preBuffer.forEach((chunk) => {
             oa.send(
               JSON.stringify({
@@ -100,17 +85,18 @@ wss.on("connection", async (ws, req) => {
           preBuffer = [];
         }
 
-        // Send greeting
-        const greetingEvent = {
-          type: "response.create",
-          response: {
-            conversation: "none",
-            instructions: openingPrompt,
-            metadata: { phase: "greeting" },
-          },
-        };
-        oa.send(JSON.stringify(greetingEvent));
-        console.log("🎤 [oa] Greeting sent (no response.audio block)");
+        // Send Samantha greeting
+        oa.send(
+          JSON.stringify({
+            type: "response.create",
+            response: {
+              conversation: "none",
+              instructions: openingPrompt,
+              metadata: { phase: "greeting" },
+            },
+          })
+        );
+        console.log("🎤 [oa] Greeting sent");
       }
 
       if (data.type === "response.output_audio.delta" && currentStreamSid && data.delta) {
@@ -156,20 +142,18 @@ wss.on("connection", async (ws, req) => {
       const chunk = Buffer.from(data.media?.payload ?? "", "base64");
       if (!chunk.length) return;
 
-      // Always buffer audio, even before OA ready
       if (!oaReady) {
         preBuffer.push(chunk);
         return;
       }
 
       ulawBuffer = Buffer.concat([ulawBuffer, chunk]);
+
+      // when 1600 bytes (≈100ms) collected, send to OA
       if (ulawBuffer.length >= 1600) {
-        oa.send(
-          JSON.stringify({
-            type: "input_audio_buffer.append",
-            audio: ulawBuffer.toString("base64"),
-          })
-        );
+        const base64Chunk = ulawBuffer.toString("base64");
+        console.log(`[bridge] committing ${ulawBuffer.length} bytes to OA`);
+        oa.send(JSON.stringify({ type: "input_audio_buffer.append", audio: base64Chunk }));
         oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
         ulawBuffer = Buffer.alloc(0);
 
@@ -182,7 +166,8 @@ wss.on("connection", async (ws, req) => {
 
     if (data.event === "stop") {
       console.log("[bridge] stop received");
-      if (firstAudio && ulawBuffer.length > 0) {
+      if (ulawBuffer.length > 0) {
+        console.log(`[bridge] final commit of ${ulawBuffer.length} bytes`);
         oa.send(
           JSON.stringify({
             type: "input_audio_buffer.append",
