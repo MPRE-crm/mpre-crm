@@ -84,7 +84,7 @@ wss.on("connection", async (ws, req) => {
     }));
   });
 
-  // 🟢 OpenAI message handling
+  // --- Handle OpenAI responses ---
   oa.on("message", (msg) => {
     try {
       const data = JSON.parse(msg.toString());
@@ -93,8 +93,11 @@ wss.on("connection", async (ws, req) => {
         oaReady = true;
         if (preBuffer.length > 0) {
           console.log(`🔊 Flushing ${preBuffer.length} pre-buffered chunks`);
-          for (const b of preBuffer)
+          for (const b of preBuffer) {
             oa.send(JSON.stringify({ type: "input_audio_buffer.append" }));
+            oa.send(b, { binary: true });
+          }
+          oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
           preBuffer = [];
         }
         oa.send(JSON.stringify({
@@ -104,7 +107,6 @@ wss.on("connection", async (ws, req) => {
         console.log("🎤 [oa] Greeting sent");
       }
 
-      // send OpenAI's voice to Twilio
       if (data.type === "response.output_audio.delta" && currentStreamSid && data.delta) {
         ws.send(JSON.stringify({
           event: "media",
@@ -119,7 +121,7 @@ wss.on("connection", async (ws, req) => {
     }
   });
 
-  // 🔵 Twilio → OpenAI audio bridge
+  // --- Handle Twilio inbound stream ---
   ws.on("message", (msg) => {
     let data;
     try { data = JSON.parse(msg.toString()); } catch { return; }
@@ -141,14 +143,20 @@ wss.on("connection", async (ws, req) => {
       const pcm8 = ulawToPCM16(uLaw);
       const pcm16 = upsample8kTo16k(pcm8);
 
+      // log signal strength
+      let rms = 0;
+      for (let i = 0; i < pcm16.length; i += 2)
+        rms += Math.abs(pcm16.readInt16LE(i)) / 32768;
+      rms = rms / (pcm16.length / 2);
+      console.log(`🎧 audio detected (RMS=${rms.toFixed(3)})`);
+
       if (!oaReady) { preBuffer.push(pcm16); return; }
 
       pcmBuffer = Buffer.concat([pcmBuffer, pcm16]);
       if (pcmBuffer.length >= 16000) {
         console.log(`[bridge] sending binary frame (${pcmBuffer.length} bytes)`);
-        const header = Buffer.from(JSON.stringify({ type: "input_audio_buffer.append" }) + "\n");
-        oa.send(header);
-        oa.send(pcmBuffer, { binary: true });  // 🔥 REAL PCM BYTES, not base64 JSON
+        oa.send(JSON.stringify({ type: "input_audio_buffer.append" }));
+        oa.send(pcmBuffer, { binary: true }); // ✅ No newline separator
         oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
         pcmBuffer = Buffer.alloc(0);
         if (!firstAudio) {
@@ -161,8 +169,7 @@ wss.on("connection", async (ws, req) => {
     if (data.event === "stop") {
       console.log("[bridge] stop received");
       if (pcmBuffer.length > 0) {
-        const header = Buffer.from(JSON.stringify({ type: "input_audio_buffer.append" }) + "\n");
-        oa.send(header);
+        oa.send(JSON.stringify({ type: "input_audio_buffer.append" }));
         oa.send(pcmBuffer, { binary: true });
         oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
       }
