@@ -103,8 +103,10 @@ wss.on("connection", async (ws, req) => {
         if (preBuffer.length > 0) {
           console.log(`🔊 Flushing ${preBuffer.length} pre-buffered chunks`);
           for (const b of preBuffer) {
-            oa.send(JSON.stringify({ type: "input_audio_buffer.append", audio: true }));
-            oa.send(b, { binary: true });
+            oa.send(JSON.stringify({
+              type: "input_audio_buffer.append",
+              audio: b.toString("base64"),
+            }));
           }
           oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
           preBuffer = [];
@@ -185,9 +187,13 @@ wss.on("connection", async (ws, req) => {
 
       pcmBuffer = Buffer.concat([pcmBuffer, pcm16]);
       if (pcmBuffer.length >= 16000) {
-        console.log(`[bridge] sending binary frame (${pcmBuffer.length} bytes)`);
-        oa.send(JSON.stringify({ type: "input_audio_buffer.append", audio: true }));
-        oa.send(pcmBuffer, { binary: true });
+        console.log(`[bridge] sending frame (${pcmBuffer.length} bytes)`);
+        oa.send(
+          JSON.stringify({
+            type: "input_audio_buffer.append",
+            audio: pcmBuffer.toString("base64"),
+          })
+        );
         oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
         pcmBuffer = Buffer.alloc(0);
         if (!firstAudio) {
@@ -200,8 +206,12 @@ wss.on("connection", async (ws, req) => {
     if (data.event === "stop") {
       console.log("[bridge] stop received");
       if (pcmBuffer.length > 0) {
-        oa.send(JSON.stringify({ type: "input_audio_buffer.append", audio: true }));
-        oa.send(pcmBuffer, { binary: true });
+        oa.send(
+          JSON.stringify({
+            type: "input_audio_buffer.append",
+            audio: pcmBuffer.toString("base64"),
+          })
+        );
         oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
       }
       pcmBuffer = Buffer.alloc(0);
