@@ -32,17 +32,6 @@ function ulawToPCM16(buf) {
   return out;
 }
 
-// --- upsample 8kHz → 16kHz ---
-function upsample8kTo16k(pcm8) {
-  const out = Buffer.alloc(pcm8.length * 2);
-  for (let i = 0; i < pcm8.length; i += 2) {
-    const sample = pcm8.readInt16LE(i);
-    out.writeInt16LE(sample, i * 2);
-    out.writeInt16LE(sample, i * 2 + 2);
-  }
-  return out;
-}
-
 function decodeB64(s) {
   try {
     return Buffer.from(s, "base64").toString("utf8");
@@ -85,6 +74,7 @@ wss.on("connection", async (ws, req) => {
         session: {
           model: "gpt-4o-realtime-preview-2024-12-17",
           input_audio_format: "pcm16",
+          input_audio_sample_rate_hz: 8000, // ✅ Correct 8kHz input
           output_audio_format: "g711_ulaw",
           voice: "alloy",
           instructions: openingPrompt,
@@ -103,10 +93,12 @@ wss.on("connection", async (ws, req) => {
         if (preBuffer.length > 0) {
           console.log(`🔊 Flushing ${preBuffer.length} pre-buffered chunks`);
           for (const b of preBuffer) {
-            oa.send(JSON.stringify({
-              type: "input_audio_buffer.append",
-              audio: b.toString("base64"),
-            }));
+            oa.send(
+              JSON.stringify({
+                type: "input_audio_buffer.append",
+                audio: b.toString("base64"),
+              })
+            );
           }
           oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
           preBuffer = [];
@@ -170,8 +162,9 @@ wss.on("connection", async (ws, req) => {
     if (data.event === "media") {
       const uLaw = Buffer.from(data.media?.payload ?? "", "base64");
       if (!uLaw.length) return;
-      const pcm8 = ulawToPCM16(uLaw);
-      const pcm16 = upsample8kTo16k(pcm8);
+
+      // ✅ Decode μ-law to PCM16 (8kHz, no fake upsample)
+      const pcm16 = ulawToPCM16(uLaw);
 
       // log signal strength
       let rms = 0;
