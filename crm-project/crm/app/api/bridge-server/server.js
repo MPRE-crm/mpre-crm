@@ -72,11 +72,18 @@ wss.on("connection", async (ws, req) => {
       JSON.stringify({
         type: "session.update",
         session: {
+          type: "realtime",
           model: "gpt-4o-realtime-preview-2024-12-17",
-          input_audio_format: "pcm16",
-          input_audio_sample_rate_hz: 8000, // ✅ Correct 8kHz input
-          output_audio_format: "g711_ulaw",
-          voice: "alloy",
+          output_modalities: ["audio"],
+          audio: {
+            input: {
+              format: { type: "audio/pcm", rate: 8000 }, // ✅ replaces old input_audio_sample_rate_hz
+            },
+            output: {
+              format: { type: "audio/pcmu" }, // g711 μ-law
+              voice: "alloy",
+            },
+          },
           instructions: openingPrompt,
         },
       })
@@ -163,7 +170,7 @@ wss.on("connection", async (ws, req) => {
       const uLaw = Buffer.from(data.media?.payload ?? "", "base64");
       if (!uLaw.length) return;
 
-      // ✅ Decode μ-law to PCM16 (8kHz, no fake upsample)
+      // ✅ Decode μ-law to PCM16 (8kHz)
       const pcm16 = ulawToPCM16(uLaw);
 
       // log signal strength
