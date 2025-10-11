@@ -73,15 +73,9 @@ wss.on("connection", async (ws, req) => {
         type: "session.update",
         session: {
           model: "gpt-4o-realtime-preview-2024-12-17",
-          audio: {
-            input: {
-              format: { type: "audio/pcm", rate: 8000 },
-            },
-            output: {
-              format: { type: "audio/pcmu" },
-              voice: "alloy",
-            },
-          },
+          input_audio_format: "pcm16",
+          output_audio_format: "g711_ulaw",
+          voice: "alloy",
           instructions: openingPrompt,
         },
       })
@@ -121,7 +115,6 @@ wss.on("connection", async (ws, req) => {
         console.log("🎤 [oa] Greeting sent");
       }
 
-      // ✅ Log if Samantha is speaking
       if (data.type === "response.output_audio.delta") {
         console.log(`[oa] 🔊 Samantha speaking — ${data.delta?.length || 0} bytes`);
       }
@@ -175,7 +168,6 @@ wss.on("connection", async (ws, req) => {
 
       const pcm16 = ulawToPCM16(uLaw);
 
-      // log input signal strength
       let rms = 0;
       for (let i = 0; i < pcm16.length; i += 2)
         rms += Math.abs(pcm16.readInt16LE(i)) / 32768;
