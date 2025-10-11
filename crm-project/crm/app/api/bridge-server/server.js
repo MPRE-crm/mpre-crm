@@ -72,15 +72,14 @@ wss.on("connection", async (ws, req) => {
       JSON.stringify({
         type: "session.update",
         session: {
-          type: "realtime",
           model: "gpt-4o-realtime-preview-2024-12-17",
           output_modalities: ["audio"],
           audio: {
             input: {
-              format: { type: "audio/pcm", rate: 8000 }, // ✅ replaces old input_audio_sample_rate_hz
+              format: { type: "audio/pcm", rate: 8000 },
             },
             output: {
-              format: { type: "audio/pcmu" }, // g711 μ-law
+              format: { type: "audio/pcmu" },
               voice: "alloy",
             },
           },
@@ -123,9 +122,9 @@ wss.on("connection", async (ws, req) => {
         console.log("🎤 [oa] Greeting sent");
       }
 
-      // ✅ NEW: log when Samantha sends audio chunks
+      // ✅ Log if Samantha is speaking
       if (data.type === "response.output_audio.delta") {
-        console.log(`[oa] 🔊 Samantha speaking — chunk ${data.delta?.length || 0} bytes`);
+        console.log(`[oa] 🔊 Samantha speaking — ${data.delta?.length || 0} bytes`);
       }
 
       if (
@@ -175,10 +174,9 @@ wss.on("connection", async (ws, req) => {
       const uLaw = Buffer.from(data.media?.payload ?? "", "base64");
       if (!uLaw.length) return;
 
-      // ✅ Decode μ-law to PCM16 (8kHz)
       const pcm16 = ulawToPCM16(uLaw);
 
-      // log signal strength
+      // log input signal strength
       let rms = 0;
       for (let i = 0; i < pcm16.length; i += 2)
         rms += Math.abs(pcm16.readInt16LE(i)) / 32768;
