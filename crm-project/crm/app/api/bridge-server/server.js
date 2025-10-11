@@ -73,7 +73,6 @@ wss.on("connection", async (ws, req) => {
         type: "session.update",
         session: {
           model: "gpt-4o-realtime-preview-2024-12-17",
-          output_modalities: ["audio"],
           audio: {
             input: {
               format: { type: "audio/pcm", rate: 8000 },
