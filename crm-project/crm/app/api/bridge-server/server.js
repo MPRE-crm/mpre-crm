@@ -123,6 +123,11 @@ wss.on("connection", async (ws, req) => {
         console.log("🎤 [oa] Greeting sent");
       }
 
+      // ✅ NEW: log when Samantha sends audio chunks
+      if (data.type === "response.output_audio.delta") {
+        console.log(`[oa] 🔊 Samantha speaking — chunk ${data.delta?.length || 0} bytes`);
+      }
+
       if (
         data.type === "response.output_audio.delta" &&
         currentStreamSid &&
