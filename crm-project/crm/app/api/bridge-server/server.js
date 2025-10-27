@@ -74,12 +74,10 @@ wss.on("connection", async (ws, req) => {
   let commitInFlight = false;
 
   function appendAndMaybeCommit(buf) {
-    pcmBuffer = Buffer.concat([pcmBuffer, buf]);
+    if (buf?.length) pcmBuffer = Buffer.concat([pcmBuffer, buf]);
     const ms = bytesToMs(pcmBuffer.length);
-    if (ms >= 120 && !commitInFlight && oaReady && pcmBuffer.length >= 1920) {
-      console.log(
-        `[bridge] committing ${pcmBuffer.length} bytes (~${ms.toFixed(0)}ms)`
-      );
+    if (oaReady && pcmBuffer.length >= 1920 && ms >= 120 && !commitInFlight) {
+      console.log(`[bridge] committing ${pcmBuffer.length} bytes (~${ms.toFixed(0)}ms)`);
       oa.send(
         JSON.stringify({
           type: "input_audio_buffer.append",
@@ -125,13 +123,13 @@ wss.on("connection", async (ws, req) => {
           appendAndMaybeCommit(merged);
         }
 
-        // ✅ correct response.create per latest realtime spec
+        // ✅ Correct response.create syntax (no response.audio*, just voice)
         oa.send(
           JSON.stringify({
             type: "response.create",
             response: {
               modalities: ["audio"],
-              audio_voice: "alloy",
+              voice: "alloy",
               instructions: openingPrompt,
             },
           })
@@ -236,3 +234,4 @@ const PORT = process.env.PORT || 8080;
 server.listen(PORT, "0.0.0.0", () =>
   console.log(`✅ WS bridge listening on :${PORT}`)
 );
+
