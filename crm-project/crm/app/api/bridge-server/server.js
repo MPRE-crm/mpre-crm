@@ -123,17 +123,19 @@ wss.on("connection", async (ws, req) => {
           appendAndMaybeCommit(merged);
         }
 
-        // ✅ Flattened and correct response.create payload
+        // ✅ Correct: wrap in `response` object
         oa.send(
           JSON.stringify({
             type: "response.create",
-            modalities: ["audio"],
-            conversation: "none",
-            instructions: openingPrompt,
-            voice: "alloy",
+            response: {
+              conversation: "default",
+              instructions: openingPrompt,
+              modalities: ["audio"],
+              voice: "alloy",
+            },
           })
         );
-        console.log("🎤 [oa] Greeting requested (final spec)");
+        console.log("🎤 [oa] Greeting requested (wrapped response)");
       }
 
       if (data.type === "input_audio_buffer.committed") {
