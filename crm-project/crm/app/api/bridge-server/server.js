@@ -72,24 +72,31 @@ wss.on("connection", async (ws, req) => {
   let openingPrompt = SAMANTHA_OPENING_TRIAGE;
   let commitInFlight = false;
 
-  // ✅ Updated batching window (300 ms ≈ 4800 bytes)
+  // ✅ Updated batching window (500 ms ≈ 8000 bytes)
   function appendAndMaybeCommit(buf) {
     if (buf?.length) pcmBuffer = Buffer.concat([pcmBuffer, buf]);
     const ms = bytesToMs(pcmBuffer.length);
     const MIN_MS = 500;
     const MIN_BYTES = 8000;
 
-    if (oaReady && pcmBuffer.length > 0 && pcmBuffer.length >= MIN_BYTES && ms >= MIN_MS && !commitInFlight) {
-      console.log(`[bridge] committing ${pcmBuffer.length} bytes (~${ms.toFixed(0)}ms)`);
-      oa.send(
-        JSON.stringify({
-          type: "input_audio_buffer.append",
-          audio: pcmBuffer.toString("base64"),
-        })
-      );
-      oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
-      commitInFlight = true;
-      pcmBuffer = Buffer.alloc(0);
+    if (oaReady && pcmBuffer.length >= MIN_BYTES && ms >= MIN_MS && !commitInFlight) {
+      if (pcmBuffer.length > 0) {
+        console.log(`[bridge] committing ${pcmBuffer.length} bytes (~${ms.toFixed(0)}ms)`);
+        oa.send(
+          JSON.stringify({
+            type: "input_audio_buffer.append",
+            audio: pcmBuffer.toString("base64"),
+          })
+        );
+        oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+        commitInFlight = true;
+        setTimeout(() => {
+          commitInFlight = false;
+        }, 300); // small delay to let OpenAI process before flushing
+        pcmBuffer = Buffer.alloc(0);
+      } else {
+        console.log("[bridge] skipped commit — empty buffer");
+      }
     }
   }
 
