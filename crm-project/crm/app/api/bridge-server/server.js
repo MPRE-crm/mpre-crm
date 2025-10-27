@@ -123,15 +123,13 @@ wss.on("connection", async (ws, req) => {
           appendAndMaybeCommit(merged);
         }
 
-        // ✅ Correct response.create syntax (no response.audio*, just voice)
+        // ✅ Flattened response.create (latest OpenAI spec)
         oa.send(
           JSON.stringify({
             type: "response.create",
-            response: {
-              modalities: ["audio"],
-              voice: "alloy",
-              instructions: openingPrompt,
-            },
+            modalities: ["audio"],
+            voice: "alloy",
+            instructions: openingPrompt,
           })
         );
         console.log("🎤 [oa] Greeting requested");
@@ -234,4 +232,3 @@ const PORT = process.env.PORT || 8080;
 server.listen(PORT, "0.0.0.0", () =>
   console.log(`✅ WS bridge listening on :${PORT}`)
 );
-
