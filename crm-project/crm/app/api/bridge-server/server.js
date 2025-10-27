@@ -79,7 +79,7 @@ wss.on("connection", async (ws, req) => {
     const MIN_MS = 500;
     const MIN_BYTES = 8000;
 
-    if (oaReady && pcmBuffer.length >= MIN_BYTES && ms >= MIN_MS && !commitInFlight) {
+    if (oaReady && pcmBuffer.length > 0 && pcmBuffer.length >= MIN_BYTES && ms >= MIN_MS && !commitInFlight) {
       console.log(`[bridge] committing ${pcmBuffer.length} bytes (~${ms.toFixed(0)}ms)`);
       oa.send(
         JSON.stringify({
