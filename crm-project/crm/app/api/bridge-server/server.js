@@ -70,7 +70,6 @@ wss.on("connection", async (ws, req) => {
   let pcmBuffer = Buffer.alloc(0);
   let preBuffer = [];
   let currentStreamSid = null;
-  let firstAudio = false;
   let openingPrompt = SAMANTHA_OPENING_TRIAGE;
 
   // commit throttling — don't issue another commit until OA says "committed"
@@ -82,34 +81,33 @@ wss.on("connection", async (ws, req) => {
     const ms = bytesToMs(pcmBuffer.length);
     // require at least 120ms and no commit currently in-flight
     if (ms >= 120 && !commitInFlight && oaReady) {
-      console.log(`[bridge] appending ${pcmBuffer.length} bytes (~${ms.toFixed(0)}ms), committing`);
+      console.log(
+        `[bridge] appending ${pcmBuffer.length} bytes (~${ms.toFixed(0)}ms), committing`
+      );
       oa.send(JSON.stringify({
         type: "input_audio_buffer.append",
+        // base64 of raw PCM16 little-endian at 8 kHz
         audio: pcmBuffer.toString("base64"),
       }));
       oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
       commitInFlight = true;
       pcmBuffer = Buffer.alloc(0);
-
-      if (!firstAudio) {
-        firstAudio = true;
-        // Ask for a response once we've delivered meaningful audio
-        oa.send(JSON.stringify({ type: "response.create" }));
-      }
     }
   }
 
   oa.on("open", () => {
     console.log("[oa] connected — initializing Samantha session");
-    // Keep params minimal but explicit for 8 kHz in/out
+    // Minimal, explicit 8 kHz in/out. NOTE: formats are STRINGS, not objects.
     oa.send(
       JSON.stringify({
         type: "session.update",
         session: {
           model: "gpt-4o-realtime-preview-2024-12-17",
-          input_audio_format: { type: "pcm16", sample_rate_hz: 8000 },
-          output_audio_format: { type: "g711_ulaw", sample_rate_hz: 8000 },
-          voice: "alloy",
+          input_audio_format: "pcm16",
+          input_audio_sample_rate: 8000,
+          output_audio_format: "g711_ulaw",
+          output_audio_sample_rate: 8000,
+          // Keep instructions in session so Samantha knows context from the start
           instructions: openingPrompt,
         },
       })
@@ -127,19 +125,23 @@ wss.on("connection", async (ws, req) => {
 
         if (preBuffer.length > 0) {
           const totalPreBytes = preBuffer.reduce((n, b) => n + b.length, 0);
-          console.log(`🔊 Flushing ${preBuffer.length} pre-buffered chunks (${totalPreBytes} bytes ≈ ${bytesToMs(totalPreBytes).toFixed(0)}ms)`);
+          console.log(
+            `🔊 Flushing ${preBuffer.length} pre-buffered chunks (${totalPreBytes} bytes ≈ ${bytesToMs(totalPreBytes).toFixed(0)}ms)`
+          );
           const merged = Buffer.concat(preBuffer);
           preBuffer = [];
           appendAndMaybeCommit(merged);
         }
 
-        // Send an explicit greeting request (kept)
+        // Send an explicit greeting that produces audio
         oa.send(
           JSON.stringify({
             type: "response.create",
             response: {
               conversation: "none",
+              modalities: ["audio"],
               instructions: openingPrompt,
+              audio: { voice: "alloy" },
               metadata: { phase: "greeting" },
             },
           })
@@ -206,6 +208,7 @@ wss.on("connection", async (ws, req) => {
       const uLaw = Buffer.from(data.media?.payload ?? "", "base64");
       if (!uLaw.length) return;
 
+      // Twilio -> μ-law -> PCM16 (8k)
       const pcm16 = ulawToPCM16(uLaw);
 
       // log input signal strength
@@ -228,7 +231,9 @@ wss.on("connection", async (ws, req) => {
       // On stop, if we have ≥120ms and no commit in-flight, flush a final commit
       const ms = bytesToMs(pcmBuffer.length);
       if (ms >= 120 && !commitInFlight) {
-        console.log(`[bridge] final append ${pcmBuffer.length} bytes (~${ms.toFixed(0)}ms), committing`);
+        console.log(
+          `[bridge] final append ${pcmBuffer.length} bytes (~${ms.toFixed(0)}ms), committing`
+        );
         oa.send(JSON.stringify({
           type: "input_audio_buffer.append",
           audio: pcmBuffer.toString("base64"),
