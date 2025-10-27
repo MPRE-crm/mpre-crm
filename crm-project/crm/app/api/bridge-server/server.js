@@ -130,7 +130,7 @@ wss.on("connection", async (ws, req) => {
             response: {
               conversation: "auto",
               instructions: openingPrompt,
-              modalities: ["audio"],
+              modalities: ["audio","text"],
               voice: "alloy",
             },
           })
