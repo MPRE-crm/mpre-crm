@@ -76,9 +76,9 @@ wss.on("connection", async (ws, req) => {
   function appendAndMaybeCommit(buf) {
     pcmBuffer = Buffer.concat([pcmBuffer, buf]);
     const ms = bytesToMs(pcmBuffer.length);
-    if (ms >= 120 && !commitInFlight && oaReady) {
+    if (ms >= 120 && !commitInFlight && oaReady && pcmBuffer.length > 0) {
       console.log(
-        `[bridge] appending ${pcmBuffer.length} bytes (~${ms.toFixed(0)}ms), committing`
+        `[bridge] committing ${pcmBuffer.length} bytes (~${ms.toFixed(0)}ms)`
       );
       oa.send(JSON.stringify({
         type: "input_audio_buffer.append",
@@ -92,7 +92,6 @@ wss.on("connection", async (ws, req) => {
 
   oa.on("open", () => {
     console.log("[oa] connected — initializing Samantha session");
-    // Correct parameters per OpenAI realtime spec
     oa.send(
       JSON.stringify({
         type: "session.update",
@@ -124,7 +123,7 @@ wss.on("connection", async (ws, req) => {
           appendAndMaybeCommit(merged);
         }
 
-        // Greeting
+        // ✅ Fixed response.create shape
         oa.send(
           JSON.stringify({
             type: "response.create",
@@ -132,7 +131,7 @@ wss.on("connection", async (ws, req) => {
               conversation: "none",
               modalities: ["audio"],
               instructions: openingPrompt,
-              audio: { voice: "alloy" },
+              output_audio: { voice: "alloy" }, // fixed key
               metadata: { phase: "greeting" },
             },
           })
@@ -210,7 +209,7 @@ wss.on("connection", async (ws, req) => {
     if (data.event === "stop") {
       console.log("[bridge] stop received");
       const ms = bytesToMs(pcmBuffer.length);
-      if (ms >= 120 && !commitInFlight) {
+      if (ms >= 120 && !commitInFlight && pcmBuffer.length > 0) {
         console.log(
           `[bridge] final append ${pcmBuffer.length} bytes (~${ms.toFixed(0)}ms), committing`
         );
