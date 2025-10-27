@@ -72,10 +72,14 @@ wss.on("connection", async (ws, req) => {
   let openingPrompt = SAMANTHA_OPENING_TRIAGE;
   let commitInFlight = false;
 
+  // ✅ Updated batching window (300 ms ≈ 4800 bytes)
   function appendAndMaybeCommit(buf) {
     if (buf?.length) pcmBuffer = Buffer.concat([pcmBuffer, buf]);
     const ms = bytesToMs(pcmBuffer.length);
-    if (oaReady && pcmBuffer.length >= 1920 && ms >= 120 && !commitInFlight) {
+    const MIN_MS = 300;
+    const MIN_BYTES = 4800;
+
+    if (oaReady && pcmBuffer.length >= MIN_BYTES && ms >= MIN_MS && !commitInFlight) {
       console.log(`[bridge] committing ${pcmBuffer.length} bytes (~${ms.toFixed(0)}ms)`);
       oa.send(
         JSON.stringify({
@@ -130,7 +134,7 @@ wss.on("connection", async (ws, req) => {
             response: {
               conversation: "auto",
               instructions: openingPrompt,
-              modalities: ["audio","text"],
+              modalities: ["audio", "text"],
               voice: "alloy",
             },
           })
