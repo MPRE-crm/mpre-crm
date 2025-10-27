@@ -76,8 +76,8 @@ wss.on("connection", async (ws, req) => {
   function appendAndMaybeCommit(buf) {
     if (buf?.length) pcmBuffer = Buffer.concat([pcmBuffer, buf]);
     const ms = bytesToMs(pcmBuffer.length);
-    const MIN_MS = 300;
-    const MIN_BYTES = 4800;
+    const MIN_MS = 500;
+    const MIN_BYTES = 8000;
 
     if (oaReady && pcmBuffer.length >= MIN_BYTES && ms >= MIN_MS && !commitInFlight) {
       console.log(`[bridge] committing ${pcmBuffer.length} bytes (~${ms.toFixed(0)}ms)`);
