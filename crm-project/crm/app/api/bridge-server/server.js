@@ -40,7 +40,6 @@ function decodeB64(s) {
   }
 }
 
-// Helpers for duration math @ 8kHz PCM16 mono
 const SAMPLE_RATE = 8000;
 const BYTES_PER_SAMPLE = 2;
 function bytesToMs(byteLen) {
@@ -99,6 +98,7 @@ wss.on("connection", async (ws, req) => {
           model: "gpt-4o-realtime-preview-2024-12-17",
           input_audio_format: "pcm16",
           output_audio_format: "g711_ulaw",
+          voice: "alloy",
           instructions: openingPrompt,
         },
       })
@@ -123,16 +123,21 @@ wss.on("connection", async (ws, req) => {
           appendAndMaybeCommit(merged);
         }
 
-        // ✅ Flattened response.create (latest OpenAI spec)
+        // Step 1: create an empty response
+        oa.send(JSON.stringify({ type: "response.create" }));
+
+        // Step 2: update that response with audio output and prompt
         oa.send(
           JSON.stringify({
-            type: "response.create",
-            modalities: ["audio"],
-            voice: "alloy",
-            instructions: openingPrompt,
+            type: "response.update",
+            response: {
+              modalities: ["audio"],
+              voice: "alloy",
+              instructions: openingPrompt,
+            },
           })
         );
-        console.log("🎤 [oa] Greeting requested");
+        console.log("🎤 [oa] Greeting requested (2-step create/update)");
       }
 
       if (data.type === "input_audio_buffer.committed") {
