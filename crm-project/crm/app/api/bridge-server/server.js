@@ -123,21 +123,17 @@ wss.on("connection", async (ws, req) => {
           appendAndMaybeCommit(merged);
         }
 
-        // Step 1: create an empty response
-        oa.send(JSON.stringify({ type: "response.create" }));
-
-        // Step 2: update that response with audio output and prompt
+        // ✅ Flattened and correct response.create payload
         oa.send(
           JSON.stringify({
-            type: "response.update",
-            response: {
-              modalities: ["audio"],
-              voice: "alloy",
-              instructions: openingPrompt,
-            },
+            type: "response.create",
+            modalities: ["audio"],
+            conversation: "none",
+            instructions: openingPrompt,
+            voice: "alloy",
           })
         );
-        console.log("🎤 [oa] Greeting requested (2-step create/update)");
+        console.log("🎤 [oa] Greeting requested (final spec)");
       }
 
       if (data.type === "input_audio_buffer.committed") {
