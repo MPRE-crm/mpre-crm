@@ -128,7 +128,7 @@ wss.on("connection", async (ws, req) => {
           JSON.stringify({
             type: "response.create",
             response: {
-              conversation: "default",
+              conversation: "auto",
               instructions: openingPrompt,
               modalities: ["audio"],
               voice: "alloy",
