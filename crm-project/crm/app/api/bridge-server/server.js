@@ -123,15 +123,14 @@ wss.on("connection", async (ws, req) => {
           appendAndMaybeCommit(merged);
         }
 
-        // ✅ Fixed response.create shape
+        // ✅ reverted to proper response.audio format
         oa.send(
           JSON.stringify({
             type: "response.create",
             response: {
-              conversation: "none",
               modalities: ["audio"],
               instructions: openingPrompt,
-              output_audio: { voice: "alloy" }, // fixed key
+              audio: { voice: "alloy" },
               metadata: { phase: "greeting" },
             },
           })
@@ -141,8 +140,7 @@ wss.on("connection", async (ws, req) => {
 
       if (data.type === "input_audio_buffer.committed") {
         commitInFlight = false;
-        const pendingMs = bytesToMs(pcmBuffer.length);
-        if (pendingMs >= 120) appendAndMaybeCommit(Buffer.alloc(0));
+        if (pcmBuffer.length >= 1920) appendAndMaybeCommit(Buffer.alloc(0));
       }
 
       if (data.type === "response.output_audio.delta") {
@@ -192,11 +190,6 @@ wss.on("connection", async (ws, req) => {
       const uLaw = Buffer.from(data.media?.payload ?? "", "base64");
       if (!uLaw.length) return;
       const pcm16 = ulawToPCM16(uLaw);
-      let rms = 0;
-      for (let i = 0; i < pcm16.length; i += 2)
-        rms += Math.abs(pcm16.readInt16LE(i)) / 32768;
-      rms = rms / (pcm16.length / 2);
-      console.log(`🎧 audio detected (RMS=${rms.toFixed(3)})`);
 
       if (!oaReady) {
         preBuffer.push(pcm16);
@@ -208,17 +201,12 @@ wss.on("connection", async (ws, req) => {
 
     if (data.event === "stop") {
       console.log("[bridge] stop received");
-      const ms = bytesToMs(pcmBuffer.length);
-      if (ms >= 120 && !commitInFlight && pcmBuffer.length > 0) {
-        console.log(
-          `[bridge] final append ${pcmBuffer.length} bytes (~${ms.toFixed(0)}ms), committing`
-        );
+      if (pcmBuffer.length >= 1920 && !commitInFlight) {
         oa.send(JSON.stringify({
           type: "input_audio_buffer.append",
           audio: pcmBuffer.toString("base64"),
         }));
         oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
-        commitInFlight = true;
       }
       pcmBuffer = Buffer.alloc(0);
     }
