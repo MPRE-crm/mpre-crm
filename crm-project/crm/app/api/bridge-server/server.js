@@ -41,8 +41,8 @@ function decodeB64(s) {
 }
 
 // Helpers for duration math @ 8kHz PCM16 mono
-const SAMPLE_RATE = 8000;            // samples/sec
-const BYTES_PER_SAMPLE = 2;          // 16-bit PCM
+const SAMPLE_RATE = 8000;
+const BYTES_PER_SAMPLE = 2;
 function bytesToMs(byteLen) {
   return (byteLen / (SAMPLE_RATE * BYTES_PER_SAMPLE)) * 1000;
 }
@@ -71,22 +71,17 @@ wss.on("connection", async (ws, req) => {
   let preBuffer = [];
   let currentStreamSid = null;
   let openingPrompt = SAMANTHA_OPENING_TRIAGE;
-
-  // commit throttling — don't issue another commit until OA says "committed"
   let commitInFlight = false;
 
   function appendAndMaybeCommit(buf) {
     pcmBuffer = Buffer.concat([pcmBuffer, buf]);
-
     const ms = bytesToMs(pcmBuffer.length);
-    // require at least 120ms and no commit currently in-flight
     if (ms >= 120 && !commitInFlight && oaReady) {
       console.log(
         `[bridge] appending ${pcmBuffer.length} bytes (~${ms.toFixed(0)}ms), committing`
       );
       oa.send(JSON.stringify({
         type: "input_audio_buffer.append",
-        // base64 of raw PCM16 little-endian at 8 kHz
         audio: pcmBuffer.toString("base64"),
       }));
       oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
@@ -97,24 +92,20 @@ wss.on("connection", async (ws, req) => {
 
   oa.on("open", () => {
     console.log("[oa] connected — initializing Samantha session");
-    // Minimal, explicit 8 kHz in/out. NOTE: formats are STRINGS, not objects.
+    // Correct parameters per OpenAI realtime spec
     oa.send(
       JSON.stringify({
         type: "session.update",
         session: {
           model: "gpt-4o-realtime-preview-2024-12-17",
           input_audio_format: "pcm16",
-          input_audio_sample_rate: 8000,
           output_audio_format: "g711_ulaw",
-          output_audio_sample_rate: 8000,
-          // Keep instructions in session so Samantha knows context from the start
           instructions: openingPrompt,
         },
       })
     );
   });
 
-  // --- Handle OpenAI responses ---
   oa.on("message", (msg) => {
     try {
       const data = JSON.parse(msg.toString());
@@ -133,7 +124,7 @@ wss.on("connection", async (ws, req) => {
           appendAndMaybeCommit(merged);
         }
 
-        // Send an explicit greeting that produces audio
+        // Greeting
         oa.send(
           JSON.stringify({
             type: "response.create",
@@ -149,17 +140,12 @@ wss.on("connection", async (ws, req) => {
         console.log("🎤 [oa] Greeting requested");
       }
 
-      // OA confirms a commit landed — allow the next one
       if (data.type === "input_audio_buffer.committed") {
         commitInFlight = false;
-        // If more audio has accumulated beyond threshold, push it now
         const pendingMs = bytesToMs(pcmBuffer.length);
-        if (pendingMs >= 120) {
-          appendAndMaybeCommit(Buffer.alloc(0)); // trigger check+commit of current buffer
-        }
+        if (pendingMs >= 120) appendAndMaybeCommit(Buffer.alloc(0));
       }
 
-      // Log and forward Samantha's audio
       if (data.type === "response.output_audio.delta") {
         const len = data.delta ? Buffer.from(data.delta, "base64").length : 0;
         console.log(`[oa] 🔊 Samantha speaking — ${len} bytes`);
@@ -182,7 +168,6 @@ wss.on("connection", async (ws, req) => {
     }
   });
 
-  // --- Handle Twilio inbound stream ---
   ws.on("message", (msg) => {
     let data;
     try {
@@ -207,11 +192,7 @@ wss.on("connection", async (ws, req) => {
     if (data.event === "media") {
       const uLaw = Buffer.from(data.media?.payload ?? "", "base64");
       if (!uLaw.length) return;
-
-      // Twilio -> μ-law -> PCM16 (8k)
       const pcm16 = ulawToPCM16(uLaw);
-
-      // log input signal strength
       let rms = 0;
       for (let i = 0; i < pcm16.length; i += 2)
         rms += Math.abs(pcm16.readInt16LE(i)) / 32768;
@@ -228,7 +209,6 @@ wss.on("connection", async (ws, req) => {
 
     if (data.event === "stop") {
       console.log("[bridge] stop received");
-      // On stop, if we have ≥120ms and no commit in-flight, flush a final commit
       const ms = bytesToMs(pcmBuffer.length);
       if (ms >= 120 && !commitInFlight) {
         console.log(
