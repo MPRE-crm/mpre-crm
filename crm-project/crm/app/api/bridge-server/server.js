@@ -134,7 +134,6 @@ wss.on("connection", async (ws, req) => {
           appendAndMaybeCommit(merged);
         }
 
-        // ✅ Correct: wrap in `response` object
         oa.send(
           JSON.stringify({
             type: "response.create",
@@ -219,7 +218,8 @@ wss.on("connection", async (ws, req) => {
     if (data.event === "stop") {
       console.log("[bridge] stop received");
       const ms = bytesToMs(pcmBuffer.length);
-      if (ms >= 120 && !commitInFlight && pcmBuffer.length >= 1920) {
+      const FINAL_MIN_BYTES = 4000; // 🔹 Increase threshold for final commit
+      if (ms >= 120 && !commitInFlight && pcmBuffer.length >= FINAL_MIN_BYTES) {
         console.log(
           `[bridge] final commit ${pcmBuffer.length} bytes (~${ms.toFixed(0)}ms)`
         );
@@ -231,6 +231,8 @@ wss.on("connection", async (ws, req) => {
         );
         oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
         commitInFlight = true;
+      } else {
+        console.log("[bridge] skipped final commit — insufficient audio data");
       }
       pcmBuffer = Buffer.alloc(0);
     }
