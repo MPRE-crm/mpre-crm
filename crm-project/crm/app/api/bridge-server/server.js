@@ -87,7 +87,7 @@ wss.on("connection", async (ws, req) => {
         type: "session.update",
         session: {
           model: "gpt-4o-realtime-preview-2024-12-17",
-          input_audio_format: "g711_ulaw",
+          input_audio_format: "pcm16",
           output_audio_format: "g711_ulaw",
           voice: "alloy",
           instructions: openingPrompt,
