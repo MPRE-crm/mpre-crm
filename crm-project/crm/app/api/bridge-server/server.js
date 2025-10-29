@@ -14,6 +14,25 @@ const OA_PROJECT_ID = process.env.OPENAI_PROJECT_ID;
 const OA_URL =
   "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17";
 
+// --- μ-law → PCM16 decode table ---
+const MULAW_DECODE_TABLE = new Int16Array(256);
+(function buildMuLawTable() {
+  for (let i = 0; i < 256; i++) {
+    let u = ~i;
+    let sign = (u & 0x80) ? -1 : 1;
+    let exponent = (u >> 4) & 7;
+    let mantissa = u & 0x0f;
+    let magnitude = ((mantissa << 4) + 8) << (exponent + 3);
+    MULAW_DECODE_TABLE[i] = sign * magnitude;
+  }
+})();
+function ulawToPCM16(buf) {
+  const out = Buffer.alloc(buf.length * 2);
+  for (let i = 0; i < buf.length; i++)
+    out.writeInt16LE(MULAW_DECODE_TABLE[buf[i]], i * 2);
+  return out;
+}
+
 function decodeB64(s) {
   try {
     return Buffer.from(s, "base64").toString("utf8");
@@ -23,7 +42,7 @@ function decodeB64(s) {
 }
 
 const SAMPLE_RATE = 8000;
-const BYTES_PER_SAMPLE = 1; // μ-law is 1 byte/sample at 8 kHz
+const BYTES_PER_SAMPLE = 2; // PCM16 = 2 bytes/sample
 function bytesToMs(byteLen) {
   return (byteLen / (SAMPLE_RATE * BYTES_PER_SAMPLE)) * 1000;
 }
@@ -54,29 +73,24 @@ wss.on("connection", async (ws, req) => {
   let openingPrompt = SAMANTHA_OPENING_TRIAGE;
   let commitInFlight = false;
 
-  // ✅ Updated batching window (500 ms ≈ 4000 bytes for μ-law)
   function appendAndMaybeCommit(buf) {
     if (buf?.length) pcmBuffer = Buffer.concat([pcmBuffer, buf]);
     const ms = bytesToMs(pcmBuffer.length);
     const MIN_MS = 500;
-    const MIN_BYTES = 4000;
+    const MIN_BYTES = 8000; // 500 ms of PCM16
 
     if (oaReady && pcmBuffer.length >= MIN_BYTES && ms >= MIN_MS && !commitInFlight) {
-      if (pcmBuffer.length > 0) {
-        console.log(`[bridge] committing ${pcmBuffer.length} bytes (~${ms.toFixed(0)}ms)`);
-        oa.send(
-          JSON.stringify({
-            type: "input_audio_buffer.append",
-            audio: pcmBuffer.toString("base64"),
-          })
-        );
-        oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
-        commitInFlight = true;
-        setTimeout(() => (commitInFlight = false), 300);
-        pcmBuffer = Buffer.alloc(0);
-      } else {
-        console.log("[bridge] skipped commit — empty buffer");
-      }
+      console.log(`[bridge] committing ${pcmBuffer.length} bytes (~${ms.toFixed(0)} ms)`);
+      oa.send(
+        JSON.stringify({
+          type: "input_audio_buffer.append",
+          audio: pcmBuffer.toString("base64"),
+        })
+      );
+      oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+      commitInFlight = true;
+      setTimeout(() => (commitInFlight = false), 300);
+      pcmBuffer = Buffer.alloc(0);
     }
   }
 
@@ -87,7 +101,7 @@ wss.on("connection", async (ws, req) => {
         type: "session.update",
         session: {
           model: "gpt-4o-realtime-preview-2024-12-17",
-          input_audio_format: "pcm16",
+          input_audio_format: "pcm16", // expecting PCM16
           output_audio_format: "g711_ulaw",
           voice: "alloy",
           instructions: openingPrompt,
@@ -102,17 +116,11 @@ wss.on("connection", async (ws, req) => {
       if (data.type === "session.updated") {
         console.log("🌟 [oa] SESSION UPDATED — now ready");
         oaReady = true;
-
         if (preBuffer.length > 0) {
-          const totalPreBytes = preBuffer.reduce((n, b) => n + b.length, 0);
-          console.log(
-            `🔊 Flushing ${preBuffer.length} pre-buffered chunks (${totalPreBytes} bytes ≈ ${bytesToMs(totalPreBytes).toFixed(0)}ms)`
-          );
           const merged = Buffer.concat(preBuffer);
           preBuffer = [];
           appendAndMaybeCommit(merged);
         }
-
         setTimeout(() => {
           oa.send(
             JSON.stringify({
@@ -129,22 +137,16 @@ wss.on("connection", async (ws, req) => {
         }, 500);
       }
 
-      if (data.type === "input_audio_buffer.committed") {
-        commitInFlight = false;
-      }
-
-      if (data.type === "response.output_audio.delta") {
-        const len = data.delta ? Buffer.from(data.delta, "base64").length : 0;
+      if (data.type === "response.output_audio.delta" && currentStreamSid && data.delta) {
+        const len = Buffer.from(data.delta, "base64").length;
         console.log(`[oa] 🔊 Samantha speaking — ${len} bytes`);
-        if (currentStreamSid && data.delta) {
-          ws.send(
-            JSON.stringify({
-              event: "media",
-              streamSid: currentStreamSid,
-              media: { payload: data.delta },
-            })
-          );
-        }
+        ws.send(
+          JSON.stringify({
+            event: "media",
+            streamSid: currentStreamSid,
+            media: { payload: data.delta },
+          })
+        );
       }
 
       if (data.type === "error") console.error("[oa] error", data.error?.message || data);
@@ -174,45 +176,27 @@ wss.on("connection", async (ws, req) => {
       }
     }
 
-    // ✅ Patched media handler — send raw μ-law to OpenAI
+    // ✅ decode μ-law to PCM16 before sending
     if (data.event === "media") {
-      const base64Audio = data.media?.payload ?? "";
-      if (!base64Audio) return;
-
-      // Simple RMS check (optional)
-      const buf = Buffer.from(base64Audio, "base64");
+      const uLaw = Buffer.from(data.media?.payload ?? "", "base64");
+      if (!uLaw.length) return;
+      const pcm16 = ulawToPCM16(uLaw);
       let rms = 0;
-      for (let i = 0; i < buf.length; i++) rms += Math.abs(buf[i] - 128);
-      rms = rms / buf.length / 128;
-      console.log(`🎧 audio detected (RMS≈${rms.toFixed(3)})`);
+      for (let i = 0; i < pcm16.length; i += 2)
+        rms += Math.abs(pcm16.readInt16LE(i)) / 32768;
+      rms /= pcm16.length / 2;
+      console.log(`🎧 audio detected (RMS=${rms.toFixed(3)})`);
 
       if (!oaReady) {
-        preBuffer.push(buf);
+        preBuffer.push(pcm16);
         return;
       }
-
-      appendAndMaybeCommit(buf);
+      appendAndMaybeCommit(pcm16);
     }
 
     if (data.event === "stop") {
       console.log("[bridge] stop received");
-      const ms = bytesToMs(pcmBuffer.length);
-      const FINAL_MIN_BYTES = 4000;
-      if (ms >= 120 && !commitInFlight && pcmBuffer.length >= FINAL_MIN_BYTES) {
-        console.log(
-          `[bridge] final commit ${pcmBuffer.length} bytes (~${ms.toFixed(0)}ms)`
-        );
-        oa.send(
-          JSON.stringify({
-            type: "input_audio_buffer.append",
-            audio: pcmBuffer.toString("base64"),
-          })
-        );
-        oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
-      } else {
-        console.log("[bridge] skipped final commit — insufficient audio data");
-      }
-      pcmBuffer = Buffer.alloc(0);
+      appendAndMaybeCommit(Buffer.alloc(0)); // flush remaining
     }
   });
 
