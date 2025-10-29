@@ -86,9 +86,10 @@ export async function POST(req: NextRequest) {
     };
     const meta_b64 = toB64(JSON.stringify(meta));
 
-    // ✅ TwiML with <Stream url="wss://...">
+    // ✅ TwiML with <Say> fallback greeting + inbound track
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
+  <Say voice="Polly.Joanna">Hi, this is Samantha with MPRE Boise. Please hold while I connect you.</Say>
   <Connect>
     <Stream url="${streamUrl}" track="inbound_track">
       <Parameter name="meta_b64" value="${meta_b64}"/>
