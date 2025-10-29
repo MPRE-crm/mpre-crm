@@ -1,3 +1,4 @@
+// crm-project/crm/app/api/bridge-server/server.js
 import "dotenv/config";
 import WebSocket, { WebSocketServer } from "ws";
 import http from "http";
@@ -134,18 +135,21 @@ wss.on("connection", async (ws, req) => {
           appendAndMaybeCommit(merged);
         }
 
-        oa.send(
-          JSON.stringify({
-            type: "response.create",
-            response: {
-              conversation: "auto",
-              instructions: openingPrompt,
-              modalities: ["audio", "text"],
-              voice: "alloy",
-            },
-          })
-        );
-        console.log("🎤 [oa] Greeting requested (wrapped response)");
+        // 🕓 Add small delay before greeting to ensure stream sync
+        setTimeout(() => {
+          oa.send(
+            JSON.stringify({
+              type: "response.create",
+              response: {
+                conversation: "auto",
+                instructions: openingPrompt,
+                modalities: ["audio", "text"],
+                voice: "alloy",
+              },
+            })
+          );
+          console.log("🎤 [oa] Greeting requested (wrapped response)");
+        }, 500);
       }
 
       if (data.type === "input_audio_buffer.committed") {
