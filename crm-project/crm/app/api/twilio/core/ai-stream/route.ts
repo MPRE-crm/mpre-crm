@@ -90,7 +90,7 @@ export async function POST(req: NextRequest) {
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
-    <Stream url="${streamUrl}" track="both_tracks">
+    <Stream url="${streamUrl}" track="outbound_track">
       <Parameter name="meta_b64" value="${meta_b64}"/>
     </Stream>
   </Connect>
