@@ -1,8 +1,6 @@
 // crm-project/crm/app/api/twilio/core/ai-stream/route.ts
 import { NextRequest } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-
-// 🔹 Import Samantha’s opening triage prompt (corrected path)
 import SAMANTHA_OPENING_TRIAGE from "../../../../lib/prompts/opening.js";
 
 export const runtime = "edge"; // TwiML must be public/fast
@@ -86,10 +84,9 @@ export async function POST(req: NextRequest) {
     };
     const meta_b64 = toB64(JSON.stringify(meta));
 
-    // ✅ TwiML with <Say> fallback greeting + inbound track
+    // ✅ TwiML — Directly connects to bridge (no <Say>)
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="Polly.Joanna">Hi, this is Samantha with MPRE Boise. Please hold while I connect you.</Say>
   <Connect>
     <Stream url="${streamUrl}" track="inbound_track">
       <Parameter name="meta_b64" value="${meta_b64}"/>
@@ -97,13 +94,17 @@ export async function POST(req: NextRequest) {
   </Connect>
 </Response>`;
 
-    console.log("✅ [ai-stream] TwiML generated:\n", twiml);
+    console.log("✅ [ai-stream] TwiML generated successfully");
+    console.log(twiml);
 
     return new Response(twiml, { headers: { "Content-Type": "text/xml" } });
   } catch (err) {
-    console.error("❌ [ai-stream] error:", err);
-    const safe = `<?xml version="1.0" encoding="UTF-8"?><Response><Say>We are experiencing difficulties. Please try again later.</Say></Response>`;
-    return new Response(safe, { headers: { "Content-Type": "text/xml" }, status: 200 });
+    console.error("❌ [ai-stream] error in POST handler:", err);
+    const safe = `<?xml version="1.0" encoding="UTF-8"?><Response><Say>We are experiencing temporary technical difficulties. Please try again shortly.</Say></Response>`;
+    return new Response(safe, {
+      headers: { "Content-Type": "text/xml" },
+      status: 200,
+    });
   }
 }
 
