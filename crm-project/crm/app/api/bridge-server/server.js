@@ -62,8 +62,19 @@ wss.on("connection", async (ws, req) => {
       audioBuffer = Buffer.alloc(0);
       commitInFlight = true;
       console.log(`[bridge] committing ${chunk.length} bytes (~${ms.toFixed(0)} ms)`);
-      oa.send(JSON.stringify({ type: "input_audio_buffer.append", audio: chunk.toString("base64") }));
-      oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+
+      oa.send(
+        JSON.stringify({
+          type: "input_audio_buffer.append",
+          audio: chunk.toString("base64"),
+        })
+      );
+
+      // 🔹 Delay commit slightly so append reaches OpenAI first
+      setTimeout(() => {
+        oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+      }, 150);
+
       setTimeout(() => (commitInFlight = false), 200);
     }
   }
@@ -80,7 +91,7 @@ wss.on("connection", async (ws, req) => {
         type: "session.update",
         session: {
           model: "gpt-4o-realtime-preview-2024-12-17",
-          input_audio_format: "g711_ulaw", // ✅ changed to μ-law passthrough
+          input_audio_format: "g711_ulaw", // μ-law passthrough
           output_audio_format: "g711_ulaw",
           voice: "alloy",
           instructions: openingPrompt,
@@ -96,14 +107,12 @@ wss.on("connection", async (ws, req) => {
         console.log("🌟 [oa] SESSION UPDATED — now ready");
         oaReady = true;
 
-        // Flush any buffered audio
         if (preBuffer.length > 0) {
           const merged = Buffer.concat(preBuffer);
           preBuffer = [];
           appendAndMaybeCommit(merged);
         }
 
-        // Start greeting
         setTimeout(() => {
           oa.send(
             JSON.stringify({
@@ -160,12 +169,10 @@ wss.on("connection", async (ws, req) => {
       }
     }
 
-    // ✅ handle μ-law directly — no conversion
     if (data.event === "media") {
       const uLaw = Buffer.from(data.media?.payload ?? "", "base64");
       if (!uLaw.length) return;
 
-      // Light RMS logging
       let rms = 0;
       for (let i = 0; i < uLaw.length; i++) rms += Math.abs(uLaw[i] - 128);
       rms = rms / uLaw.length / 128;
