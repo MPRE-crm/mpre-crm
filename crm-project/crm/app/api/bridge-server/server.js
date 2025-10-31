@@ -32,13 +32,14 @@ function ulawToPCM16(buf) {
   return out;
 }
 
-// --- 🔹 Simple 8kHz → 24kHz upsampler ---
+// --- 🔹 Simple 8kHz → 16kHz upsampler ---
 function upsamplePCM16(pcm8k) {
-  const ratio = 3; // 8kHz → 24kHz
+  const ratio = 2; // 8kHz → 16kHz
   const out = Buffer.alloc(pcm8k.length * ratio);
   for (let i = 0; i < pcm8k.length / 2 - 1; i++) {
     const sample = pcm8k.readInt16LE(i * 2);
-    for (let j = 0; j < ratio; j++) out.writeInt16LE(sample, (i * ratio + j) * 2);
+    for (let j = 0; j < ratio; j++)
+      out.writeInt16LE(sample, (i * ratio + j) * 2);
   }
   return out;
 }
@@ -51,7 +52,7 @@ function decodeB64(s) {
   }
 }
 
-const SAMPLE_RATE = 24000;
+const SAMPLE_RATE = 16000; // ✅ 16 kHz target
 const BYTES_PER_SAMPLE = 2;
 function bytesToMs(byteLen) {
   return (byteLen / (SAMPLE_RATE * BYTES_PER_SAMPLE)) * 1000;
@@ -85,7 +86,7 @@ wss.on("connection", async (ws, req) => {
 
   function commitIfReady() {
     const ms = bytesToMs(pcmBuffer.length);
-    const MIN_MS = 750;
+    const MIN_MS = 750; // keep this high enough for full 100 ms chunks
     if (!oaReady || pcmBuffer.length === 0 || ms < MIN_MS || commitInFlight) return;
 
     const chunk = pcmBuffer;
@@ -101,12 +102,12 @@ wss.on("connection", async (ws, req) => {
       })
     );
 
-    // ⏱️ Increase delay between append and commit
+    // Allow data to settle before commit
     setTimeout(() => {
       oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+      pcmBuffer = Buffer.alloc(0); // ✅ clear stale buffer
     }, 400);
 
-    // ⏱️ Allow more time before allowing next commit
     setTimeout(() => (commitInFlight = false), 900);
   }
 
@@ -124,6 +125,7 @@ wss.on("connection", async (ws, req) => {
           model: "gpt-4o-realtime-preview-2024-12-17",
           input_audio_format: "pcm16",
           output_audio_format: "g711_ulaw",
+          input_audio_sample_rate_hz: 16000, // ✅ match sample rate
           voice: "alloy",
           instructions: openingPrompt,
         },
@@ -199,21 +201,21 @@ wss.on("connection", async (ws, req) => {
       }
     }
 
-    // --- μ-law → PCM16 + upsample 8kHz → 24kHz ---
+    // --- μ-law → PCM16 + upsample 8kHz → 16kHz ---
     if (data.event === "media") {
       const uLaw = Buffer.from(data.media?.payload ?? "", "base64");
       if (!uLaw.length) return;
       const pcm16_8k = ulawToPCM16(uLaw);
-      const pcm16_24k = upsamplePCM16(pcm16_8k);
+      const pcm16_16k = upsamplePCM16(pcm16_8k);
 
       let rms = 0;
-      for (let i = 0; i < pcm16_24k.length; i += 2)
-        rms += Math.abs(pcm16_24k.readInt16LE(i)) / 32768;
-      rms /= pcm16_24k.length / 2;
+      for (let i = 0; i < pcm16_16k.length; i += 2)
+        rms += Math.abs(pcm16_16k.readInt16LE(i)) / 32768;
+      rms /= pcm16_16k.length / 2;
       console.log(`🎧 audio detected (RMS=${rms.toFixed(3)})`);
 
-      if (!oaReady) preBuffer.push(pcm16_24k);
-      else appendAndMaybeCommit(pcm16_24k);
+      if (!oaReady) preBuffer.push(pcm16_16k);
+      else appendAndMaybeCommit(pcm16_16k);
     }
 
     if (data.event === "stop") {
