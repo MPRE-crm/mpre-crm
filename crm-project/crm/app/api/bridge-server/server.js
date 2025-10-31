@@ -51,8 +51,8 @@ function decodeB64(s) {
   }
 }
 
-const SAMPLE_RATE = 24000; // 🔹 was 8000
-const BYTES_PER_SAMPLE = 2; // PCM16 = 2 bytes/sample
+const SAMPLE_RATE = 24000;
+const BYTES_PER_SAMPLE = 2;
 function bytesToMs(byteLen) {
   return (byteLen / (SAMPLE_RATE * BYTES_PER_SAMPLE)) * 1000;
 }
@@ -101,11 +101,13 @@ wss.on("connection", async (ws, req) => {
       })
     );
 
+    // ⏱️ Increase delay between append and commit
     setTimeout(() => {
       oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
-    }, 150);
+    }, 400);
 
-    setTimeout(() => (commitInFlight = false), 750);
+    // ⏱️ Allow more time before allowing next commit
+    setTimeout(() => (commitInFlight = false), 900);
   }
 
   function appendAndMaybeCommit(buf) {
@@ -122,6 +124,7 @@ wss.on("connection", async (ws, req) => {
           model: "gpt-4o-realtime-preview-2024-12-17",
           input_audio_format: "pcm16",
           output_audio_format: "g711_ulaw",
+          input_audio_sample_rate_hz: 24000,
           voice: "alloy",
           instructions: openingPrompt,
         },
