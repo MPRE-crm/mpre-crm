@@ -85,7 +85,7 @@ wss.on("connection", async (ws, req) => {
 
   function commitIfReady() {
     const ms = bytesToMs(pcmBuffer.length);
-    const MIN_MS = 500;
+    const MIN_MS = 750;
     if (!oaReady || pcmBuffer.length === 0 || ms < MIN_MS || commitInFlight) return;
 
     const chunk = pcmBuffer;
@@ -105,7 +105,7 @@ wss.on("connection", async (ws, req) => {
       oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
     }, 150);
 
-    setTimeout(() => (commitInFlight = false), 500);
+    setTimeout(() => (commitInFlight = false), 750);
   }
 
   function appendAndMaybeCommit(buf) {
