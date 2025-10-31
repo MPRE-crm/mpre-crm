@@ -1,4 +1,3 @@
-// crm-project/crm/app/api/bridge-server/server.js
 import "dotenv/config";
 import WebSocket, { WebSocketServer } from "ws";
 import http from "http";
@@ -56,27 +55,33 @@ wss.on("connection", async (ws, req) => {
 
   function commitIfReady() {
     const ms = bytesToMs(audioBuffer.length);
-    const MIN_MS = 200; // send when >=200ms buffered
-    if (oaReady && audioBuffer.length > 0 && ms >= MIN_MS && !commitInFlight) {
-      const chunk = audioBuffer;
-      audioBuffer = Buffer.alloc(0);
-      commitInFlight = true;
-      console.log(`[bridge] committing ${chunk.length} bytes (~${ms.toFixed(0)} ms)`);
+    const MIN_MS = 500; // send when >=500ms buffered
+    if (!oaReady || audioBuffer.length === 0 || ms < MIN_MS || commitInFlight) return;
 
-      oa.send(
-        JSON.stringify({
-          type: "input_audio_buffer.append",
-          audio: chunk.toString("base64"),
-        })
-      );
+    const chunk = audioBuffer;
+    audioBuffer = Buffer.alloc(0);
 
-      // 🔹 Delay commit slightly so append reaches OpenAI first
-      setTimeout(() => {
-        oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
-      }, 150);
-
-      setTimeout(() => (commitInFlight = false), 200);
+    if (ms < 100) {
+      console.warn(`[bridge] skipping commit — only ${ms.toFixed(0)} ms buffered`);
+      return;
     }
+
+    commitInFlight = true;
+    console.log(`[bridge] committing ${chunk.length} bytes (~${ms.toFixed(0)} ms)`);
+
+    oa.send(
+      JSON.stringify({
+        type: "input_audio_buffer.append",
+        audio: chunk.toString("base64"),
+      })
+    );
+
+    // 🔹 Delay commit slightly so append reaches OpenAI first
+    setTimeout(() => {
+      oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+    }, 150);
+
+    setTimeout(() => (commitInFlight = false), 500);
   }
 
   function appendAndMaybeCommit(buf) {
