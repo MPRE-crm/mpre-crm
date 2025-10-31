@@ -32,6 +32,17 @@ function ulawToPCM16(buf) {
   return out;
 }
 
+// --- 🔹 Simple 8kHz → 24kHz upsampler ---
+function upsamplePCM16(pcm8k) {
+  const ratio = 3; // 8kHz → 24kHz
+  const out = Buffer.alloc(pcm8k.length * ratio);
+  for (let i = 0; i < pcm8k.length / 2 - 1; i++) {
+    const sample = pcm8k.readInt16LE(i * 2);
+    for (let j = 0; j < ratio; j++) out.writeInt16LE(sample, (i * ratio + j) * 2);
+  }
+  return out;
+}
+
 function decodeB64(s) {
   try {
     return Buffer.from(s, "base64").toString("utf8");
@@ -40,7 +51,7 @@ function decodeB64(s) {
   }
 }
 
-const SAMPLE_RATE = 8000;
+const SAMPLE_RATE = 24000; // 🔹 was 8000
 const BYTES_PER_SAMPLE = 2; // PCM16 = 2 bytes/sample
 function bytesToMs(byteLen) {
   return (byteLen / (SAMPLE_RATE * BYTES_PER_SAMPLE)) * 1000;
@@ -111,6 +122,7 @@ wss.on("connection", async (ws, req) => {
           model: "gpt-4o-realtime-preview-2024-12-17",
           input_audio_format: "pcm16",
           output_audio_format: "g711_ulaw",
+          input_audio_sample_rate_hz: 24000, // 🔹 explicitly declare
           voice: "alloy",
           instructions: openingPrompt,
         },
@@ -186,20 +198,21 @@ wss.on("connection", async (ws, req) => {
       }
     }
 
-    // --- μ-law → PCM16 before sending to OpenAI ---
+    // --- μ-law → PCM16 + upsample 8kHz → 24kHz ---
     if (data.event === "media") {
       const uLaw = Buffer.from(data.media?.payload ?? "", "base64");
       if (!uLaw.length) return;
-      const pcm16 = ulawToPCM16(uLaw);
+      const pcm16_8k = ulawToPCM16(uLaw);
+      const pcm16_24k = upsamplePCM16(pcm16_8k);
 
       let rms = 0;
-      for (let i = 0; i < pcm16.length; i += 2)
-        rms += Math.abs(pcm16.readInt16LE(i)) / 32768;
-      rms /= pcm16.length / 2;
+      for (let i = 0; i < pcm16_24k.length; i += 2)
+        rms += Math.abs(pcm16_24k.readInt16LE(i)) / 32768;
+      rms /= pcm16_24k.length / 2;
       console.log(`🎧 audio detected (RMS=${rms.toFixed(3)})`);
 
-      if (!oaReady) preBuffer.push(pcm16);
-      else appendAndMaybeCommit(pcm16);
+      if (!oaReady) preBuffer.push(pcm16_24k);
+      else appendAndMaybeCommit(pcm16_24k);
     }
 
     if (data.event === "stop") {
