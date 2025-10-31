@@ -73,25 +73,23 @@ wss.on("connection", async (ws, req) => {
   let openingPrompt = SAMANTHA_OPENING_TRIAGE;
   let commitInFlight = false;
 
+  function commitIfReady() {
+    const ms = bytesToMs(pcmBuffer.length);
+    const MIN_MS = 200; // send when >=200ms buffered
+    if (oaReady && pcmBuffer.length > 0 && ms >= MIN_MS && !commitInFlight) {
+      const chunk = pcmBuffer;
+      pcmBuffer = Buffer.alloc(0);
+      commitInFlight = true;
+      console.log(`[bridge] committing ${chunk.length} bytes (~${ms.toFixed(0)} ms)`);
+      oa.send(JSON.stringify({ type: "input_audio_buffer.append", audio: chunk.toString("base64") }));
+      oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+      setTimeout(() => (commitInFlight = false), 200);
+    }
+  }
+
   function appendAndMaybeCommit(buf) {
     if (buf?.length) pcmBuffer = Buffer.concat([pcmBuffer, buf]);
-    const ms = bytesToMs(pcmBuffer.length);
-    const MIN_MS = 500;
-    const MIN_BYTES = 8000; // 500 ms of PCM16
-
-    if (oaReady && pcmBuffer.length >= MIN_BYTES && ms >= MIN_MS && !commitInFlight) {
-      console.log(`[bridge] committing ${pcmBuffer.length} bytes (~${ms.toFixed(0)} ms)`);
-      oa.send(
-        JSON.stringify({
-          type: "input_audio_buffer.append",
-          audio: pcmBuffer.toString("base64"),
-        })
-      );
-      oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
-      commitInFlight = true;
-      setTimeout(() => (commitInFlight = false), 300);
-      pcmBuffer = Buffer.alloc(0);
-    }
+    commitIfReady();
   }
 
   oa.on("open", () => {
@@ -101,7 +99,7 @@ wss.on("connection", async (ws, req) => {
         type: "session.update",
         session: {
           model: "gpt-4o-realtime-preview-2024-12-17",
-          input_audio_format: "pcm16", // expecting PCM16
+          input_audio_format: "pcm16",
           output_audio_format: "g711_ulaw",
           voice: "alloy",
           instructions: openingPrompt,
@@ -116,11 +114,15 @@ wss.on("connection", async (ws, req) => {
       if (data.type === "session.updated") {
         console.log("🌟 [oa] SESSION UPDATED — now ready");
         oaReady = true;
+
+        // Flush any buffered audio from before session was ready
         if (preBuffer.length > 0) {
           const merged = Buffer.concat(preBuffer);
           preBuffer = [];
           appendAndMaybeCommit(merged);
         }
+
+        // Start greeting
         setTimeout(() => {
           oa.send(
             JSON.stringify({
@@ -133,8 +135,8 @@ wss.on("connection", async (ws, req) => {
               },
             })
           );
-          console.log("🎤 [oa] Greeting requested (wrapped response)");
-        }, 500);
+          console.log("🎤 [oa] Greeting requested");
+        }, 300);
       }
 
       if (data.type === "response.output_audio.delta" && currentStreamSid && data.delta) {
@@ -176,27 +178,26 @@ wss.on("connection", async (ws, req) => {
       }
     }
 
-    // ✅ decode μ-law to PCM16 before sending
+    // --- handle Twilio media (μ-law) ---
     if (data.event === "media") {
       const uLaw = Buffer.from(data.media?.payload ?? "", "base64");
       if (!uLaw.length) return;
       const pcm16 = ulawToPCM16(uLaw);
+
       let rms = 0;
       for (let i = 0; i < pcm16.length; i += 2)
         rms += Math.abs(pcm16.readInt16LE(i)) / 32768;
       rms /= pcm16.length / 2;
       console.log(`🎧 audio detected (RMS=${rms.toFixed(3)})`);
 
-      if (!oaReady) {
-        preBuffer.push(pcm16);
-        return;
-      }
-      appendAndMaybeCommit(pcm16);
+      if (!oaReady) preBuffer.push(pcm16);
+      else appendAndMaybeCommit(pcm16);
     }
 
     if (data.event === "stop") {
       console.log("[bridge] stop received");
-      appendAndMaybeCommit(Buffer.alloc(0)); // flush remaining
+      commitIfReady();
+      pcmBuffer = Buffer.alloc(0);
     }
   });
 
