@@ -124,7 +124,6 @@ wss.on("connection", async (ws, req) => {
           model: "gpt-4o-realtime-preview-2024-12-17",
           input_audio_format: "pcm16",
           output_audio_format: "g711_ulaw",
-          input_audio_sample_rate_hz: 24000,
           voice: "alloy",
           instructions: openingPrompt,
         },
