@@ -110,8 +110,8 @@ wss.on("connection", async (ws, req) => {
   }
 
   function handleSilence() {
-    if (isSamanthaSpeaking) return;
-    if (lastRMS < RMS_SILENCE_THRESHOLD) {
+    if (!oaReady) return;
+    if (lastRMS < RMS_SILENCE_THRESHOLD && !isSamanthaSpeaking) {
       quietFor += CHECK_INTERVAL_MS;
       if (quietFor >= REQUIRED_SILENCE_MS) {
         clearInterval(silenceTimer);
@@ -126,7 +126,7 @@ wss.on("connection", async (ws, req) => {
   }
 
   function appendAudio(buf) {
-    if (!buf?.length || isSamanthaSpeaking) return;
+    if (!buf?.length) return;
     pcmBuffer = Buffer.concat([pcmBuffer, buf]);
     if (!silenceTimer) silenceTimer = setInterval(handleSilence, CHECK_INTERVAL_MS);
   }
@@ -198,8 +198,8 @@ wss.on("connection", async (ws, req) => {
       }
 
       if (data.type === "response.audio.delta" && currentStreamSid && data.delta) {
-        isSamanthaSpeaking = true;
         const len = Buffer.from(data.delta, "base64").length;
+        isSamanthaSpeaking = true;
         ws.send(
           JSON.stringify({
             event: "media",
@@ -211,10 +211,8 @@ wss.on("connection", async (ws, req) => {
       }
 
       if (data.type === "response.completed") {
-        setTimeout(() => {
-          isSamanthaSpeaking = false;
-          console.log("🎧 Samantha finished speaking — now listening...");
-        }, REQUIRED_SILENCE_MS);
+        isSamanthaSpeaking = false;
+        console.log("🎧 Samantha finished speaking — now listening...");
       }
 
       if (data.type === "error")
