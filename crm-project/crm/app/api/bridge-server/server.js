@@ -91,7 +91,7 @@ wss.on("connection", async (ws, req) => {
   let lastRMS = 0;
   let silenceTimer = null;
   let quietFor = 0;
-  let isSamanthaSpeaking = false; // 🔹 new flag
+  let isSamanthaSpeaking = false;
 
   function commitBuffer() {
     if (!oaReady || pcmBuffer.length === 0) return;
@@ -110,7 +110,7 @@ wss.on("connection", async (ws, req) => {
   }
 
   function handleSilence() {
-    if (isSamanthaSpeaking) return; // 🚫 don't listen while Samantha speaks
+    if (isSamanthaSpeaking) return;
     if (lastRMS < RMS_SILENCE_THRESHOLD) {
       quietFor += CHECK_INTERVAL_MS;
       if (quietFor >= REQUIRED_SILENCE_MS) {
@@ -126,18 +126,18 @@ wss.on("connection", async (ws, req) => {
   }
 
   function appendAudio(buf) {
-    if (!buf?.length || isSamanthaSpeaking) return; // 🚫 skip while speaking
+    if (!buf?.length || isSamanthaSpeaking) return;
     pcmBuffer = Buffer.concat([pcmBuffer, buf]);
     if (!silenceTimer) silenceTimer = setInterval(handleSilence, CHECK_INTERVAL_MS);
   }
 
-  function switchPrompt(newPrompt) {
+  function switchPrompt(openingPrompt) {
     if (!oaReady) return;
-    console.log(`[bridge] switching prompt → ${newPrompt.name}`);
+    console.log(`[bridge] switching prompt → ${openingPrompt.name}`);
     oa.send(
       JSON.stringify({
         type: "session.update",
-        session: { instructions: newPrompt },
+        session: { instructions: openingPrompt },
       })
     );
     oa.send(
@@ -145,7 +145,7 @@ wss.on("connection", async (ws, req) => {
         type: "response.create",
         response: {
           conversation: "auto",
-          instructions: newPrompt,
+          instructions: openingPrompt,
           modalities: ["audio", "text"],
           voice: "alloy",
         },
@@ -198,7 +198,7 @@ wss.on("connection", async (ws, req) => {
       }
 
       if (data.type === "response.audio.delta" && currentStreamSid && data.delta) {
-        isSamanthaSpeaking = true; // 🔒 lock listening
+        isSamanthaSpeaking = true;
         const len = Buffer.from(data.delta, "base64").length;
         ws.send(
           JSON.stringify({
@@ -211,7 +211,6 @@ wss.on("connection", async (ws, req) => {
       }
 
       if (data.type === "response.completed") {
-        // 🕓 Wait until Samantha is silent before unlocking listening
         setTimeout(() => {
           isSamanthaSpeaking = false;
           console.log("🎧 Samantha finished speaking — now listening...");
