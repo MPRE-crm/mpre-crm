@@ -181,6 +181,20 @@ wss.on("connection", async (ws, req) => {
           preBuffer = [];
           appendAudio(merged);
         }
+
+        // 🧪 Samantha test greeting
+        oa.send(
+          JSON.stringify({
+            type: "response.create",
+            response: {
+              conversation: "auto",
+              instructions: "Hi, this is Samantha with MPRE Boise — can you hear me okay?",
+              modalities: ["audio", "text"],
+              voice: "alloy",
+            },
+          })
+        );
+
         setTimeout(() => {
           oa.send(
             JSON.stringify({
