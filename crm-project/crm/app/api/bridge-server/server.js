@@ -148,6 +148,7 @@ wss.on("connection", async (ws, req) => {
           instructions: openingPrompt,
           modalities: ["audio", "text"],
           voice: "alloy",
+          output_audio_format: "g711_ulaw",
         },
       })
     );
@@ -182,7 +183,7 @@ wss.on("connection", async (ws, req) => {
           appendAudio(merged);
         }
 
-        // 🧪 Samantha test greeting
+        // 🧪 Samantha test greeting with enforced output_audio_format
         oa.send(
           JSON.stringify({
             type: "response.create",
@@ -191,6 +192,7 @@ wss.on("connection", async (ws, req) => {
               instructions: "Hi, this is Samantha with MPRE Boise — can you hear me okay?",
               modalities: ["audio", "text"],
               voice: "alloy",
+              output_audio_format: "g711_ulaw",
             },
           })
         );
@@ -204,6 +206,7 @@ wss.on("connection", async (ws, req) => {
                 instructions: openingPrompt,
                 modalities: ["audio", "text"],
                 voice: "alloy",
+                output_audio_format: "g711_ulaw",
               },
             })
           );
