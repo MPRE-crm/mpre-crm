@@ -16,7 +16,6 @@ const OA_API_KEY = process.env.OPENAI_API_KEY;
 const OA_PROJECT_ID = process.env.OPENAI_PROJECT_ID;
 const OA_URL = "wss://api.openai.com/v1/realtime?model=gpt-realtime-preview";
 
-// --- helpers ---
 function decodeB64(s) {
   try {
     return Buffer.from(s, "base64").toString("utf8");
@@ -25,7 +24,6 @@ function decodeB64(s) {
   }
 }
 
-// μ-law math (8kHz, 1 byte/sample) → 100ms = 800 bytes
 const MIN_COMMIT_BYTES = 800;
 const APPEND_CHUNK_BYTES = 1600;
 
@@ -84,12 +82,10 @@ wss.on("connection", async (ws, req) => {
   oa.on("message", (msg) => {
     try {
       const data = JSON.parse(msg.toString());
-
       if (data.type === "session.updated") {
         console.log("🌟 [oa] SESSION UPDATED — ready");
         oaReady = true;
 
-        // Flush pre-buffer if any
         if (preBuffer.length) {
           const merged = Buffer.concat(preBuffer);
           preBuffer = [];
@@ -102,7 +98,6 @@ wss.on("connection", async (ws, req) => {
           }
         }
 
-        // Greeting
         oa.send(JSON.stringify({
           type: "response.create",
           response: {
@@ -130,11 +125,7 @@ wss.on("connection", async (ws, req) => {
 
   ws.on("message", (msg) => {
     let data;
-    try {
-      data = JSON.parse(msg.toString());
-    } catch {
-      return;
-    }
+    try { data = JSON.parse(msg.toString()); } catch { return; }
 
     if (data.event === "start") {
       currentStreamSid = data.start?.streamSid;
@@ -167,7 +158,7 @@ wss.on("connection", async (ws, req) => {
       }
     }
 
-    // ✅ Updated "stop" handler — 300 ms delay before committing
+    // ✅ Delay before commit to ensure first chunks arrive
     if (data.event === "stop") {
       console.log("[bridge] stop received");
 
@@ -190,7 +181,7 @@ wss.on("connection", async (ws, req) => {
           console.log("[bridge] skip commit — not enough audio yet");
           appendedBytesSinceLastCommit = 0;
         }
-      }, 300);
+      }, 500); // 0.5s pause before commit
     }
   });
 
@@ -204,3 +195,4 @@ const PORT = process.env.PORT || 8080;
 server.listen(PORT, "0.0.0.0", () =>
   console.log(`✅ WS bridge listening on :${PORT}`)
 );
+
