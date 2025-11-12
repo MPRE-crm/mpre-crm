@@ -18,7 +18,11 @@ const OA_URL = "wss://api.openai.com/v1/realtime?model=gpt-realtime-preview";
 
 // --- helpers ---
 function decodeB64(s) {
-  try { return Buffer.from(s, "base64").toString("utf8"); } catch { return null; }
+  try {
+    return Buffer.from(s, "base64").toString("utf8");
+  } catch {
+    return null;
+  }
 }
 
 // μ-law math (8kHz, 1 byte/sample) → 100ms = 800 bytes
@@ -62,6 +66,7 @@ wss.on("connection", async (ws, req) => {
       },
     }));
 
+    // Fallback greeting
     setTimeout(() => {
       if (!oaReady) {
         console.log("🌟 [oa] Fallback — sending greeting manually");
@@ -84,6 +89,7 @@ wss.on("connection", async (ws, req) => {
         console.log("🌟 [oa] SESSION UPDATED — ready");
         oaReady = true;
 
+        // Flush pre-buffer if any
         if (preBuffer.length) {
           const merged = Buffer.concat(preBuffer);
           preBuffer = [];
@@ -96,6 +102,7 @@ wss.on("connection", async (ws, req) => {
           }
         }
 
+        // Greeting
         oa.send(JSON.stringify({
           type: "response.create",
           response: {
@@ -123,7 +130,11 @@ wss.on("connection", async (ws, req) => {
 
   ws.on("message", (msg) => {
     let data;
-    try { data = JSON.parse(msg.toString()); } catch { return; }
+    try {
+      data = JSON.parse(msg.toString());
+    } catch {
+      return;
+    }
 
     if (data.event === "start") {
       currentStreamSid = data.start?.streamSid;
@@ -156,21 +167,26 @@ wss.on("connection", async (ws, req) => {
       }
     }
 
+    // ✅ Updated "stop" handler — skips empty commits
     if (data.event === "stop") {
       console.log("[bridge] stop received");
 
       if (ulawBuffer.length > 0) {
-        oa.send(JSON.stringify({ type: "input_audio_buffer.append", audio: ulawBuffer.toString("base64") }));
+        oa.send(JSON.stringify({
+          type: "input_audio_buffer.append",
+          audio: ulawBuffer.toString("base64"),
+        }));
         appendedBytesSinceLastCommit += ulawBuffer.length;
         ulawBuffer = Buffer.alloc(0);
       }
 
-      // ✅ Fixed line: allow commit even if firstAudio never flipped
       if (appendedBytesSinceLastCommit >= MIN_COMMIT_BYTES) {
+        console.log(`[bridge] committing ${appendedBytesSinceLastCommit} bytes of audio`);
         oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
         appendedBytesSinceLastCommit = 0;
         oa.send(JSON.stringify({ type: "response.create" }));
       } else {
+        console.log("[bridge] skip commit — not enough audio yet");
         appendedBytesSinceLastCommit = 0;
       }
     }
