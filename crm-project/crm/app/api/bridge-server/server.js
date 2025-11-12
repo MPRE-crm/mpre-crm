@@ -1,3 +1,4 @@
+// crm-project/crm/app/api/bridge-server/server.js
 import "dotenv/config";
 import WebSocket, { WebSocketServer } from "ws";
 import http from "http";
@@ -13,49 +14,8 @@ const wss = new WebSocketServer({ noServer: true });
 
 const OA_API_KEY = process.env.OPENAI_API_KEY;
 const OA_PROJECT_ID = process.env.OPENAI_PROJECT_ID;
-const OA_URL =
-  "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17";
+const OA_URL = "wss://api.openai.com/v1/realtime?model=gpt-realtime-preview";
 
-// --- μ-law → PCM16 decode table ---
-const MULAW_DECODE_TABLE = new Int16Array(256);
-(function buildMuLawTable() {
-  for (let i = 0; i < 256; i++) {
-    let u = ~i;
-    let sign = u & 0x80 ? -1 : 1;
-    let exponent = (u >> 4) & 7;
-    let mantissa = u & 0x0f;
-    let magnitude = ((mantissa << 4) + 8) << (exponent + 3);
-    MULAW_DECODE_TABLE[i] = sign * magnitude;
-  }
-})();
-function ulawToPCM16(buf) {
-  const out = Buffer.alloc(buf.length * 2);
-  for (let i = 0; i < buf.length; i++)
-    out.writeInt16LE(MULAW_DECODE_TABLE[buf[i]], i * 2);
-  return out;
-}
-
-// --- 8 kHz → 16 kHz upsampler ---
-function upsample8kTo16k(pcm8k) {
-  const out = Buffer.alloc(pcm8k.length * 2);
-  for (let i = 0; i < pcm8k.length / 2; i++) {
-    const s = pcm8k.readInt16LE(i * 2);
-    out.writeInt16LE(s, i * 4);
-    out.writeInt16LE(s, i * 4 + 2);
-  }
-  return out;
-}
-
-const SAMPLE_RATE = 16000;
-const BYTES_PER_SAMPLE = 2;
-const APPEND_COMMIT_DELAY_MS = 200;
-const RMS_SILENCE_THRESHOLD = 0.02;
-const REQUIRED_SILENCE_MS = 3500;
-const CHECK_INTERVAL_MS = 250;
-
-function bytesToMs(bytes) {
-  return (bytes / (SAMPLE_RATE * BYTES_PER_SAMPLE)) * 1000;
-}
 function decodeB64(s) {
   try {
     return Buffer.from(s, "base64").toString("utf8");
@@ -65,11 +25,11 @@ function decodeB64(s) {
 }
 
 server.on("upgrade", (req, socket, head) => {
-  if (req.url?.includes("/bridge"))
+  if (req.url?.includes("/bridge")) {
     wss.handleUpgrade(req, socket, head, (ws) =>
       wss.emit("connection", ws, req)
     );
-  else socket.destroy();
+  } else socket.destroy();
 });
 
 wss.on("connection", async (ws, req) => {
@@ -84,125 +44,68 @@ wss.on("connection", async (ws, req) => {
   });
 
   let oaReady = false;
-  let pcmBuffer = Buffer.alloc(0);
-  let preBuffer = [];
+  let ulawBuffer = Buffer.alloc(0);
   let currentStreamSid = null;
+  let firstAudio = false;
   let openingPrompt = SAMANTHA_OPENING_TRIAGE;
-  let lastRMS = 0;
-  let silenceTimer = null;
-  let quietFor = 0;
-  let isSamanthaSpeaking = false;
-
-  function commitBuffer() {
-    if (!oaReady || pcmBuffer.length === 0) return;
-    const ms = bytesToMs(pcmBuffer.length);
-    console.log(`[bridge] committing ${pcmBuffer.length} bytes (~${ms.toFixed(0)} ms)`);
-    oa.send(
-      JSON.stringify({
-        type: "input_audio_buffer.append",
-        audio: pcmBuffer.toString("base64"),
-      })
-    );
-    setTimeout(() => {
-      oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
-      pcmBuffer = Buffer.alloc(0);
-    }, APPEND_COMMIT_DELAY_MS);
-  }
-
-  function handleSilence() {
-    if (!oaReady) return;
-    if (lastRMS < RMS_SILENCE_THRESHOLD && !isSamanthaSpeaking) {
-      quietFor += CHECK_INTERVAL_MS;
-      if (quietFor >= REQUIRED_SILENCE_MS) {
-        clearInterval(silenceTimer);
-        silenceTimer = null;
-        quietFor = 0;
-        console.log("🔇 Silence detected — committing caller audio");
-        commitBuffer();
-      }
-    } else {
-      quietFor = 0;
-    }
-  }
-
-  function appendAudio(buf) {
-    if (!buf?.length) return;
-    pcmBuffer = Buffer.concat([pcmBuffer, buf]);
-    if (!silenceTimer) silenceTimer = setInterval(handleSilence, CHECK_INTERVAL_MS);
-  }
-
-  function switchPrompt(openingPrompt) {
-    if (!oaReady) return;
-    console.log(`[bridge] switching prompt → ${openingPrompt.name}`);
-    oa.send(
-      JSON.stringify({
-        type: "session.update",
-        session: { instructions: openingPrompt },
-      })
-    );
-    oa.send(
-      JSON.stringify({
-        type: "response.create",
-        response: {
-          conversation: "auto",
-          instructions: openingPrompt,
-          modalities: ["audio", "text"],
-          voice: "alloy",
-          output_audio_format: "g711_ulaw",
-        },
-      })
-    );
-  }
 
   oa.on("open", () => {
     console.log("[oa] connected — initializing Samantha session");
+
+    // Configure Samantha’s realtime voice
     oa.send(
       JSON.stringify({
         type: "session.update",
         session: {
-          model: "gpt-4o-realtime-preview-2024-12-17",
-          input_audio_format: "pcm16",
+          model: "gpt-realtime-preview",
+          input_audio_format: "g711_ulaw",
           output_audio_format: "g711_ulaw",
-          modalities: ["audio", "text"],
           voice: "alloy",
           instructions: openingPrompt,
         },
       })
     );
+
+    // Safety fallback greeting
+    setTimeout(() => {
+      if (!oaReady) {
+        console.log("🌟 [oa] Fallback — sending greeting manually");
+        oa.send(
+          JSON.stringify({
+            type: "response.create",
+            response: {
+              conversation: "none",
+              instructions: "Hi, this is Samantha with MPRE Boise — can you hear me okay?",
+            },
+          })
+        );
+      }
+    }, 800);
   });
 
   oa.on("message", (msg) => {
     try {
       const data = JSON.parse(msg.toString());
+
       if (data.type === "session.updated") {
         console.log("🌟 [oa] SESSION UPDATED — ready");
         oaReady = true;
-        if (preBuffer.length) {
-          const merged = Buffer.concat(preBuffer);
-          preBuffer = [];
-          appendAudio(merged);
-        }
 
-        // ✅ Samantha test greeting (only once)
+        // Trigger Samantha greeting
         oa.send(
           JSON.stringify({
             type: "response.create",
             response: {
-              conversation: "auto",
+              conversation: "none",
               instructions: "Hi, this is Samantha with MPRE Boise — can you hear me okay?",
-              modalities: ["audio", "text"],
-              voice: "alloy",
-              output_audio_format: "g711_ulaw",
             },
           })
         );
-
-        console.log("🎤 [oa] Greeting requested");
+        console.log("🎤 [oa] Greeting sent");
       }
 
-      if (data.type === "response.audio.delta" && currentStreamSid && data.delta) {
-        const len = Buffer.from(data.delta, "base64").length;
-        isSamanthaSpeaking = true;
+      // Samantha speaking back
+      if (data.type === "response.output_audio.delta" && currentStreamSid && data.delta) {
         ws.send(
           JSON.stringify({
             event: "media",
@@ -210,16 +113,12 @@ wss.on("connection", async (ws, req) => {
             media: { payload: data.delta },
           })
         );
-        console.log(`[oa] 🔊 Samantha speaking — ${len} bytes`);
+        console.log(`[oa] 🔊 Samantha speaking — ${Buffer.from(data.delta, "base64").length} bytes`);
       }
 
-      if (data.type === "response.completed") {
-        isSamanthaSpeaking = false;
-        console.log("🎧 Samantha finished speaking — now listening...");
-      }
-
-      if (data.type === "error")
+      if (data.type === "error") {
         console.error("[oa] error", data.error?.message || data);
+      }
     } catch (e) {
       console.error("[oa] parse error", e);
     }
@@ -236,7 +135,6 @@ wss.on("connection", async (ws, req) => {
     if (data.event === "start") {
       currentStreamSid = data.start?.streamSid;
       const meta_b64 = data.start?.customParameters?.meta_b64;
-      console.log(`[bridge] stream started — track: ${data.start?.track || "unknown"}`);
       if (meta_b64) {
         try {
           const meta = JSON.parse(decodeB64(meta_b64));
@@ -245,32 +143,48 @@ wss.on("connection", async (ws, req) => {
           console.warn("[bridge] failed to parse meta_b64");
         }
       }
+      console.log(`[bridge] stream started — ${currentStreamSid}`);
     }
 
-    if (data.event === "media") {
-      const uLaw = Buffer.from(data.media?.payload ?? "", "base64");
-      if (!uLaw.length) return;
-      const pcm16 = upsample8kTo16k(ulawToPCM16(uLaw));
-      let rms = 0;
-      for (let i = 0; i < pcm16.length; i += 2)
-        rms += Math.abs(pcm16.readInt16LE(i)) / 32768;
-      rms /= pcm16.length / 2;
-      lastRMS = rms;
-      console.log(`🎧 audio detected (RMS=${rms.toFixed(3)})`);
-      if (!oaReady) preBuffer.push(pcm16);
-      else appendAudio(pcm16);
+    // Caller audio → Samantha
+    if (data.event === "media" && oaReady) {
+      const chunk = Buffer.from(data.media?.payload ?? "", "base64");
+      if (!chunk.length) return;
+      ulawBuffer = Buffer.concat([ulawBuffer, chunk]);
+      firstAudio = true;
+
+      if (ulawBuffer.length >= 1600) {
+        oa.send(
+          JSON.stringify({
+            type: "input_audio_buffer.append",
+            audio: ulawBuffer.toString("base64"),
+          })
+        );
+        ulawBuffer = Buffer.alloc(0);
+      }
     }
 
+    // End of caller speech
     if (data.event === "stop") {
       console.log("[bridge] stop received");
-      commitBuffer();
-      pcmBuffer = Buffer.alloc(0);
+      if (firstAudio) {
+        if (ulawBuffer.length > 0) {
+          oa.send(
+            JSON.stringify({
+              type: "input_audio_buffer.append",
+              audio: ulawBuffer.toString("base64"),
+            })
+          );
+        }
+        oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+        oa.send(JSON.stringify({ type: "response.create" }));
+      }
+      ulawBuffer = Buffer.alloc(0);
     }
   });
 
   ws.on("close", () => {
     console.log("[bridge] client disconnected");
-    if (silenceTimer) clearInterval(silenceTimer);
     oa.close();
   });
 });
