@@ -183,7 +183,7 @@ wss.on("connection", async (ws, req) => {
           appendAudio(merged);
         }
 
-        // 🧪 Samantha test greeting with enforced output_audio_format
+        // ✅ Samantha test greeting (only once)
         oa.send(
           JSON.stringify({
             type: "response.create",
@@ -197,21 +197,7 @@ wss.on("connection", async (ws, req) => {
           })
         );
 
-        setTimeout(() => {
-          oa.send(
-            JSON.stringify({
-              type: "response.create",
-              response: {
-                conversation: "auto",
-                instructions: openingPrompt,
-                modalities: ["audio", "text"],
-                voice: "alloy",
-                output_audio_format: "g711_ulaw",
-              },
-            })
-          );
-          console.log("🎤 [oa] Greeting requested");
-        }, 100);
+        console.log("🎤 [oa] Greeting requested");
       }
 
       if (data.type === "response.audio.delta" && currentStreamSid && data.delta) {
