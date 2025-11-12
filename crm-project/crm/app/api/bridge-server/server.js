@@ -167,7 +167,7 @@ wss.on("connection", async (ws, req) => {
       }
     }
 
-    // ✅ Updated "stop" handler — skips empty commits
+    // ✅ Updated "stop" handler — 300 ms delay before committing
     if (data.event === "stop") {
       console.log("[bridge] stop received");
 
@@ -180,15 +180,17 @@ wss.on("connection", async (ws, req) => {
         ulawBuffer = Buffer.alloc(0);
       }
 
-      if (appendedBytesSinceLastCommit >= MIN_COMMIT_BYTES) {
-        console.log(`[bridge] committing ${appendedBytesSinceLastCommit} bytes of audio`);
-        oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
-        appendedBytesSinceLastCommit = 0;
-        oa.send(JSON.stringify({ type: "response.create" }));
-      } else {
-        console.log("[bridge] skip commit — not enough audio yet");
-        appendedBytesSinceLastCommit = 0;
-      }
+      setTimeout(() => {
+        if (appendedBytesSinceLastCommit >= MIN_COMMIT_BYTES) {
+          console.log(`[bridge] committing ${appendedBytesSinceLastCommit} bytes of audio`);
+          oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+          appendedBytesSinceLastCommit = 0;
+          oa.send(JSON.stringify({ type: "response.create" }));
+        } else {
+          console.log("[bridge] skip commit — not enough audio yet");
+          appendedBytesSinceLastCommit = 0;
+        }
+      }, 300);
     }
   });
 
