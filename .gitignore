@@ -43,3 +43,6 @@ next-env.d.ts
 
 # Ignore accidental root server.js
 /server.js
+
+FirebaseRTC/
+
