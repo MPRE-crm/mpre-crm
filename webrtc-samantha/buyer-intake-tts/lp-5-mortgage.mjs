@@ -1,4 +1,4 @@
-// buyer-intake-tts/appointment.mjs
+// buyer-intake-tts/lp-5-mortgage.mjs
 import "dotenv/config";
 import fs from "fs";
 import path from "path";
@@ -15,11 +15,11 @@ const OA_URL =
   "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview";
 
 const TEXT =
-  "Great. I’d love to connect you with the team. We have two available consultation times: {{two_slot_a_human}} or {{two_slot_b_human}}. Which one works best for you?";
+  "And for financing — will you be paying cash, or using a mortgage? If you’d like, I can also connect you with a trusted local lender. Just say sure and I will have one reach out to you for a simple, no information required conversation.";
 
 const outPcmPath = path.join(
   __dirname,
-  "../greetings/buyer-intake/appointment.pcm"
+  "../greetings/buyer-intake/lp-5-mortgage.pcm"
 );
 
 async function main() {

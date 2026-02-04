@@ -76,6 +76,7 @@ wss.on("connection", (ws) => {
 
   /* ---------------- STATE ---------------- */
   let state = ST.PLAY_OPENING1;
+  let allowOASpeech = false;
   let oaReady = false;
   let micQueue = [];
 
@@ -92,12 +93,6 @@ wss.on("connection", (ws) => {
   /* ---------------- OFF-TOPIC ---------------- */
   let buyerOffTopicCount = 0;
   const MAX_OFF_TOPIC_QUESTIONS = 5;
-  let pendingAdvanceAfterOffTopic = false;
-
-  const offTopicState = {
-    active: false,
-    awaiting: false,
-  };
 
   function setState(s) {
     state = s;
@@ -105,14 +100,13 @@ wss.on("connection", (ws) => {
   }
 
   /* ------------------------------------------------------------------ */
-  /* 🔧 FIXED: mic is NO LONGER unlocked here */
+  /* 🔧 FIX: unlock mic ONLY after PCM finishes (no race)                */
   /* ------------------------------------------------------------------ */
   function playBuffer(buf, label, nextState) {
     mic.lockMic();
     playPcmToClient(ws, buf, label, () => {
       setState(nextState);
-      // ❌ DO NOT unlock mic here
-      // Mic is unlocked ONLY after OpenAI finishes speaking
+      mic.unlockMic(); // ✅ REQUIRED for PCM
     });
   }
 
@@ -138,38 +132,33 @@ wss.on("connection", (ws) => {
   /* ------------------------------------------------------------------ */
   /* OFF-TOPIC RESPONSE */
   /* ------------------------------------------------------------------ */
-  function triggerOffTopicResponse(transcriptText) {
-    const step = buyerPcms[flows.refs.buyerIdx];
-    const wordCount = transcriptText.trim().split(/\s+/).length;
+function triggerOffTopicResponse(transcriptText) {
+  const step = buyerPcms[flows.refs.buyerIdx];
 
-    if (step?.key === "contact4-questions" && wordCount >= 3) {
-      buyerOffTopicCount++;
-      if (buyerOffTopicCount >= MAX_OFF_TOPIC_QUESTIONS) {
-        pendingAdvanceAfterOffTopic = true;
-      }
-    }
+  // ✅ HARD GUARD: OA may ONLY speak during contact4-questions
+  if (step?.key !== "contact4-questions") {
+    return; // 🚫 no freelancing
+  }
 
-    offTopicState.active = true;
-    offTopicState.awaiting = false;
-    mic.lockMic();
+  mic.lockMic();
 
-    oa.send(
-      JSON.stringify({
-        type: "response.create",
-        response: {
-          modalities: ["audio", "text"],
-          max_output_tokens: 900,
-          instructions: `
+  oa.send(
+    JSON.stringify({
+      type: "response.create",
+      response: {
+        modalities: ["audio", "text"],
+        max_output_tokens: 1600,
+        instructions: `
 Answer clearly and completely like a knowledgeable Boise real estate professional.
 After answering, ask exactly:
 "Do you have any other questions before we move forward?"
 
 Question: ${transcriptText}
           `.trim(),
-        },
-      })
-    );
-  }
+      },
+    })
+  );
+}
 
   /* ------------------------------------------------------------------ */
   /* OPENAI EVENTS */
@@ -183,8 +172,10 @@ Question: ${transcriptText}
     micQueue = [];
 
     setState(ST.PLAY_OPENING1);
+
     playBuffer(opening1Pcm, "Opening1", ST.WAIT_AREA);
-  });
+    // ✅ removed setTimeout unlock (handled by playBuffer completion)
+});
 
   oa.on("message", (msg) => {
     const data = JSON.parse(msg.toString());
@@ -196,80 +187,118 @@ Question: ${transcriptText}
       mic,
       state,
       setState,
-      offTopicState,
+      allowOASpeech,
+      playPcmToClient,          // ✅ ADD
       onTranscript: (transcript) => {
         console.log("📝 TRANSCRIPT:", { state, transcript });
 
-        if (offTopicState.awaiting) {
-          offTopicState.awaiting = false;
+/* ------------------------------------------------------------------ */
+/* ✅ FIX: off-topic loop supports MULTIPLE questions, not just one     */
+/* ------------------------------------------------------------------ */
+if (state === ST.WAIT_AREA) {
+  allowOASpeech = false;
 
-          if (pendingAdvanceAfterOffTopic) {
-            pendingAdvanceAfterOffTopic = false;
-            return flows.advanceBuyerStep(setState); // ✅ FIXED LINE
-          }
+  setState(ST.PLAY_OPENING2);
+  playBuffer(opening2Pcm, "Opening2", ST.WAIT_INTENT);
+  return;
+}
 
-          return flows.replayBuyerStep(setState);
-        }
+if (state === ST.WAIT_INTENT) {
+  allowOASpeech = false;
 
-        if (state === ST.WAIT_AREA) {
-          setState(ST.PLAY_OPENING2);
-          return playBuffer(opening2Pcm, "Opening2", ST.WAIT_INTENT);
-        }
+  const intent = detectIntentFromTranscript(transcript);
+  if (intent === "seller") return flows.startSellerFlow(setState);
+  if (intent === "investor") return flows.startInvestorFlow(setState);
+  return flows.startBuyerFlow(setState);
+}
 
-        if (state === ST.WAIT_INTENT) {
-          const intent = detectIntentFromTranscript(transcript);
-          if (intent === "seller") return flows.startSellerFlow(setState);
-          if (intent === "investor") return flows.startInvestorFlow(setState);
-          return flows.startBuyerFlow(setState);
-        }
+if (state === ST.WAIT_BUYER_ANSWER) {
+  const step = buyerPcms[flows.refs.buyerIdx];
+  
+  if (step?.key !== "contact3-phone") phoneDigitBuffer = "";
 
-        if (state === ST.WAIT_BUYER_ANSWER) {
-          const step = buyerPcms[flows.refs.buyerIdx];
+  if (step?.key === "contact1-name") {
+    buyerData.name = transcript;
+    flows.refs.buyerIdx++;
+    return flows.playNextBuyerStep(setState);
+  }
 
-          if (step?.key !== "contact3-phone") phoneDigitBuffer = "";
+  if (step?.key === "contact2-email") {
+    buyerData.email = transcript;
+    flows.refs.buyerIdx++;
+    return flows.playNextBuyerStep(setState);
+  }
 
-          if (step?.key === "contact1-name") {
-            buyerData.name = transcript;
-            flows.refs.buyerIdx++;
-            return flows.playNextBuyerStep(setState);
-          }
+  if (step?.key === "contact3-phone") {
+    phoneDigitBuffer += transcript.replace(/\D/g, "");
+    if (phoneDigitBuffer.length < 10) return;
+    buyerData.phone = phoneDigitBuffer;
+    phoneDigitBuffer = "";
+    flows.refs.buyerIdx++;
+    return flows.playNextBuyerStep(setState);
+  }
 
-          if (step?.key === "contact2-email") {
-            buyerData.email = transcript;
-            flows.refs.buyerIdx++;
-            return flows.playNextBuyerStep(setState);
-          }
+if (step?.key === "contact4-questions") {
+  const s = transcript.toLowerCase();
 
-          if (step?.key === "contact3-phone") {
-            phoneDigitBuffer += transcript.replace(/\D/g, "");
-            if (phoneDigitBuffer.length < 10) return;
-            buyerData.phone = phoneDigitBuffer;
-            phoneDigitBuffer = "";
-            flows.refs.buyerIdx++;
-            return flows.playNextBuyerStep(setState);
-          }
+  // ✅ NO-QUESTION SHORT-CIRCUIT → go straight to lp-1
+  if (
+    s.includes("no questions") ||
+    s.includes("don't have any") ||
+    s.includes("do not have any") ||
+    s.includes("none") ||
+    s.includes("nope") ||
+    s.includes("i'm good") ||
+    s.includes("all set")
+  ) {
+    buyerOffTopicCount = 0;
+    allowOASpeech = false;
+    return flows.advanceBuyerStep(setState); // → lp-1
+  }
 
-          if (step?.key === "contact4-questions") {
-            return triggerOffTopicResponse(transcript);
-          }
-        }
+  // existing logic stays intact
+  buyerOffTopicCount++;
 
-        handleCompletedTranscription({
-          data,
-          state,
-          ST,
-          ctx: captureCtx,
-          setState,
-          buyerData,
-          sellerData,
-          investorData,
-          buyerPcms,
-          sellerPcms,
-          investorPcms,
-          refs: flows.refs,
-          triggerOffTopicResponse,
-        });
-      },
+  if (buyerOffTopicCount >= MAX_OFF_TOPIC_QUESTIONS) {
+    buyerOffTopicCount = 0;
+    allowOASpeech = false;
+    return flows.advanceBuyerStep(setState); // → lp-1
+  }
+
+  allowOASpeech = true;
+  return triggerOffTopicResponse(transcript);
+  }
+}
+
+handleCompletedTranscription({
+  data,
+  state,
+  ST,
+  ctx: captureCtx,
+  setState,
+
+  buyerData,
+  sellerData,
+  investorData,
+
+  buyerPcms,
+  sellerPcms,
+  investorPcms,
+
+  refs: flows.refs,
+
+  // 🔑 THESE WERE MISSING
+  playNextBuyerStep: flows.playNextBuyerStep,
+  playNextSellerStep: flows.playNextSellerStep,
+  playNextInvestorStep: flows.playNextInvestorStep,
+
+  startBuyerFlow: flows.startBuyerFlow,
+  startSellerFlow: flows.startSellerFlow,
+  startInvestorFlow: flows.startInvestorFlow,
+
+  triggerOffTopicResponse,
+      });
+    },
     });
   });
 

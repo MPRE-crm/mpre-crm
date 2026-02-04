@@ -1,3 +1,4 @@
+// oa/oaHandlers.js
 export function handleOpenAIMessage({
   data,
   ws,
@@ -7,30 +8,49 @@ export function handleOpenAIMessage({
   setState,
   onTranscript,
   offTopicState,
+  allowOASpeech,
+  playPcmToClient,        // 🔧 REQUIRED
 }) {
-  // 🔊 Stream assistant audio to client
+  // --------------------------------------------------
+  // ASSISTANT AUDIO STREAMING (HARD GUARDED)
+  // --------------------------------------------------
   if (data.type?.includes("audio.delta")) {
+    // 🚫 HARD STOP: OA may NOT speak unless explicitly allowed
+    if (!allowOASpeech) {
+      return;
+    }
+
+    mic._assistantSpoke = true;
+
     if (ws.readyState === 1 && data.delta) {
       ws.send(Buffer.from(data.delta, "base64"));
     }
     return;
   }
 
-  // 🔑 ASSISTANT FINISHED SPEAKING
-  if (data.type === "response.output_audio.done") {
-    // ✅ SINGLE SOURCE OF TRUTH
+  // --------------------------------------------------
+  // ASSISTANT FINISHED SPEAKING
+  // --------------------------------------------------
+ if (
+  data.type === "response.output_audio.done" ||
+  data.type === "response.audio.done"
+) {
+  if (mic._assistantSpoke) {
+    mic._assistantSpoke = false;
     mic.unlockMic();
-
-    // 🧠 Off-topic bookkeeping ONLY
-    if (offTopicState.active) {
-      offTopicState.active = false;
-      offTopicState.awaiting = true;
-    }
-
-    return;
   }
 
-  // 📝 Transcription completed → hand back to server.js logic
+if (offTopicState?.active) {
+  offTopicState.active = false;
+  offTopicState.awaiting = true;
+}
+
+  return;
+}
+
+  // --------------------------------------------------
+  // TRANSCRIPTION COMPLETED
+  // --------------------------------------------------
   if (data.type === "conversation.item.input_audio_transcription.completed") {
     const transcript = (data.transcript || "").trim();
     if (!transcript) return;

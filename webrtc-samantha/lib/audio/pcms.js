@@ -1,26 +1,25 @@
+// webrtc-samantha/lib/audio/pcms.js
 import { loadPcm } from "./pcmLoader.js";
 
 export function loadAllPcms(__dirname) {
   const opening1Pcm = loadPcm(__dirname, "greetings/opening1-mpre-residential.pcm");
   const opening2Pcm = loadPcm(__dirname, "greetings/mpre-boise-greeting.pcm");
 
- const buyerPcms = [
-  { key: "contact1-name", buf: loadPcm(__dirname, "greetings/buyer-intake/contact1-name.pcm") },
-  { key: "contact2-email", buf: loadPcm(__dirname, "greetings/buyer-intake/contact2-email.pcm") },
-  { key: "contact3-phone", buf: loadPcm(__dirname, "greetings/buyer-intake/contact3-phone.pcm") },
+  const buyerPcms = [
+    { key: "contact1-name", buf: loadPcm(__dirname, "greetings/buyer-intake/contact1-name.pcm") },
+    { key: "contact2-email", buf: loadPcm(__dirname, "greetings/buyer-intake/contact2-email.pcm") },
+    { key: "contact3-phone", buf: loadPcm(__dirname, "greetings/buyer-intake/contact3-phone.pcm") },
 
-  // 🆕 Off-topic question window opener
-  { key: "contact4-questions", buf: loadPcm(__dirname, "greetings/buyer-intake/contact4-questions.pcm") },
+    { key: "contact4-questions", buf: loadPcm(__dirname, "greetings/buyer-intake/contact4-questions.pcm") },
 
-  // LPMAMA starts here
-  { key: "lp-1-location", buf: loadPcm(__dirname, "greetings/buyer-intake/lp-1-location.pcm") },
-  { key: "lp-2-price", buf: loadPcm(__dirname, "greetings/buyer-intake/lp-2-price.pcm") },
-  { key: "lp-3-motivation", buf: loadPcm(__dirname, "greetings/buyer-intake/lp-3-motivation.pcm") },
-  { key: "lp-4-agent", buf: loadPcm(__dirname, "greetings/buyer-intake/lp-4-agent.pcm") },
-  { key: "lp-5-mortgage", buf: loadPcm(__dirname, "greetings/buyer-intake/lp-5-mortgage.pcm") },
-  { key: "appointment", buf: loadPcm(__dirname, "greetings/buyer-intake/appointment.pcm") },
-  { key: "close", buf: loadPcm(__dirname, "greetings/buyer-intake/close.pcm") },
-];
+    { key: "lp-1-location", buf: loadPcm(__dirname, "greetings/buyer-intake/lp-1-location.pcm") },
+    { key: "lp-2-price", buf: loadPcm(__dirname, "greetings/buyer-intake/lp-2-price.pcm") },
+    { key: "lp-3-motivation", buf: loadPcm(__dirname, "greetings/buyer-intake/lp-3-motivation.pcm") },
+    { key: "lp-4-agent", buf: loadPcm(__dirname, "greetings/buyer-intake/lp-4-agent.pcm") },
+    { key: "lp-5-mortgage", buf: loadPcm(__dirname, "greetings/buyer-intake/lp-5-mortgage.pcm") },
+    { key: "appointment", buf: loadPcm(__dirname, "greetings/buyer-intake/appointment.pcm") },
+    { key: "close", buf: loadPcm(__dirname, "greetings/buyer-intake/close.pcm") },
+  ];
 
   const sellerPcms = [
     { key: "s01-contact-name", buf: loadPcm(__dirname, "greetings/seller-intake/s01-contact-name.pcm") },
@@ -49,5 +48,12 @@ export function loadAllPcms(__dirname) {
     { key: "i11-close", buf: loadPcm(__dirname, "greetings/investor-intake/i11-close.pcm") },
   ];
 
-  return { opening1Pcm, opening2Pcm, buyerPcms, sellerPcms, investorPcms };
+  // ✅ INBOUND ONLY. Outbound loaders live in their own files.
+  return {
+    opening1Pcm,
+    opening2Pcm,
+    buyerPcms,
+    sellerPcms,
+    investorPcms,
+  };
 }

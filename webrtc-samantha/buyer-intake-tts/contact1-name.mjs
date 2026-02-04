@@ -1,4 +1,4 @@
-// buyer-intake-tts/contact1-name.mjs
+// buyer-intake-tts/_template.mjs
 import "dotenv/config";
 import fs from "fs";
 import path from "path";
@@ -11,8 +11,12 @@ const __dirname = path.dirname(__filename);
 const OA_API_KEY = process.env.OPENAI_API_KEY;
 const OA_PROJECT_ID = process.env.OPENAI_PROJECT_ID;
 
-const OA_URL = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview";
+const OA_URL =
+  "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview";
 
+/* -------------------------------------------------- */
+/* 🔧 CHANGE ONLY THESE TWO VALUES                     */
+/* -------------------------------------------------- */
 const TEXT =
   "Great! Before we get into what you're looking for, may I have your first and last name?";
 
@@ -20,9 +24,13 @@ const outPcmPath = path.join(
   __dirname,
   "../greetings/buyer-intake/contact1-name.pcm"
 );
+/* -------------------------------------------------- */
 
 async function main() {
-  if (!OA_API_KEY) throw new Error("Missing OPENAI_API_KEY");
+  if (!OA_API_KEY) {
+    console.error("❌ Missing OPENAI_API_KEY");
+    process.exit(1);
+  }
 
   const ws = new WebSocket(OA_URL, {
     headers: {
@@ -44,12 +52,11 @@ async function main() {
           input_audio_format: "pcm16",
           output_audio_format: "pcm16",
           modalities: ["audio", "text"],
-          instructions: "Read the provided sentence exactly as written.",
+          instructions:
+            "Read the provided sentence exactly as written. Do not add or remove words.",
         },
       })
     );
-
-    const strictScript = `Say exactly this:\n"${TEXT}"`;
 
     ws.send(
       JSON.stringify({
@@ -57,7 +64,7 @@ async function main() {
         response: {
           modalities: ["audio", "text"],
           voice: "verse",
-          instructions: strictScript,
+          instructions: `Say exactly this:\n"${TEXT}"`,
         },
       })
     );
@@ -71,11 +78,11 @@ async function main() {
       return;
     }
 
-    if (data.type === "response.output_audio.delta" && data.delta) {
+    if (data.type === "response.audio.delta" && data.delta) {
       chunks.push(Buffer.from(data.delta, "base64"));
     }
 
-    if (data.type === "response.output_audio.done") {
+    if (data.type === "response.audio.done") {
       finished = true;
       fs.mkdirSync(path.dirname(outPcmPath), { recursive: true });
       fs.writeFileSync(outPcmPath, Buffer.concat(chunks));
@@ -83,7 +90,14 @@ async function main() {
     }
   });
 
-  ws.on("close", () => process.exit(finished ? 0 : 1));
+  ws.on("close", () => {
+    process.exit(finished ? 0 : 1);
+  });
+
+  ws.on("error", (err) => {
+    console.error("❌ WebSocket error:", err);
+    process.exit(1);
+  });
 }
 
 main();

@@ -15,11 +15,7 @@ let isAssistantTalking = false;
 let playbackTime = 0;
 let activeSources = 0;
 
-// 🔒 cooldown timer (now harmless; server owns mic gating)
-let micCooldownTimer = null;
-const MIC_RESUME_DELAY_MS = 300;
-
-// 🔴 server-controlled mic gate
+// 🔴 server-controlled mic gate (ONLY authority)
 let canSendMic = false;
 
 async function startConversation() {
@@ -66,7 +62,7 @@ async function startConversation() {
 
     startBtn.disabled = true;
     stopBtn.disabled = false;
-    statusEl.textContent = "Connected — say something!";
+    statusEl.textContent = "Connected — listening for Samantha";
   };
 
   ws.onmessage = (event) => {
@@ -78,7 +74,7 @@ async function startConversation() {
         const msg = JSON.parse(event.data);
         if (msg.type === "mic_can_open") {
           canSendMic = true;
-          console.log("🎤 Client mic armed");
+          console.log("🎤 Client mic armed (server-approved)");
         }
       } catch {}
       return;
@@ -117,11 +113,7 @@ async function startConversation() {
       if (activeSources <= 0) {
         activeSources = 0;
         isAssistantTalking = false;
-
-        if (micCooldownTimer) clearTimeout(micCooldownTimer);
-        micCooldownTimer = setTimeout(() => {
-          micCooldownTimer = null;
-        }, MIC_RESUME_DELAY_MS);
+        // ❌ NO mic logic here — server controls reopening
       }
     };
   };
@@ -147,11 +139,6 @@ function stopConversation() {
   activeSources = 0;
   isAssistantTalking = false;
   canSendMic = false;
-
-  if (micCooldownTimer) {
-    clearTimeout(micCooldownTimer);
-    micCooldownTimer = null;
-  }
 }
 
 startBtn.addEventListener("click", startConversation);

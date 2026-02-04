@@ -1,12 +1,22 @@
+// mic/micController.js
 export function createMicController(ws, oa) {
   let allowMic = false;
 
   function lockMic() {
     allowMic = false;
 
-    // 🔒 Commit any partial audio so OA closes cleanly
     if (oa.readyState === 1) {
+      // 🔒 HARD STOP: flush + disable listening immediately
+      oa.send(JSON.stringify({ type: "input_audio_buffer.clear" }));
       oa.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+
+      // 🔒 CRITICAL: explicitly turn OFF turn detection while Samantha speaks
+      oa.send(
+        JSON.stringify({
+          type: "session.update",
+          session: { turn_detection: null },
+        })
+      );
     }
   }
 
@@ -14,10 +24,10 @@ export function createMicController(ws, oa) {
     allowMic = true;
 
     if (oa.readyState === 1) {
-      // 🔑 CRITICAL: clear stale buffer
+      // 🔑 Fresh start — clean buffer
       oa.send(JSON.stringify({ type: "input_audio_buffer.clear" }));
 
-      // 🔑 CRITICAL: re-enable server-side VAD listening
+      // 🔑 Re-enable server-side VAD listening
       oa.send(
         JSON.stringify({
           type: "session.update",

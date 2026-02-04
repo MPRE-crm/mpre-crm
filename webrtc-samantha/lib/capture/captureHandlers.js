@@ -88,7 +88,7 @@ export async function handleCompletedTranscription({
         if (key === "contact3-phone") buyerData.phone = parsePhone(value);
 
         refs.buyerIdx++;
-        playNextBuyerStep();
+        playNextBuyerStep(setState);
       }
 
       if (flow === "seller") {
@@ -101,7 +101,7 @@ export async function handleCompletedTranscription({
         if (key === "s03-contact-email") sellerData.email = parseEmail(value);
 
         refs.sellerIdx++;
-        playNextSellerStep();
+        playNextSellerStep(setState);
       }
 
       if (flow === "investor") {
@@ -114,7 +114,7 @@ export async function handleCompletedTranscription({
         if (key === "i03-contact-email") investorData.email = parseEmail(value);
 
         refs.investorIdx++;
-        playNextInvestorStep();
+        playNextInvestorStep(setState);
       }
 
       ctx.confirmCtx = null;
@@ -161,15 +161,25 @@ export async function handleCompletedTranscription({
 
     // 🔒 OFF-TOPIC QUESTION WINDOW — DO NOT ADVANCE FLOW
     if (key === "contact4-questions") {
-      // Off-topic questions are handled by the classifier above.
-      // Stay in this state until flow explicitly advances to lp-1-location.
       return;
     }
 
-    if (key === "contact1-name" || key === "contact2-email" || key === "contact3-phone") {
+    if (
+      key === "contact1-name" ||
+      key === "contact2-email" ||
+      key === "contact3-phone"
+    ) {
       ctx.confirmCtx = { flow: "buyer", key, value: transcript };
       setState(ST.WAIT_CONFIRM);
       speakConfirmationPrompt(`I heard "${transcript}". Is that correct?`);
+      return;
+    }
+
+    // ✅ FIX: lp-1-location MUST be handled explicitly
+    if (key === "lp-1-location") {
+      buyerData.location = transcript;
+      refs.buyerIdx++;
+      playNextBuyerStep(setState);
       return;
     }
 
@@ -183,7 +193,7 @@ export async function handleCompletedTranscription({
     if (key === "lp-5-mortgage") buyerData.financing = transcript;
 
     refs.buyerIdx++;
-    playNextBuyerStep();
+    playNextBuyerStep(setState);
     return;
   }
 
@@ -208,7 +218,7 @@ export async function handleCompletedTranscription({
     if (key === "s08-agent-status") sellerData.has_agent = parseYesNo(transcript);
 
     refs.sellerIdx++;
-    playNextSellerStep();
+    playNextSellerStep(setState);
     return;
   }
 
@@ -223,10 +233,14 @@ export async function handleCompletedTranscription({
 
     if (key === "i04-market-focus") investorData.markets = transcript;
     if (key === "i05-property-type") investorData.property_type = transcript;
-    if (key === "i06-units-budget") investorData.units_budget = parsePriceRangeNumbers(transcript);
-    if (key === "i07-capital-structure") investorData.capital_structure = transcript;
+    if (key === "i06-units-budget") {
+      investorData.units_budget = parsePriceRangeNumbers(transcript);
+    }
+    if (key === "i07-capital-structure") {
+      investorData.capital_structure = transcript;
+    }
 
     refs.investorIdx++;
-    playNextInvestorStep();
+    playNextInvestorStep(setState);
   }
 }

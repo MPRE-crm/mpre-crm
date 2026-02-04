@@ -33,7 +33,6 @@ export function createFlowControllers({
     playBuffer(step.buf, `Buyer:${step.key}`, ST.WAIT_BUYER_ANSWER);
   }
 
-  // ✅ replay current step (used for contact4-questions loop)
   function replayBuyerStep(setState) {
     if (refs.buyerIdx >= buyerPcms.length) return;
 
@@ -41,7 +40,6 @@ export function createFlowControllers({
     playBuffer(step.buf, `Buyer:${step.key}`, ST.WAIT_BUYER_ANSWER);
   }
 
-  // ✅ NEW: advance buyer step explicitly (used after 5 questions)
   function advanceBuyerStep(setState) {
     refs.buyerIdx++;
     playNextBuyerStep(setState);
@@ -83,12 +81,19 @@ export function createFlowControllers({
     playBuffer(step.buf, `Investor:${step.key}`, ST.WAIT_INVESTOR_ANSWER);
   }
 
+  /* -------------------------------------------------------- */
+  /* 🔧 FIX: attach flow functions to refs (DO NOT REMOVE)    */
+  /* -------------------------------------------------------- */
+  refs.playNextBuyerStep = playNextBuyerStep;
+  refs.playNextSellerStep = playNextSellerStep;
+  refs.playNextInvestorStep = playNextInvestorStep;
+
   return {
     refs,
     startBuyerFlow,
     playNextBuyerStep,
     replayBuyerStep,
-    advanceBuyerStep, // ✅ EXPORT THIS
+    advanceBuyerStep,
     startSellerFlow,
     playNextSellerStep,
     startInvestorFlow,
