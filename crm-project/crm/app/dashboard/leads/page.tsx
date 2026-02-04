@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
+import { useRouter } from 'next/navigation';
 dayjs.extend(relativeTime);
 
 // ----- Supabase (browser) -----
@@ -34,6 +35,13 @@ type Lead = {
 type Profile = { role: 'agent' | 'admin' | 'platform_admin'; org_id: string };
 
 type IdxAgg = { lead_id: string; max: string | null; count: number | null };
+
+type IdxRpcRow = {
+  lead_id: string;
+  last_viewed: string | null;
+  view_count: number | null;
+};
+
 type MsgAgg = { lead_id: string; max: string | null };
 
 type TableRow = {
@@ -70,6 +78,7 @@ const STATUS_BUTTONS: { key: StatusFilter; label: string; match: string | null }
 ];
 
 export default function LeadsPage() {
+  const router = useRouter(); // 👈 ADD THIS LINE
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -186,19 +195,22 @@ export default function LeadsPage() {
         return;
       }
 
-      // --- 2) IDX aggregation (last visit + count in last 30 days) ---
-      const { data: idxData, error: idxErr } = await supabase
-        .from('idx_views')
-        .select('lead_id, max:viewed_at, count:id')
-        .gte('viewed_at', since30dISO)
-        .in('lead_id', ids);
+// --- 2) IDX aggregation (SAFE: via SQL function) ---
+const { data: idxData, error: idxErr } =
+  (await supabase.rpc('idx_agg_for_leads', { lead_ids: ids })) as unknown as {
+    data: IdxRpcRow[] | null;
+    error: { message: string } | null;
+  };
 
-      const idxMap: Record<string, { last: string | null; count: number }> = {};
-      if (!idxErr && idxData) {
-        (idxData as unknown as IdxAgg[]).forEach((r) => {
-          idxMap[r.lead_id] = { last: r.max, count: Number(r.count || 0) };
-        });
-      }
+const idxMap: Record<string, { last: string | null; count: number }> = {};
+if (!idxErr && idxData) {
+  idxData.forEach((r) => {
+    idxMap[r.lead_id] = {
+      last: r.last_viewed,
+      count: Number(r.view_count || 0),
+    };
+  });
+}
 
       // --- 3) Latest comm (optional) from messages table ---
       const { data: msgData, error: msgErr } = await supabase
@@ -221,16 +233,16 @@ export default function LeadsPage() {
 
     fetchAll();
 
-    // optional: live updates on leads table
-    const channel = supabase
-      .channel('realtime:leads')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, fetchAll)
-      .subscribe();
+// 🔴 TEMPORARILY DISABLED: causes recursive fetch loop
+// const channel = supabase
+//   .channel('realtime:leads')
+//   .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, fetchAll)
+//   .subscribe();
 
-    return () => {
-      mounted = false;
-      supabase.removeChannel(channel);
-    };
+return () => {
+  mounted = false;
+  // supabase.removeChannel(channel);
+};
   }, [since30dISO]);
 
   // Merge to table rows
@@ -286,101 +298,119 @@ export default function LeadsPage() {
     });
   }, [rows, search, statusFilter, sinceDaysISO, leads]);
 
-  return (
-    <div className="space-y-4">
-      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+return (
+  <div className="space-y-4">
+    <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex items-center gap-3">
         <h1 className="text-2xl font-bold">Leads</h1>
 
-        {/* Quick status filters */}
-        <div className="flex gap-2 flex-wrap">
-          {STATUS_BUTTONS.map((b) => (
-            <button
-              key={b.key}
-              onClick={() => setStatusFilter(b.key)}
-              className={`rounded-md border px-3 py-1.5 text-sm transition ${
-                statusFilter === b.key ? 'bg-gray-900 text-white' : 'bg-white hover:bg-gray-100'
-              }`}
-              title={b.label}
-            >
-              {b.label}
-            </button>
-          ))}
-        </div>
-      </header>
+        <button
+          onClick={() => router.push('/dashboard/leads/cancelled')}
+          className="rounded-md border px-4 py-2 text-sm hover:bg-gray-100"
+        >
+          Cancelled Listings
+        </button>
 
-      {/* Search + date range */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search name, phone, status, type…"
-          className="w-full sm:w-1/2 rounded-md border px-3 py-2 text-sm"
-        />
-        <div className="flex gap-2">
-          {[7, 30, null].map((d) => (
-            <button
-              key={String(d)}
-              onClick={() => setDaysFilter(d)}
-              className={`rounded-md border px-3 py-1.5 text-sm transition ${
-                daysFilter === d ? 'bg-gray-900 text-white' : 'bg-white hover:bg-gray-100'
-              }`}
-            >
-              {d ? `Last ${d} Days` : 'All Time'}
-            </button>
-          ))}
-          <span className="self-center text-xs text-gray-500">
-            Showing {filteredRows.length} of {rows.length}
-          </span>
-        </div>
+        <button
+          onClick={() => router.push('/dashboard/leads/cancelled/new')}
+          className="rounded-md bg-gray-900 px-4 py-2 text-sm text-white hover:bg-gray-800"
+        >
+          Add Cancelled Listing
+        </button>
       </div>
 
-      {/* Table */}
-      <div className="overflow-hidden rounded-lg border bg-white">
-        <table className="min-w-full text-sm">
-          <thead className="bg-gray-50 text-left">
-            <tr>
-              <th className="px-4 py-2">First</th>
-              <th className="px-4 py-2">Last</th>
-              <th className="px-4 py-2">Phone</th>
-              <th className="px-4 py-2">Status</th>
-              <th className="px-4 py-2">Type</th>
-              <th className="px-4 py-2">Last IDX Visit</th>
-              <th className="px-4 py-2">IDX Activity (30d)</th>
-              <th className="px-4 py-2">Latest Communication</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredRows.map((r) => (
-              <tr key={r.id} className="border-t">
-                <td className="px-4 py-2 whitespace-nowrap">{r.first || '-'}</td>
-                <td className="px-4 py-2 whitespace-nowrap">{r.last || '-'}</td>
-                <td className="px-4 py-2 whitespace-nowrap">{r.phone || '-'}</td>
-                <td className="px-4 py-2 whitespace-nowrap">{r.status || '-'}</td>
-                <td className="px-4 py-2 whitespace-nowrap">{r.type || '-'}</td>
-                <td className="px-4 py-2 whitespace-nowrap">
-                  {r.lastIdxVisit ? dayjs(r.lastIdxVisit).fromNow() : '-'}
-                </td>
-                <td className="px-4 py-2 whitespace-nowrap">{r.idxViews30d}</td>
-                <td className="px-4 py-2 whitespace-nowrap">
-                  {r.latestComm ? dayjs(r.latestComm).fromNow() : '-'}
-                </td>
-              </tr>
-            ))}
-            {filteredRows.length === 0 && (
-              <tr>
-                <td className="px-4 py-6 text-center text-gray-500" colSpan={8}>
-                  No leads match your filters.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+      {/* Quick status filters */}
+      <div className="flex gap-2 flex-wrap">
+        {STATUS_BUTTONS.map((b) => (
+          <button
+            key={b.key}
+            onClick={() => setStatusFilter(b.key)}
+            className={`rounded-md border px-3 py-1.5 text-sm transition ${
+              statusFilter === b.key ? 'bg-gray-900 text-white' : 'bg-white hover:bg-gray-100'
+            }`}
+            title={b.label}
+          >
+            {b.label}
+          </button>
+        ))}
       </div>
+    </header>
 
-      {error && (
-        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>
-      )}
-      {loading && <div className="text-xs text-gray-500">Loading…</div>}
+    {/* Search + date range */}
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <input
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="Search name, phone, status, type…"
+        className="w-full sm:w-1/2 rounded-md border px-3 py-2 text-sm"
+      />
+      <div className="flex gap-2">
+        {[7, 30, null].map((d) => (
+          <button
+            key={String(d)}
+            onClick={() => setDaysFilter(d)}
+            className={`rounded-md border px-3 py-1.5 text-sm transition ${
+              daysFilter === d ? 'bg-gray-900 text-white' : 'bg-white hover:bg-gray-100'
+            }`}
+          >
+            {d ? `Last ${d} Days` : 'All Time'}
+          </button>
+        ))}
+        <span className="self-center text-xs text-gray-500">
+          Showing {filteredRows.length} of {rows.length}
+        </span>
+      </div>
     </div>
-  );
+
+    {/* Table */}
+    <div className="overflow-hidden rounded-lg border bg-white">
+      <table className="min-w-full text-sm">
+        <thead className="bg-gray-50 text-left">
+          <tr>
+            <th className="px-4 py-2">First</th>
+            <th className="px-4 py-2">Last</th>
+            <th className="px-4 py-2">Phone</th>
+            <th className="px-4 py-2">Status</th>
+            <th className="px-4 py-2">Type</th>
+            <th className="px-4 py-2">Last IDX Visit</th>
+            <th className="px-4 py-2">IDX Activity (30d)</th>
+            <th className="px-4 py-2">Latest Communication</th>
+          </tr>
+        </thead>
+        <tbody>
+          {filteredRows.map((r) => (
+            <tr key={r.id} className="border-t">
+              <td className="px-4 py-2 whitespace-nowrap">{r.first || '-'}</td>
+              <td className="px-4 py-2 whitespace-nowrap">{r.last || '-'}</td>
+              <td className="px-4 py-2 whitespace-nowrap">{r.phone || '-'}</td>
+              <td className="px-4 py-2 whitespace-nowrap">{r.status || '-'}</td>
+              <td className="px-4 py-2 whitespace-nowrap">{r.type || '-'}</td>
+              <td className="px-4 py-2 whitespace-nowrap">
+                {r.lastIdxVisit ? dayjs(r.lastIdxVisit).fromNow() : '-'}
+              </td>
+              <td className="px-4 py-2 whitespace-nowrap">{r.idxViews30d}</td>
+              <td className="px-4 py-2 whitespace-nowrap">
+                {r.latestComm ? dayjs(r.latestComm).fromNow() : '-'}
+              </td>
+            </tr>
+          ))}
+          {filteredRows.length === 0 && (
+            <tr>
+              <td className="px-4 py-6 text-center text-gray-500" colSpan={8}>
+                No leads match your filters.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+
+    {error && (
+      <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+        {error}
+      </div>
+    )}
+    {loading && <div className="text-xs text-gray-500">Loading…</div>}
+  </div>
+);
 }
