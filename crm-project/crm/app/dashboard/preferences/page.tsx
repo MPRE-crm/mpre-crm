@@ -22,6 +22,13 @@ export default function PreferencesPage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
 
+  const [creatingLender, setCreatingLender] = useState(false);
+  const [deletingLenderId, setDeletingLenderId] = useState<number | null>(null);
+
+  const [newLenderName, setNewLenderName] = useState("");
+  const [newLenderEmail, setNewLenderEmail] = useState("");
+  const [newLenderPhone, setNewLenderPhone] = useState("");
+
   useEffect(() => {
     loadData();
   }, []);
@@ -104,10 +111,88 @@ export default function PreferencesPage() {
       }
 
       setMessage("Preferences saved.");
+      await loadData();
     } catch (err: any) {
       setMessage(err.message || "Failed to save preferences");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function createLender() {
+    try {
+      setCreatingLender(true);
+      setMessage("");
+
+      if (!newLenderName.trim()) {
+        throw new Error("Lender name is required");
+      }
+
+      const res = await fetch("/api/preferences/lenders", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: newLenderName.trim(),
+          email: newLenderEmail.trim() || null,
+          phone: newLenderPhone.trim() || null,
+        }),
+      });
+
+      const json = await res.json();
+
+      if (!res.ok) {
+        throw new Error(json?.error || "Failed to create lender");
+      }
+
+      setNewLenderName("");
+      setNewLenderEmail("");
+      setNewLenderPhone("");
+      setMessage("Lender added.");
+      await loadData();
+    } catch (err: any) {
+      setMessage(err.message || "Failed to create lender");
+    } finally {
+      setCreatingLender(false);
+    }
+  }
+
+  async function deleteLender(lenderId: number) {
+    try {
+      setDeletingLenderId(lenderId);
+      setMessage("");
+
+      const lender = lenders.find((l) => l.id === lenderId);
+      const ok = window.confirm(
+        `Delete lender "${lender?.name || lenderId}"? This will deactivate them.`
+      );
+
+      if (!ok) return;
+
+      const res = await fetch("/api/preferences/lenders", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          lenderUserId: lenderId,
+        }),
+      });
+
+      const json = await res.json();
+
+      if (!res.ok) {
+        throw new Error(json?.error || "Failed to delete lender");
+      }
+
+      setSelectedLenderIds((prev) => prev.filter((id) => id !== lenderId));
+      setMessage("Lender deleted.");
+      await loadData();
+    } catch (err: any) {
+      setMessage(err.message || "Failed to delete lender");
+    } finally {
+      setDeletingLenderId(null);
     }
   }
 
@@ -135,6 +220,47 @@ export default function PreferencesPage() {
         </div>
       ) : null}
 
+      <div className="mb-6 rounded border p-4">
+        <h2 className="mb-4 text-lg font-semibold">Add New Lender</h2>
+
+        <div className="grid gap-3 md:grid-cols-3">
+          <input
+            type="text"
+            value={newLenderName}
+            onChange={(e) => setNewLenderName(e.target.value)}
+            placeholder="Lender name"
+            className="rounded border px-3 py-2 text-sm"
+          />
+
+          <input
+            type="email"
+            value={newLenderEmail}
+            onChange={(e) => setNewLenderEmail(e.target.value)}
+            placeholder="Lender email"
+            className="rounded border px-3 py-2 text-sm"
+          />
+
+          <input
+            type="text"
+            value={newLenderPhone}
+            onChange={(e) => setNewLenderPhone(e.target.value)}
+            placeholder="Lender phone"
+            className="rounded border px-3 py-2 text-sm"
+          />
+        </div>
+
+        <div className="mt-4">
+          <button
+            type="button"
+            onClick={createLender}
+            disabled={creatingLender}
+            className="rounded bg-black px-4 py-2 text-sm text-white disabled:opacity-60"
+          >
+            {creatingLender ? "Adding..." : "Add Lender"}
+          </button>
+        </div>
+      </div>
+
       {loading ? (
         <div className="text-sm text-gray-600">Loading preferences...</div>
       ) : (
@@ -159,13 +285,24 @@ export default function PreferencesPage() {
                       </div>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => addLender(lender.id)}
-                      className="rounded bg-black px-3 py-2 text-sm text-white"
-                    >
-                      Add
-                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => addLender(lender.id)}
+                        className="rounded bg-black px-3 py-2 text-sm text-white"
+                      >
+                        Add
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => deleteLender(lender.id)}
+                        disabled={deletingLenderId === lender.id}
+                        className="rounded border px-3 py-2 text-sm"
+                      >
+                        {deletingLenderId === lender.id ? "Deleting..." : "Delete"}
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -219,6 +356,15 @@ export default function PreferencesPage() {
                         className="rounded border px-3 py-2 text-sm"
                       >
                         Remove
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => deleteLender(lender.id)}
+                        disabled={deletingLenderId === lender.id}
+                        className="rounded border px-3 py-2 text-sm"
+                      >
+                        {deletingLenderId === lender.id ? "Deleting..." : "Delete"}
                       </button>
                     </div>
                   </div>
