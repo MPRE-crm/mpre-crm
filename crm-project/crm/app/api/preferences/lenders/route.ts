@@ -213,23 +213,6 @@ export async function DELETE(request: Request) {
       );
     }
 
-    const { error: deactivateError } = await supabase
-      .from("users")
-      .update({
-        is_active: false,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", lenderUserId)
-      .eq("org_id", orgId)
-      .eq("role", "lender");
-
-    if (deactivateError) {
-      return NextResponse.json(
-        { error: deactivateError.message },
-        { status: 500 }
-      );
-    }
-
     const { error: prefDeleteError } = await supabase
       .from("agent_lender_preferences")
       .delete()
