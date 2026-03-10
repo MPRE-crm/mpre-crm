@@ -9,6 +9,7 @@ const navItems: NavItem[] = [
   { label: 'Home', href: '/dashboard/home' },
   { label: 'Leads', href: '/dashboard/leads' },
   { label: 'Call Logs', href: '/dashboard/call-logs' },
+  { label: 'Preferences', href: '/dashboard/preferences' },
 ]
 
 export default function Sidebar() {
@@ -42,4 +43,3 @@ export default function Sidebar() {
     </aside>
   )
 }
-

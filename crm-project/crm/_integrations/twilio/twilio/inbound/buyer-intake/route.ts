@@ -67,7 +67,7 @@ async function getOrgBranding(org_id?: string | null) {
     .maybeSingle();
 
   const { data: org2 } = await supabase
-    .from('orgs')
+    .from('organizations')
     .select('id,name,brokerage_name')
     .eq('id', org_id)
     .maybeSingle();

@@ -41,7 +41,7 @@ async function getOrgBranding(org_id: string) {
       reviews_url: "",
     };
   const { data } = await supabase
-    .from("orgs")
+    .from("organizations")
     .select("*")
     .eq("id", org_id)
     .maybeSingle();

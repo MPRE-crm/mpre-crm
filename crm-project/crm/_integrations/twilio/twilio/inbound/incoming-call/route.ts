@@ -50,7 +50,7 @@ function orgBySpeech(speech: string): { id: string; name: string } | null {
 
 async function getOrgMeta(org_id: string) {
   const { data } = await supabase
-    .from("orgs")
+    .from("organizations")
     .select("name, brokerage_name")
     .eq("id", org_id)
     .single();

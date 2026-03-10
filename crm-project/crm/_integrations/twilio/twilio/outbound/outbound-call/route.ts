@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
 
     if (lead.org_id) {
       const { data: org } = await supabase
-        .from("orgs") // adjust if needed
+        .from("organizations") // adjust if needed
         .select("name")
         .eq("id", lead.org_id)
         .single();
