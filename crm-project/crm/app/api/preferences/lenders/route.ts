@@ -213,28 +213,39 @@ export async function DELETE(request: Request) {
       );
     }
 
+    const { data: lender, error: lenderLookupError } = await supabase
+      .from("users")
+      .select("id, org_id, role, is_active")
+      .eq("id", lenderUserId)
+      .eq("org_id", orgId)
+      .eq("role", "lender")
+      .eq("is_active", true)
+      .maybeSingle();
+
+    if (lenderLookupError) {
+      return NextResponse.json(
+        { error: lenderLookupError.message },
+        { status: 500 }
+      );
+    }
+
+    if (!lender) {
+      return NextResponse.json(
+        { error: "Lender not found" },
+        { status: 404 }
+      );
+    }
+
     const { error: prefDeleteError } = await supabase
       .from("agent_lender_preferences")
       .delete()
       .eq("org_id", orgId)
+      .eq("agent_user_id", agentUserId)
       .eq("lender_user_id", lenderUserId);
 
     if (prefDeleteError) {
       return NextResponse.json(
         { error: prefDeleteError.message },
-        { status: 500 }
-      );
-    }
-
-    const { error: orgRotationDeleteError } = await supabase
-      .from("org_mortgage_rotation")
-      .delete()
-      .eq("org_id", orgId)
-      .eq("user_id", lenderUserId);
-
-    if (orgRotationDeleteError) {
-      return NextResponse.json(
-        { error: orgRotationDeleteError.message },
         { status: 500 }
       );
     }
@@ -246,27 +257,12 @@ export async function DELETE(request: Request) {
         updated_at: new Date().toISOString(),
       })
       .eq("org_id", orgId)
+      .eq("agent_user_id", agentUserId)
       .eq("last_lender_user_id", lenderUserId);
 
     if (agentRotationResetError) {
       return NextResponse.json(
         { error: agentRotationResetError.message },
-        { status: 500 }
-      );
-    }
-
-    const { error: orgRotationResetError } = await supabase
-      .from("org_mortgage_rotation_state")
-      .update({
-        last_user_id: null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("org_id", orgId)
-      .eq("last_user_id", lenderUserId);
-
-    if (orgRotationResetError) {
-      return NextResponse.json(
-        { error: orgRotationResetError.message },
         { status: 500 }
       );
     }

@@ -165,7 +165,7 @@ export default function PreferencesPage() {
 
       const lender = lenders.find((l) => l.id === lenderId);
       const ok = window.confirm(
-        `Delete lender "${lender?.name || lenderId}"? This will deactivate them.`
+        `Remove lender "${lender?.name || lenderId}" from my list?`
       );
 
       if (!ok) return;
@@ -183,14 +183,14 @@ export default function PreferencesPage() {
       const json = await res.json();
 
       if (!res.ok) {
-        throw new Error(json?.error || "Failed to delete lender");
+        throw new Error(json?.error || "Failed to remove lender from your list");
       }
 
       setSelectedLenderIds((prev) => prev.filter((id) => id !== lenderId));
-      setMessage("Lender deleted.");
+      setMessage("Lender removed from your list.");
       await loadData();
     } catch (err: any) {
-      setMessage(err.message || "Failed to delete lender");
+      setMessage(err.message || "Failed to remove lender from your list");
     } finally {
       setDeletingLenderId(null);
     }
@@ -300,7 +300,7 @@ export default function PreferencesPage() {
                         disabled={deletingLenderId === lender.id}
                         className="rounded border px-3 py-2 text-sm"
                       >
-                        {deletingLenderId === lender.id ? "Deleting..." : "Delete"}
+                        {deletingLenderId === lender.id ? "Removing..." : "Remove from My List"}
                       </button>
                     </div>
                   </div>
@@ -364,7 +364,7 @@ export default function PreferencesPage() {
                         disabled={deletingLenderId === lender.id}
                         className="rounded border px-3 py-2 text-sm"
                       >
-                        {deletingLenderId === lender.id ? "Deleting..." : "Delete"}
+                        {deletingLenderId === lender.id ? "Removing..." : "Remove from My List"}
                       </button>
                     </div>
                   </div>
