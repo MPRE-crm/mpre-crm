@@ -69,10 +69,6 @@ export default function PreferencesPage() {
     setSelectedLenderIds((prev) => [...prev, lenderId]);
   }
 
-  function removeLender(lenderId: number) {
-    setSelectedLenderIds((prev) => prev.filter((id) => id !== lenderId));
-  }
-
   function moveUp(index: number) {
     if (index === 0) return;
 
@@ -348,14 +344,6 @@ export default function PreferencesPage() {
                         className="rounded border px-3 py-2 text-sm"
                       >
                         Down
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => removeLender(lender.id)}
-                        className="rounded border px-3 py-2 text-sm"
-                      >
-                        Remove
                       </button>
 
                       <button
