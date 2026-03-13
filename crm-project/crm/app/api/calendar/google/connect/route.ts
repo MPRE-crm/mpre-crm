@@ -1,3 +1,4 @@
+export const runtime = "nodejs";
 import { NextRequest, NextResponse } from "next/server";
 import { getGoogleOAuthClient, GOOGLE_CALENDAR_SCOPES } from "../../../../../lib/googleCalendar";
 
