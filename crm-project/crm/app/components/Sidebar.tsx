@@ -9,11 +9,14 @@ const navItems: NavItem[] = [
   { label: 'Home', href: '/dashboard/home' },
   { label: 'Leads', href: '/dashboard/leads' },
   { label: 'Call Logs', href: '/dashboard/call-logs' },
+  { label: 'Calendar', href: '/dashboard/calendar' },
+  { label: 'Samantha Actions', href: '/dashboard/samantha-actions' },
+  { label: 'Escalations', href: '/dashboard/escalations' },
+  { label: 'Follow-Up Queue', href: '/dashboard/follow-up-queue' },
   { label: 'Preferences', href: '/dashboard/preferences' },
 ]
 
 export default function Sidebar() {
-  // Guard against null
   const pathname = usePathname() ?? ''
 
   const isActive = (href: string) =>

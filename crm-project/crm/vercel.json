@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/internal/idx/schedule",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/internal/follow-up/schedule",
+      "schedule": "*/10 * * * *"
+    }
+  ]
+}
