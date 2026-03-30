@@ -13,6 +13,7 @@ const navItems: NavItem[] = [
   { label: 'Samantha Actions', href: '/dashboard/samantha-actions' },
   { label: 'Escalations', href: '/dashboard/escalations' },
   { label: 'Follow-Up Queue', href: '/dashboard/follow-up-queue' },
+  { label: 'Missed Call Queue', href: '/dashboard/missed-call-queue' },
   { label: 'Preferences', href: '/dashboard/preferences' },
 ]
 
