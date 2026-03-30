@@ -8,6 +8,7 @@ type NavItem = { label: string; href: string }
 const navItems: NavItem[] = [
   { label: 'Home', href: '/dashboard/home' },
   { label: 'Leads', href: '/dashboard/leads' },
+  { label: 'Conversations', href: '/dashboard/conversations' },
   { label: 'Call Logs', href: '/dashboard/call-logs' },
   { label: 'Calendar', href: '/dashboard/calendar' },
   { label: 'Samantha Actions', href: '/dashboard/samantha-actions' },
