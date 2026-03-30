@@ -78,7 +78,7 @@ const STATUS_BUTTONS: { key: StatusFilter; label: string; match: string | null }
 ];
 
 export default function LeadsPage() {
-  const router = useRouter(); // 👈 ADD THIS LINE
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -89,7 +89,9 @@ export default function LeadsPage() {
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
   const [search, setSearch] = useState('');
-  const [daysFilter, setDaysFilter] = useState<number | null>(null); // 7, 30, null=all
+  const [daysFilter, setDaysFilter] = useState<number | null>(null);
+
+  const [deletingLeadId, setDeletingLeadId] = useState<string | null>(null);
 
   const since30dISO = useMemo(() => dayjs().subtract(30, 'day').toISOString(), []);
   const sinceDaysISO = useMemo(
@@ -104,7 +106,6 @@ export default function LeadsPage() {
       setLoading(true);
       setError(null);
 
-      // --- 0) who am I + my profile/role? ---
       const { data: userRes, error: userErr } = await supabase.auth.getUser();
       if (userErr || !userRes?.user) {
         if (!mounted) return;
@@ -134,7 +135,6 @@ export default function LeadsPage() {
       }
       setProfile(prof as Profile);
 
-      // --- 1) Leads: try view first, then fallback to table with minimal filters ---
       let leadsData: Lead[] | null = null;
       let leadsErrMsg: string | null = null;
 
@@ -148,7 +148,6 @@ export default function LeadsPage() {
           .limit(1000);
 
         if (error) {
-          // View path failed; we’ll fall back
           leadsErrMsg = error.message;
         } else {
           leadsData = (data || []) as Lead[];
@@ -156,7 +155,6 @@ export default function LeadsPage() {
       }
 
       if (!leadsData) {
-        // Fallback path: minimal, role-aware filters (mirror RLS)
         let q = supabase
           .from('leads')
           .select(
@@ -169,7 +167,7 @@ export default function LeadsPage() {
           q = q.eq('agent_id', userRes.user.id);
         } else if (prof.role === 'admin') {
           q = q.eq('org_id', prof.org_id);
-        } // platform_admin: no extra filter; RLS allows all
+        }
 
         const { data, error } = await q;
         if (error) {
@@ -195,24 +193,22 @@ export default function LeadsPage() {
         return;
       }
 
-// --- 2) IDX aggregation (SAFE: via SQL function) ---
-const { data: idxData, error: idxErr } =
-  (await supabase.rpc('idx_agg_for_leads', { lead_ids: ids })) as unknown as {
-    data: IdxRpcRow[] | null;
-    error: { message: string } | null;
-  };
+      const { data: idxData, error: idxErr } =
+        (await supabase.rpc('idx_agg_for_leads', { lead_ids: ids })) as unknown as {
+          data: IdxRpcRow[] | null;
+          error: { message: string } | null;
+        };
 
-const idxMap: Record<string, { last: string | null; count: number }> = {};
-if (!idxErr && idxData) {
-  idxData.forEach((r) => {
-    idxMap[r.lead_id] = {
-      last: r.last_viewed,
-      count: Number(r.view_count || 0),
-    };
-  });
-}
+      const idxMap: Record<string, { last: string | null; count: number }> = {};
+      if (!idxErr && idxData) {
+        idxData.forEach((r) => {
+          idxMap[r.lead_id] = {
+            last: r.last_viewed,
+            count: Number(r.view_count || 0),
+          };
+        });
+      }
 
-      // --- 3) Latest comm (optional) from messages table ---
       const { data: msgData, error: msgErr } = await supabase
         .from('messages')
         .select('lead_id, max:created_at')
@@ -233,19 +229,53 @@ if (!idxErr && idxData) {
 
     fetchAll();
 
-// 🔴 TEMPORARILY DISABLED: causes recursive fetch loop
-// const channel = supabase
-//   .channel('realtime:leads')
-//   .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, fetchAll)
-//   .subscribe();
-
-return () => {
-  mounted = false;
-  // supabase.removeChannel(channel);
-};
+    return () => {
+      mounted = false;
+    };
   }, [since30dISO]);
 
-  // Merge to table rows
+  async function deleteLead(leadId: string) {
+    try {
+      setDeletingLeadId(leadId);
+      setError(null);
+
+      const lead = leads.find((l) => l.id === leadId);
+      const leadName =
+        lead?.name ||
+        [lead?.first_name, lead?.last_name].filter(Boolean).join(' ').trim() ||
+        lead?.email ||
+        leadId;
+
+      const ok = window.confirm(`Delete lead "${leadName}"?`);
+      if (!ok) return;
+
+      const { error: deleteError } = await supabase
+        .from('leads')
+        .delete()
+        .eq('id', leadId);
+
+      if (deleteError) {
+        throw new Error(deleteError.message || 'Failed to delete lead');
+      }
+
+      setLeads((prev) => prev.filter((lead) => lead.id !== leadId));
+      setIdxAgg((prev) => {
+        const next = { ...prev };
+        delete next[leadId];
+        return next;
+      });
+      setMsgAgg((prev) => {
+        const next = { ...prev };
+        delete next[leadId];
+        return next;
+      });
+    } catch (err: any) {
+      setError(err.message || 'Failed to delete lead');
+    } finally {
+      setDeletingLeadId(null);
+    }
+  }
+
   const rows: TableRow[] = useMemo(() => {
     const norm = (s?: string | null) => (s || '').trim();
     return leads.map((l) => {
@@ -262,7 +292,7 @@ return () => {
         last,
         phone: norm(l.phone),
         status: norm(l.status),
-        type: norm(l.appointment_type) || '-', // swap to your real "type" field if you have one
+        type: norm(l.appointment_type) || '-',
         lastIdxVisit: idx.last,
         idxViews30d: idx.count,
         latestComm: latest,
@@ -270,7 +300,6 @@ return () => {
     });
   }, [leads, idxAgg, msgAgg]);
 
-  // Apply filters/search/date locally
   const filteredRows = useMemo(() => {
     const term = search.trim().toLowerCase();
     const statusConf = STATUS_BUTTONS.find((b) => b.key === statusFilter);
@@ -298,119 +327,136 @@ return () => {
     });
   }, [rows, search, statusFilter, sinceDaysISO, leads]);
 
-return (
-  <div className="space-y-4">
-    <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <div className="flex items-center gap-3">
-        <h1 className="text-2xl font-bold">Leads</h1>
+  return (
+    <div className="space-y-4">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-bold">Leads</h1>
 
-        <button
-          onClick={() => router.push('/dashboard/leads/cancelled')}
-          className="rounded-md border px-4 py-2 text-sm hover:bg-gray-100"
-        >
-          Cancelled Listings
-        </button>
-
-        <button
-          onClick={() => router.push('/dashboard/leads/cancelled/new')}
-          className="rounded-md bg-gray-900 px-4 py-2 text-sm text-white hover:bg-gray-800"
-        >
-          Add Cancelled Listing
-        </button>
-      </div>
-
-      {/* Quick status filters */}
-      <div className="flex gap-2 flex-wrap">
-        {STATUS_BUTTONS.map((b) => (
           <button
-            key={b.key}
-            onClick={() => setStatusFilter(b.key)}
-            className={`rounded-md border px-3 py-1.5 text-sm transition ${
-              statusFilter === b.key ? 'bg-gray-900 text-white' : 'bg-white hover:bg-gray-100'
-            }`}
-            title={b.label}
+            onClick={() => router.push('/dashboard/leads/cancelled')}
+            className="rounded-md border px-4 py-2 text-sm hover:bg-gray-100"
           >
-            {b.label}
+            Cancelled Listings
           </button>
-        ))}
-      </div>
-    </header>
 
-    {/* Search + date range */}
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <input
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        placeholder="Search name, phone, status, type…"
-        className="w-full sm:w-1/2 rounded-md border px-3 py-2 text-sm"
-      />
-      <div className="flex gap-2">
-        {[7, 30, null].map((d) => (
           <button
-            key={String(d)}
-            onClick={() => setDaysFilter(d)}
-            className={`rounded-md border px-3 py-1.5 text-sm transition ${
-              daysFilter === d ? 'bg-gray-900 text-white' : 'bg-white hover:bg-gray-100'
-            }`}
+            onClick={() => router.push('/dashboard/leads/cancelled/new')}
+            className="rounded-md bg-gray-900 px-4 py-2 text-sm text-white hover:bg-gray-800"
           >
-            {d ? `Last ${d} Days` : 'All Time'}
+            Add Cancelled Listing
           </button>
-        ))}
-        <span className="self-center text-xs text-gray-500">
-          Showing {filteredRows.length} of {rows.length}
-        </span>
-      </div>
-    </div>
+        </div>
 
-    {/* Table */}
-    <div className="overflow-hidden rounded-lg border bg-white">
-      <table className="min-w-full text-sm">
-        <thead className="bg-gray-50 text-left">
-          <tr>
-            <th className="px-4 py-2">First</th>
-            <th className="px-4 py-2">Last</th>
-            <th className="px-4 py-2">Phone</th>
-            <th className="px-4 py-2">Status</th>
-            <th className="px-4 py-2">Type</th>
-            <th className="px-4 py-2">Last IDX Visit</th>
-            <th className="px-4 py-2">IDX Activity (30d)</th>
-            <th className="px-4 py-2">Latest Communication</th>
-          </tr>
-        </thead>
-        <tbody>
-          {filteredRows.map((r) => (
-            <tr key={r.id} className="border-t">
-              <td className="px-4 py-2 whitespace-nowrap">{r.first || '-'}</td>
-              <td className="px-4 py-2 whitespace-nowrap">{r.last || '-'}</td>
-              <td className="px-4 py-2 whitespace-nowrap">{r.phone || '-'}</td>
-              <td className="px-4 py-2 whitespace-nowrap">{r.status || '-'}</td>
-              <td className="px-4 py-2 whitespace-nowrap">{r.type || '-'}</td>
-              <td className="px-4 py-2 whitespace-nowrap">
-                {r.lastIdxVisit ? dayjs(r.lastIdxVisit).fromNow() : '-'}
-              </td>
-              <td className="px-4 py-2 whitespace-nowrap">{r.idxViews30d}</td>
-              <td className="px-4 py-2 whitespace-nowrap">
-                {r.latestComm ? dayjs(r.latestComm).fromNow() : '-'}
-              </td>
-            </tr>
+        <div className="flex gap-2 flex-wrap">
+          {STATUS_BUTTONS.map((b) => (
+            <button
+              key={b.key}
+              onClick={() => setStatusFilter(b.key)}
+              className={`rounded-md border px-3 py-1.5 text-sm transition ${
+                statusFilter === b.key ? 'bg-gray-900 text-white' : 'bg-white hover:bg-gray-100'
+              }`}
+              title={b.label}
+            >
+              {b.label}
+            </button>
           ))}
-          {filteredRows.length === 0 && (
-            <tr>
-              <td className="px-4 py-6 text-center text-gray-500" colSpan={8}>
-                No leads match your filters.
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
-    </div>
+        </div>
+      </header>
 
-    {error && (
-      <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-        {error}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search name, phone, status, type…"
+          className="w-full sm:w-1/2 rounded-md border px-3 py-2 text-sm"
+        />
+        <div className="flex gap-2">
+          {[7, 30, null].map((d) => (
+            <button
+              key={String(d)}
+              onClick={() => setDaysFilter(d)}
+              className={`rounded-md border px-3 py-1.5 text-sm transition ${
+                daysFilter === d ? 'bg-gray-900 text-white' : 'bg-white hover:bg-gray-100'
+              }`}
+            >
+              {d ? `Last ${d} Days` : 'All Time'}
+            </button>
+          ))}
+          <span className="self-center text-xs text-gray-500">
+            Showing {filteredRows.length} of {rows.length}
+          </span>
+        </div>
       </div>
-    )}
-    {loading && <div className="text-xs text-gray-500">Loading…</div>}
-  </div>
-);
+
+      <div className="overflow-hidden rounded-lg border bg-white">
+        <table className="min-w-full text-sm">
+          <thead className="bg-gray-50 text-left">
+            <tr>
+              <th className="px-4 py-2">First</th>
+              <th className="px-4 py-2">Last</th>
+              <th className="px-4 py-2">Phone</th>
+              <th className="px-4 py-2">Status</th>
+              <th className="px-4 py-2">Type</th>
+              <th className="px-4 py-2">Last IDX Visit</th>
+              <th className="px-4 py-2">IDX Activity (30d)</th>
+              <th className="px-4 py-2">Latest Communication</th>
+              <th className="px-4 py-2">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredRows.map((r) => (
+              <tr key={r.id} className="border-t">
+                <td className="px-4 py-2 whitespace-nowrap">{r.first || '-'}</td>
+                <td className="px-4 py-2 whitespace-nowrap">{r.last || '-'}</td>
+                <td className="px-4 py-2 whitespace-nowrap">{r.phone || '-'}</td>
+                <td className="px-4 py-2 whitespace-nowrap">{r.status || '-'}</td>
+                <td className="px-4 py-2 whitespace-nowrap">{r.type || '-'}</td>
+                <td className="px-4 py-2 whitespace-nowrap">
+                  {r.lastIdxVisit ? dayjs(r.lastIdxVisit).fromNow() : '-'}
+                </td>
+                <td className="px-4 py-2 whitespace-nowrap">{r.idxViews30d}</td>
+                <td className="px-4 py-2 whitespace-nowrap">
+                  {r.latestComm ? dayjs(r.latestComm).fromNow() : '-'}
+                </td>
+                <td className="px-4 py-2 whitespace-nowrap">
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => router.push(`/dashboard/conversations/${r.id}`)}
+                      className="rounded border px-3 py-1.5 text-xs hover:bg-gray-100"
+                    >
+                      Conversation
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteLead(r.id)}
+                      disabled={deletingLeadId === r.id}
+                      className="rounded border border-red-300 px-3 py-1.5 text-xs text-red-700 disabled:opacity-60"
+                    >
+                      {deletingLeadId === r.id ? 'Deleting...' : 'Delete'}
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {filteredRows.length === 0 && (
+              <tr>
+                <td className="px-4 py-6 text-center text-gray-500" colSpan={9}>
+                  No leads match your filters.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {error && (
+        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+      {loading && <div className="text-xs text-gray-500">Loading…</div>}
+    </div>
+  );
 }
