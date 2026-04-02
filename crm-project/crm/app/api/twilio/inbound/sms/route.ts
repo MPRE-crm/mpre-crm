@@ -52,6 +52,7 @@ export async function POST(req: NextRequest) {
         .from('leads')
         .insert({
           phone: from,
+          agent_id: '09a50cdb-3518-446d-891d-396bfca7fa1d',
           org_id: '2486c9e9-d0bc-4a3d-be91-9406c52d178c',
           lead_type: 'buyer',
           lead_source: 'Direct',
