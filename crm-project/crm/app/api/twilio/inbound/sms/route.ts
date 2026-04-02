@@ -31,7 +31,6 @@ export async function POST(req: NextRequest) {
 
     const messageSid = clean(data.get('MessageSid'))
     const from = normalizePhone(data.get('From'))
-    const to = normalizePhone(data.get('To'))
     const body = clean(data.get('Body'))
 
     if (!from) {
@@ -53,9 +52,6 @@ export async function POST(req: NextRequest) {
         .from('leads')
         .insert({
           phone: from,
-          first_name: null,
-          last_name: null,
-          name: null,
           lead_type: 'buyer',
           lead_source: 'Direct',
           lead_source_detail: 'SMS Inbound',
