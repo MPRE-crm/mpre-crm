@@ -3,9 +3,7 @@ import axios from 'axios';
 import qs from 'qs';
 import { supabaseAdmin } from '../supabaseAdmin';
 
-const FLOW_EXEC_URL =
-  process.env.TWILIO_FLOW_EXECUTIONS_URL ||
-  'https://studio.twilio.com/v2/Flows/FW88d76c8c4a90aa1159ae34f135179c91/Executions';
+const FLOW_EXEC_URL = process.env.TWILIO_FLOW_EXECUTIONS_URL;
 
 const toE164 = (p: string) => {
   const digits = String(p || '').replace(/[^\d+]/g, '');
@@ -44,6 +42,10 @@ export async function triggerAppointmentFlow(
 
   if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_PHONE_NUMBER) {
     return { ok: false, error: 'Missing Twilio configuration' };
+  }
+
+  if (!FLOW_EXEC_URL) {
+    return { ok: false, error: 'Missing TWILIO_FLOW_EXECUTIONS_URL' };
   }
 
   const to = toE164(lead.phone);

@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const { TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER } = process.env;
+const { TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER } = process.env;
 
 if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN) {
   console.warn("Twilio credentials missing. Check .env.local");
@@ -16,11 +16,11 @@ export function getFlowSidFromEnvVar(envVar: string): string {
 
 export async function executeStudioFlow(params: {
   flowSid: string;
-  to: string;                       // E.164
-  from?: string;                    // defaults to TWILIO_FROM_NUMBER
-  variables?: Record<string, any>;  // passed to Flow as Parameters
+  to: string;
+  from?: string;
+  variables?: Record<string, any>;
 }) {
-  const { flowSid, to, from = TWILIO_FROM_NUMBER!, variables = {} } = params;
+  const { flowSid, to, from = TWILIO_PHONE_NUMBER!, variables = {} } = params;
 
   const url = `https://studio.twilio.com/v2/Flows/${flowSid}/Executions`;
   const data = new URLSearchParams({
@@ -35,5 +35,5 @@ export async function executeStudioFlow(params: {
   };
 
   const res = await axios.post(url, data, { auth });
-  return res.data; // Twilio Execution object
+  return res.data;
 }

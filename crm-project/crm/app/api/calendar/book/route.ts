@@ -29,7 +29,7 @@ function formatTimeParts(slotIso: string) {
 
   const dateText = d.toLocaleDateString("en-CA", {
     timeZone: BOISE_TZ,
-  }); // YYYY-MM-DD
+  });
 
   return {
     dateText,
@@ -76,7 +76,10 @@ export async function POST(req: NextRequest) {
 
     if (connectionError || !connection) {
       return NextResponse.json(
-        { error: "No active default Google calendar connection found", details: connectionError?.message },
+        {
+          error: "No active default Google calendar connection found",
+          details: connectionError?.message,
+        },
         { status: 404 }
       );
     }
@@ -103,9 +106,9 @@ export async function POST(req: NextRequest) {
       [lead.first_name, lead.last_name].filter(Boolean).join(" ").trim() ||
       lead.email ||
       lead.phone ||
-      "Relocation Lead";
+      "Lead";
 
-    const summary = `Relocation Consultation - ${leadName}`;
+    const summary = `Consultation - ${leadName}`;
 
     const descriptionLines = [
       `Lead ID: ${lead.id}`,
@@ -116,6 +119,7 @@ export async function POST(req: NextRequest) {
       `Price Range: ${lead.price_range || "N/A"}`,
       `Preferred Areas: ${lead.preferred_areas || "N/A"}`,
       `Source: ${lead.lead_source || lead.source || "N/A"}`,
+      `Hook / Offer: ${lead.lead_source_detail || "N/A"}`,
     ];
 
     const event = {
@@ -140,7 +144,12 @@ export async function POST(req: NextRequest) {
     const { dateText, timeText, hour, minute, ampm } = formatTimeParts(slot.slot_iso);
 
     const notesPrefix = lead.notes ? `${lead.notes}\n\n` : "";
-    const notesWithEvent = `${notesPrefix}Google Calendar Event ID: ${createdEvent.id || "N/A"}\nGoogle Calendar Link: ${createdEvent.htmlLink || "N/A"}`;
+    const notesWithEvent =
+      `${notesPrefix}Google Calendar Event ID: ${createdEvent.id || "N/A"}\n` +
+      `Google Calendar Link: ${createdEvent.htmlLink || "N/A"}`;
+
+    const nowIso = new Date().toISOString();
+    const hotUntilIso = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
 
     const { error: updateError } = await supabaseAdmin
       .from("leads")
@@ -151,17 +160,24 @@ export async function POST(req: NextRequest) {
         appointment_minute: minute,
         appointment_ampm: ampm,
         appointment_requested: true,
-        appointment_status: "booked",
-        appointment_type: "relocation",
+        appointment_status: "Confirmed",
         agent_status: "appointment_booked",
         notes: notesWithEvent,
-        updated_at: new Date().toISOString(),
+        lead_heat: "hot",
+        last_meaningful_engagement_at: nowIso,
+        next_contact_at: null,
+        hot_until: hotUntilIso,
+        updated_at: nowIso,
       })
       .eq("id", lead.id);
 
     if (updateError) {
       return NextResponse.json(
-        { error: "Event created but failed updating lead", details: updateError.message, event_id: createdEvent.id },
+        {
+          error: "Event created but failed updating lead",
+          details: updateError.message,
+          event_id: createdEvent.id,
+        },
         { status: 500 }
       );
     }

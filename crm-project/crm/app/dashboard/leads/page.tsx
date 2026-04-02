@@ -1,4 +1,3 @@
-// crm/app/dashboard/leads/page.tsx
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -6,6 +5,12 @@ import { createClient } from '@supabase/supabase-js';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { useRouter } from 'next/navigation';
+import {
+  SORTED_LEAD_SOURCE_OPTIONS,
+  SORTED_LEAD_SOURCE_DETAIL_OPTIONS,
+  inferLeadType,
+} from '../../../src/lib/leadSourceOptions';
+
 dayjs.extend(relativeTime);
 
 // ----- Supabase (browser) -----
@@ -28,13 +33,13 @@ type Lead = {
   email: string | null;
   phone: string | null;
   status: string | null;
+  lead_type: string | null;
   lead_source: string | null;
-  appointment_type: string | null; // using as "Type" (buyer/seller/investor/renter) unless you have a dedicated field
+  lead_source_detail: string | null;
+  appointment_type: string | null;
 };
 
 type Profile = { role: 'agent' | 'admin' | 'platform_admin'; org_id: string };
-
-type IdxAgg = { lead_id: string; max: string | null; count: number | null };
 
 type IdxRpcRow = {
   lead_id: string;
@@ -51,6 +56,8 @@ type TableRow = {
   phone: string;
   status: string;
   type: string;
+  source: string;
+  sourceDetail: string;
   lastIdxVisit: string | null;
   idxViews30d: number;
   latestComm: string | null;
@@ -92,12 +99,16 @@ export default function LeadsPage() {
   const [daysFilter, setDaysFilter] = useState<number | null>(null);
 
   const [deletingLeadId, setDeletingLeadId] = useState<string | null>(null);
+  const [savingLeadId, setSavingLeadId] = useState<string | null>(null);
 
   const since30dISO = useMemo(() => dayjs().subtract(30, 'day').toISOString(), []);
   const sinceDaysISO = useMemo(
     () => (daysFilter ? dayjs().subtract(daysFilter, 'day').toISOString() : null),
     [daysFilter]
   );
+
+  const canEditSource =
+    profile?.role === 'admin' || profile?.role === 'platform_admin';
 
   useEffect(() => {
     let mounted = true;
@@ -133,6 +144,7 @@ export default function LeadsPage() {
         setLoading(false);
         return;
       }
+
       setProfile(prof as Profile);
 
       let leadsData: Lead[] | null = null;
@@ -142,7 +154,7 @@ export default function LeadsPage() {
         const { data, error } = await supabase
           .from('leads_visible_to_me')
           .select(
-            'id, created_at, first_name, last_name, name, email, phone, status, lead_source, appointment_type'
+            'id, created_at, first_name, last_name, name, email, phone, status, lead_type, lead_source, lead_source_detail, appointment_type'
           )
           .order('created_at', { ascending: false })
           .limit(1000);
@@ -158,7 +170,7 @@ export default function LeadsPage() {
         let q = supabase
           .from('leads')
           .select(
-            'id, created_at, first_name, last_name, name, email, phone, status, lead_source, appointment_type'
+            'id, created_at, first_name, last_name, name, email, phone, status, lead_type, lead_source, lead_source_detail, appointment_type'
           )
           .order('created_at', { ascending: false })
           .limit(1000);
@@ -234,6 +246,65 @@ export default function LeadsPage() {
     };
   }, [since30dISO]);
 
+  async function updateLeadField(
+    leadId: string,
+    patch: Partial<Pick<Lead, 'lead_source' | 'lead_source_detail'>>
+  ) {
+    try {
+      setSavingLeadId(leadId);
+      setError(null);
+
+      const currentLead = leads.find((lead) => lead.id === leadId);
+      if (!currentLead) {
+        throw new Error('Lead not found');
+      }
+
+      const nextSource =
+        patch.lead_source !== undefined ? patch.lead_source : currentLead.lead_source;
+      const nextSourceDetail =
+        patch.lead_source_detail !== undefined
+          ? patch.lead_source_detail
+          : currentLead.lead_source_detail;
+
+      const nextLeadType = inferLeadType({
+        source: nextSource,
+        sourceDetail: nextSourceDetail,
+        currentLeadType: currentLead.lead_type,
+      });
+
+      const updatePayload = {
+        ...patch,
+        lead_type: nextLeadType,
+        updated_at: new Date().toISOString(),
+      };
+
+      const { error: updateError } = await supabase
+        .from('leads')
+        .update(updatePayload)
+        .eq('id', leadId);
+
+      if (updateError) {
+        throw new Error(updateError.message || 'Failed to update lead');
+      }
+
+      setLeads((prev) =>
+        prev.map((lead) =>
+          lead.id === leadId
+            ? {
+                ...lead,
+                ...patch,
+                lead_type: nextLeadType,
+              }
+            : lead
+        )
+      );
+    } catch (err: any) {
+      setError(err.message || 'Failed to update lead');
+    } finally {
+      setSavingLeadId(null);
+    }
+  }
+
   async function deleteLead(leadId: string) {
     try {
       setDeletingLeadId(leadId);
@@ -292,7 +363,9 @@ export default function LeadsPage() {
         last,
         phone: norm(l.phone),
         status: norm(l.status),
-        type: norm(l.appointment_type) || '-',
+        type: norm(l.lead_type) || '-',
+        source: norm(l.lead_source) || 'Unknown',
+        sourceDetail: norm(l.lead_source_detail) || 'Unknown',
         lastIdxVisit: idx.last,
         idxViews30d: idx.count,
         latestComm: latest,
@@ -321,7 +394,9 @@ export default function LeadsPage() {
         r.last.toLowerCase().includes(term) ||
         r.phone.toLowerCase().includes(term) ||
         r.status.toLowerCase().includes(term) ||
-        r.type.toLowerCase().includes(term);
+        r.type.toLowerCase().includes(term) ||
+        r.source.toLowerCase().includes(term) ||
+        r.sourceDetail.toLowerCase().includes(term);
 
       return matchesDate && matchesStatus && matchesSearch;
     });
@@ -368,7 +443,7 @@ export default function LeadsPage() {
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search name, phone, status, type…"
+          placeholder="Search name, phone, status, type, source, hook..."
           className="w-full sm:w-1/2 rounded-md border px-3 py-2 text-sm"
         />
         <div className="flex gap-2">
@@ -398,6 +473,8 @@ export default function LeadsPage() {
               <th className="px-4 py-2">Phone</th>
               <th className="px-4 py-2">Status</th>
               <th className="px-4 py-2">Type</th>
+              <th className="px-4 py-2">Source</th>
+              <th className="px-4 py-2">Hook / Offer</th>
               <th className="px-4 py-2">Last IDX Visit</th>
               <th className="px-4 py-2">IDX Activity (30d)</th>
               <th className="px-4 py-2">Latest Communication</th>
@@ -412,6 +489,51 @@ export default function LeadsPage() {
                 <td className="px-4 py-2 whitespace-nowrap">{r.phone || '-'}</td>
                 <td className="px-4 py-2 whitespace-nowrap">{r.status || '-'}</td>
                 <td className="px-4 py-2 whitespace-nowrap">{r.type || '-'}</td>
+
+                <td className="px-4 py-2 whitespace-nowrap">
+                  {canEditSource ? (
+                    <select
+                      value={r.source || 'Unknown'}
+                      disabled={savingLeadId === r.id}
+                      onChange={(e) =>
+                        updateLeadField(r.id, { lead_source: e.target.value || 'Unknown' })
+                      }
+                      className="min-w-[150px] rounded border px-2 py-1 text-xs"
+                    >
+                      {SORTED_LEAD_SOURCE_OPTIONS.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    r.source || '-'
+                  )}
+                </td>
+
+                <td className="px-4 py-2 whitespace-nowrap">
+                  {canEditSource ? (
+                    <select
+                      value={r.sourceDetail || 'Unknown'}
+                      disabled={savingLeadId === r.id}
+                      onChange={(e) =>
+                        updateLeadField(r.id, {
+                          lead_source_detail: e.target.value || 'Unknown',
+                        })
+                      }
+                      className="min-w-[180px] rounded border px-2 py-1 text-xs"
+                    >
+                      {SORTED_LEAD_SOURCE_DETAIL_OPTIONS.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    r.sourceDetail || '-'
+                  )}
+                </td>
+
                 <td className="px-4 py-2 whitespace-nowrap">
                   {r.lastIdxVisit ? dayjs(r.lastIdxVisit).fromNow() : '-'}
                 </td>
@@ -442,7 +564,7 @@ export default function LeadsPage() {
             ))}
             {filteredRows.length === 0 && (
               <tr>
-                <td className="px-4 py-6 text-center text-gray-500" colSpan={9}>
+                <td className="px-4 py-6 text-center text-gray-500" colSpan={11}>
                   No leads match your filters.
                 </td>
               </tr>

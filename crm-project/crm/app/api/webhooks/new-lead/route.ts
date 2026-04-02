@@ -33,37 +33,66 @@ const normalizePhone = (raw?: string) => {
 };
 
 //////////////////////
-// Twilio Flow Mapping
+// Hook / Offer -> Twilio Flow Mapping
 //////////////////////
 const FLOW_MAP: Record<string, string | undefined> = {
+  // canonical hook names
+  "relocation guide": process.env.TWILIO_FLOW_SID_RELOCATION,
+  "home search tool": process.env.TWILIO_FLOW_SID_HOME_SEARCH,
+  "fsbo guide": process.env.TWILIO_FLOW_SID_FSBO,
+
+  // legacy/fallback values
   relocation_guide: process.env.TWILIO_FLOW_SID_RELOCATION,
   home_search: process.env.TWILIO_FLOW_SID_HOME_SEARCH,
   fsbo: process.env.TWILIO_FLOW_SID_FSBO,
 };
+
 const DEFAULT_FLOW_SID = process.env.TWILIO_FLOW_SID_DEFAULT;
+
+function normalizeHookValue(raw?: string | null) {
+  return String(raw || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
 
 //////////////////////
 // Core Twilio Execution
 //////////////////////
 async function runTwilioFlow(lead: any) {
   const {
-    id, first_name, last_name, name, email, phone,
-    price_range, city, county,
-    motivation, agent_status, purchase_type, appointment_type,
-    lead_source = "unknown", created_at
+    id,
+    first_name,
+    last_name,
+    name,
+    email,
+    phone,
+    price_range,
+    city,
+    county,
+    motivation,
+    agent_status,
+    purchase_type,
+    appointment_type,
+    lead_source = "Unknown",
+    lead_source_detail = "Unknown",
+    created_at,
   } = lead ?? {};
 
-  const flowSid = FLOW_MAP[lead_source] || DEFAULT_FLOW_SID;
+  const hookValue = normalizeHookValue(lead_source_detail || lead_source);
+  const flowSid = FLOW_MAP[hookValue] || DEFAULT_FLOW_SID;
 
   console.log("--------------------------------------------------");
   console.log("📥 Incoming Lead from Supabase Realtime");
   console.log("Lead Source:", lead_source);
+  console.log("Lead Source Detail:", lead_source_detail);
+  console.log("Chosen Hook Value:", hookValue);
   console.log("Chosen Twilio Flow SID:", flowSid);
   console.log("Lead Data:", lead);
   console.log("--------------------------------------------------");
 
   if (!flowSid) {
-    console.error("❌ No Twilio flow SID for lead_source", lead_source);
+    console.error("❌ No Twilio flow SID for lead_source_detail", lead_source_detail);
     return;
   }
 
@@ -89,27 +118,28 @@ async function runTwilioFlow(lead: any) {
     purchase_type,
     appointment_type,
     lead_source,
-    created_at
+    lead_source_detail,
+    created_at,
   });
 
   const url = `https://studio.twilio.com/v2/Flows/${flowSid}/Executions`;
   const accountSid = process.env.TWILIO_ACCOUNT_SID!;
-  const authToken  = process.env.TWILIO_AUTH_TOKEN!;
+  const authToken = process.env.TWILIO_AUTH_TOKEN!;
   const auth = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
 
   const form = new URLSearchParams({
     To: to,
     From: from,
-    Parameters: parameters
+    Parameters: parameters,
   });
 
   const twilioRes = await fetch(url, {
     method: "POST",
     headers: {
       Authorization: `Basic ${auth}`,
-      "Content-Type": "application/x-www-form-urlencoded"
+      "Content-Type": "application/x-www-form-urlencoded",
     },
-    body: form.toString()
+    body: form.toString(),
   });
 
   if (!twilioRes.ok) {
@@ -136,11 +166,9 @@ async function startLeadListener() {
       async (payload) => {
         console.log("🎯 New lead detected via Realtime");
 
-        // split name before running Twilio
         const { first_name, last_name } = splitName(payload.new.name);
         const leadWithNames = { ...payload.new, first_name, last_name };
 
-        // optional: persist first/last into the DB right away
         if (!payload.new.first_name && !payload.new.last_name) {
           await supabaseServer
             .from("leads")
@@ -156,8 +184,7 @@ async function startLeadListener() {
     });
 }
 
-if (process.env.NODE_ENV !== 'production' && !(global as any)._leadListenerStarted) {
-  // Prevent running this during build time (it will run only in development/production runtime)
+if (process.env.NODE_ENV !== "production" && !(global as any)._leadListenerStarted) {
   startLeadListener();
   (global as any)._leadListenerStarted = true;
 }
@@ -175,11 +202,9 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
 
-    // split name before running Twilio
     const { first_name, last_name } = splitName(body.name);
     const leadWithNames = { ...body, first_name, last_name };
 
-    // optional: persist to DB
     if (!body.first_name && !body.last_name && body.id) {
       await supabaseServer
         .from("leads")
