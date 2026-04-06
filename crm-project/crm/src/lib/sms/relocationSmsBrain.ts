@@ -6,6 +6,14 @@ type SmsMessage = {
   created_at?: string | null
 }
 
+type LpmamaStep =
+  | 'location_timeline'
+  | 'price'
+  | 'motivation'
+  | 'agent_status'
+  | 'mortgage_or_cash'
+  | 'appointment'
+
 type RelocationLead = {
   id: string
   first_name?: string | null
@@ -15,38 +23,30 @@ type RelocationLead = {
   lead_source_detail?: string | null
   move_timeline?: string | null
   price_range?: string | null
+  motivation?: string | null
   preferred_areas?: string | null
   agent_status?: string | null
+  mortgage_or_cash?: string | null
+  spoken_to_local_lender?: string | null
+  lender_intro_permission?: boolean | null
+  lender_need_type?: string | null
+  wants_lender_connection?: boolean | null
+  preferred_next_step?: string | null
   primary_objection?: string | null
   secondary_objection?: string | null
   biggest_concern?: string | null
   biggest_unknown?: string | null
-  preferred_next_step?: string | null
-  wants_home_search?: boolean | null
-  wants_agent_call?: boolean | null
-  wants_lender_connection?: boolean | null
-  monthly_payment_comfort?: string | null
   lead_heat?: string | null
   notes?: string | null
-  sms_confidence?: string | null
-  sms_current_objective?: string | null
   sms_timeline_answered?: boolean | null
   sms_budget_answered?: boolean | null
   sms_area_answered?: boolean | null
   sms_agent_status_answered?: boolean | null
-  sms_appointment_readiness?: number | null
-  sms_conversation_tone?: string | null
-  sms_sentiment?: string | null
-  sms_should_escalate?: boolean | null
-  sms_debug_reason?: string | null
-  sms_last_question?: string | null
   sms_lpmama_current_step?: string | null
   sms_lpmama_next_step?: string | null
   sms_resume_step?: string | null
   sms_detour_reason?: string | null
 }
-
-type LpmamaStep = 'timeline' | 'budget' | 'area' | 'agent_status' | 'appointment'
 
 type BrainResult = {
   replyText: string
@@ -62,10 +62,11 @@ type BrainResult = {
     | 'none'
   confidence: 'high' | 'medium' | 'low'
   currentObjective:
-    | 'timeline'
-    | 'budget'
-    | 'area'
+    | 'location_timeline'
+    | 'price'
+    | 'motivation'
     | 'agent_status'
+    | 'mortgage_or_cash'
     | 'appointment'
     | 'clarify'
     | 'handoff'
@@ -83,22 +84,25 @@ type BrainResult = {
   extractedFields: {
     move_timeline?: string | null
     price_range?: string | null
+    motivation?: string | null
     preferred_areas?: string | null
     agent_status?: string | null
+    mortgage_or_cash?: string | null
+    spoken_to_local_lender?: string | null
+    lender_intro_permission?: boolean | null
+    lender_need_type?: string | null
+    wants_lender_connection?: boolean | null
+    preferred_next_step?: string | null
     primary_objection?: string | null
     secondary_objection?: string | null
     biggest_concern?: string | null
     biggest_unknown?: string | null
-    preferred_next_step?: string | null
-    wants_home_search?: boolean | null
-    wants_agent_call?: boolean | null
-    wants_lender_connection?: boolean | null
-    monthly_payment_comfort?: string | null
     notes_append?: string | null
     timeline_answered?: boolean | null
     budget_answered?: boolean | null
     area_answered?: boolean | null
     agent_status_answered?: boolean | null
+    wants_agent_call?: boolean | null
   }
   aiSummary: string
 }
@@ -107,8 +111,11 @@ const VALID_STATES = new Set([
   'NEW_HOT',
   'WAITING_FOR_TIMELINE',
   'WAITING_FOR_BUDGET',
-  'WAITING_FOR_AREA',
+  'WAITING_FOR_MOTIVATION',
   'WAITING_FOR_AGENT_STATUS',
+  'WAITING_FOR_MORTGAGE_OR_CASH',
+  'WAITING_FOR_LOCAL_LENDER_STATUS',
+  'WAITING_FOR_LENDER_PERMISSION',
   'OFFER_AGENT_CALL',
   'CALLBACK_LATER',
   'NURTURE_WARM',
@@ -171,10 +178,11 @@ function sanitizeConfidence(value: unknown): BrainResult['confidence'] {
 function sanitizeObjective(value: unknown): BrainResult['currentObjective'] {
   const s = String(value || '').trim()
   if (
-    s === 'timeline' ||
-    s === 'budget' ||
-    s === 'area' ||
+    s === 'location_timeline' ||
+    s === 'price' ||
+    s === 'motivation' ||
     s === 'agent_status' ||
+    s === 'mortgage_or_cash' ||
     s === 'appointment' ||
     s === 'clarify' ||
     s === 'handoff' ||
@@ -182,7 +190,7 @@ function sanitizeObjective(value: unknown): BrainResult['currentObjective'] {
   ) {
     return s
   }
-  return 'timeline'
+  return 'location_timeline'
 }
 
 function sanitizeTone(value: unknown): BrainResult['conversationTone'] {
@@ -209,10 +217,11 @@ function sanitizeReadiness(value: unknown) {
 function sanitizeStep(value: unknown, fallback: LpmamaStep): LpmamaStep {
   const s = String(value || '').trim()
   if (
-    s === 'timeline' ||
-    s === 'budget' ||
-    s === 'area' ||
+    s === 'location_timeline' ||
+    s === 'price' ||
+    s === 'motivation' ||
     s === 'agent_status' ||
+    s === 'mortgage_or_cash' ||
     s === 'appointment'
   ) {
     return s
@@ -291,19 +300,6 @@ function getUnclearCount(recentMessages: SmsMessage[]) {
   ).length
 }
 
-function detectBurst(recentMessages: SmsMessage[]) {
-  const incoming = recentMessages
-    .filter((m) => m.direction === 'incoming' && m.created_at)
-    .slice(-5)
-
-  if (incoming.length < 4) return false
-
-  const first = new Date(incoming[0].created_at as string).getTime()
-  const last = new Date(incoming[incoming.length - 1].created_at as string).getTime()
-
-  return last - first <= 2 * 60 * 1000
-}
-
 function extractTimeline(text: string) {
   const t = text.toLowerCase()
   const monthMatch = t.match(/(\d+)\s*(month|months)/)
@@ -329,32 +325,13 @@ function extractBudget(text: string) {
   return moneyMatch[1] || null
 }
 
-function extractArea(text: string, marketName: string) {
+function extractMotivation(text: string) {
   const t = text.toLowerCase()
-  const areaTerms = [
-    'boise',
-    'meridian',
-    'eagle',
-    'kuna',
-    'nampa',
-    'star',
-    'caldwell',
-    'middleton',
-    'twin falls',
-    'jerome',
-    'kimberly',
-    'post falls',
-    'hayden',
-    'coeur d’alene',
-    'coeur dalene',
-    'cda',
-  ]
-  const found = areaTerms.filter((a) => t.includes(a))
-  if (found.length) return found.join(', ')
-  if (/still narrowing that down|not sure yet|open/i.test(t)) return 'still narrowing down'
-  if (marketName.toLowerCase() === 'boise' && /north end|bench|southeast boise/.test(t)) {
-    return text
-  }
+  if (/job|work|career|transfer|relocat/i.test(t)) return 'work'
+  if (/family|kids|grandkids|parents/i.test(t)) return 'family'
+  if (/lifestyle|pace|quality of life|outdoors|mountains|space/i.test(t)) return 'lifestyle'
+  if (/retire|retirement/i.test(t)) return 'retirement'
+  if (/afford|cost of living|cheaper|save money/i.test(t)) return 'affordability'
   return null
 }
 
@@ -363,7 +340,7 @@ function extractAgentStatus(text: string) {
   if (/signed buyer agreement|under contract with an agent|signed with an agent/.test(t)) {
     return 'signed_agent'
   }
-  if (/local agent|boise agent|agent in boise|working with a boise-area agent/.test(t)) {
+  if (/local agent|boise agent|agent in boise|working with a boise-area agent|local realtor/i.test(t)) {
     return 'local_agent'
   }
   if (/out of state agent|agent from california|agent from out of state|not local|not in boise/.test(t)) {
@@ -378,28 +355,48 @@ function extractAgentStatus(text: string) {
   return null
 }
 
+function extractMortgageOrCash(text: string) {
+  const t = text.toLowerCase()
+  if (/cash|paying cash|buying cash/.test(t)) return 'cash'
+  if (/loan|mortgage|financing|finance|pre-approval|preapproval/.test(t)) return 'loan'
+  return null
+}
+
+function extractLocalLenderStatus(text: string) {
+  const t = text.toLowerCase()
+  if (/yes|yeah|yep|already have|already spoke|already talked/i.test(t)) return 'yes'
+  if (/no|not yet|haven't|have not|never/i.test(t)) return 'no'
+  return null
+}
+
+function extractLenderPermission(text: string) {
+  const t = text.toLowerCase()
+  if (/yes|yeah|yep|that works|go ahead|ok|okay|sure/.test(t)) return true
+  if (/no|not right now|dont|don't|no thanks/.test(t)) return false
+  return null
+}
+
 function nextMissingStep(
   lead: RelocationLead,
   extracted?: {
     timeline?: string | null
-    budget?: string | null
-    area?: string | null
+    price?: string | null
+    motivation?: string | null
     agentStatus?: string | null
+    mortgageOrCash?: string | null
   }
 ): LpmamaStep {
-  const timelineDone =
-    Boolean(lead.sms_timeline_answered) || Boolean(lead.move_timeline) || Boolean(extracted?.timeline)
-  const budgetDone =
-    Boolean(lead.sms_budget_answered) || Boolean(lead.price_range) || Boolean(extracted?.budget)
-  const areaDone =
-    Boolean(lead.sms_area_answered) || Boolean(lead.preferred_areas) || Boolean(extracted?.area)
-  const agentDone =
-    Boolean(lead.sms_agent_status_answered) || Boolean(lead.agent_status) || Boolean(extracted?.agentStatus)
+  const timelineDone = Boolean(lead.move_timeline) || Boolean(extracted?.timeline)
+  const priceDone = Boolean(lead.price_range) || Boolean(extracted?.price)
+  const motivationDone = Boolean(lead.motivation) || Boolean(extracted?.motivation)
+  const agentDone = Boolean(lead.agent_status) || Boolean(extracted?.agentStatus)
+  const mortgageDone = Boolean(lead.mortgage_or_cash) || Boolean(extracted?.mortgageOrCash)
 
-  if (!timelineDone) return 'timeline'
-  if (!budgetDone) return 'budget'
-  if (!areaDone) return 'area'
+  if (!timelineDone) return 'location_timeline'
+  if (!priceDone) return 'price'
+  if (!motivationDone) return 'motivation'
   if (!agentDone) return 'agent_status'
+  if (!mortgageDone) return 'mortgage_or_cash'
   return 'appointment'
 }
 
@@ -412,14 +409,22 @@ function fallbackReply(
   const sentiment = detectSentiment(inboundText)
   const unclearCount = getUnclearCount(recentMessages)
   const market = marketContextFromLead(lead)
-  const burst = detectBurst(recentMessages)
+
   const timeline = extractTimeline(inboundText)
-  const budget = extractBudget(inboundText)
-  const area = extractArea(inboundText, market.marketName)
+  const price = extractBudget(inboundText)
+  const motivation = extractMotivation(inboundText)
   const agentStatus = extractAgentStatus(inboundText)
-  const currentStep = sanitizeStep(lead.sms_lpmama_current_step, nextMissingStep(lead))
-  const nextStep = nextMissingStep(lead, { timeline, budget, area, agentStatus })
-  const notes = trimOrNull(inboundText)
+  const mortgageOrCash = extractMortgageOrCash(inboundText)
+  const localLenderStatus = extractLocalLenderStatus(inboundText)
+  const lenderPermission = extractLenderPermission(inboundText)
+
+  const nextStep = nextMissingStep(lead, {
+    timeline,
+    price,
+    motivation,
+    agentStatus,
+    mortgageOrCash,
+  })
 
   if (hasHardStop(inboundText)) {
     return {
@@ -436,14 +441,14 @@ function fallbackReply(
       shouldEscalate: false,
       debugReason: 'fallback_hard_stop',
       lastQuestion: null,
-      lpmamaCurrentStep: currentStep,
+      lpmamaCurrentStep: nextStep,
       lpmamaNextStep: nextStep,
       resumeStep: nextStep,
       detourReason: 'hard_stop',
       extractedFields: {
         primary_objection: 'not_interested',
         preferred_next_step: 'stop',
-        notes_append: notes,
+        notes_append: inboundText,
       },
       aiSummary: 'Fallback hard stop',
     }
@@ -453,7 +458,7 @@ function fallbackReply(
     return {
       replyText: `Absolutely. I can have a local ${market.marketName}-area agent reach out. Would you prefer I give you two time options, or is there a time that usually works better for you?`,
       nextState: 'OFFER_AGENT_CALL',
-      nextPriority: 'agent_call',
+      nextPriority: 'appointment',
       temperature: 'hot',
       bestNextStep: 'agent_call',
       confidence: 'high',
@@ -464,14 +469,14 @@ function fallbackReply(
       shouldEscalate: true,
       debugReason: 'fallback_human_handoff',
       lastQuestion: 'appointment_offer',
-      lpmamaCurrentStep: currentStep,
+      lpmamaCurrentStep: nextStep,
       lpmamaNextStep: nextStep,
       resumeStep: nextStep,
       detourReason: 'human_handoff',
       extractedFields: {
         wants_agent_call: true,
         preferred_next_step: 'appointment',
-        notes_append: notes,
+        notes_append: inboundText,
       },
       aiSummary: 'Fallback human handoff',
     }
@@ -486,7 +491,7 @@ function fallbackReply(
     if (unclearCount === 0) {
       return {
         replyText: `Sorry ${name}, I want to make sure I understood you correctly. Are you planning to move in the next 3 months, 6 months, or just exploring for now?`,
-        nextState: lead.sms_state || 'WAITING_FOR_TIMELINE',
+        nextState: 'WAITING_FOR_TIMELINE',
         nextPriority: 'clarify',
         temperature: 'hot',
         bestNextStep: 'none',
@@ -498,20 +503,20 @@ function fallbackReply(
         shouldEscalate: false,
         debugReason: 'fallback_unclear_first',
         lastQuestion: 'clarify',
-        lpmamaCurrentStep: currentStep,
+        lpmamaCurrentStep: nextStep,
         lpmamaNextStep: nextStep,
         resumeStep: nextStep,
         detourReason: 'unclear',
-        extractedFields: { notes_append: notes },
-        aiSummary: 'Fallback unclear reply asked for clarification',
+        extractedFields: { notes_append: inboundText },
+        aiSummary: 'Fallback unclear first',
       }
     }
 
     if (unclearCount === 1) {
       return {
         replyText: `No worries. Let’s keep it simple — are you moving soon, later, or just browsing?`,
-        nextState: lead.sms_state || 'WAITING_FOR_TIMELINE',
-        nextPriority: 'clarify_simple',
+        nextState: 'WAITING_FOR_TIMELINE',
+        nextPriority: 'clarify',
         temperature: 'hot',
         bestNextStep: 'none',
         confidence: 'low',
@@ -522,12 +527,12 @@ function fallbackReply(
         shouldEscalate: false,
         debugReason: 'fallback_unclear_second',
         lastQuestion: 'clarify',
-        lpmamaCurrentStep: currentStep,
+        lpmamaCurrentStep: nextStep,
         lpmamaNextStep: nextStep,
         resumeStep: nextStep,
         detourReason: 'unclear',
-        extractedFields: { notes_append: notes },
-        aiSummary: 'Fallback second unclear reply simplified question',
+        extractedFields: { notes_append: inboundText },
+        aiSummary: 'Fallback unclear second',
       }
     }
 
@@ -545,15 +550,15 @@ function fallbackReply(
       shouldEscalate: false,
       debugReason: 'fallback_unclear_third',
       lastQuestion: null,
-      lpmamaCurrentStep: currentStep,
+      lpmamaCurrentStep: nextStep,
       lpmamaNextStep: nextStep,
       resumeStep: nextStep,
       detourReason: 'unclear',
       extractedFields: {
         preferred_next_step: 'nurture',
-        notes_append: notes,
+        notes_append: inboundText,
       },
-      aiSummary: 'Fallback repeated unclear replies moved to warm nurture',
+      aiSummary: 'Fallback unclear third',
     }
   }
 
@@ -572,91 +577,91 @@ function fallbackReply(
       shouldEscalate: false,
       debugReason: 'fallback_local_agent_exit',
       lastQuestion: null,
-      lpmamaCurrentStep: currentStep,
+      lpmamaCurrentStep: nextStep,
       lpmamaNextStep: nextStep,
       resumeStep: nextStep,
       detourReason: 'agent_status',
       extractedFields: {
         agent_status: agentStatus,
         agent_status_answered: true,
-        notes_append: notes,
+        notes_append: inboundText,
       },
       aiSummary: 'Fallback local agent exit',
     }
   }
 
-  if (nextStep === 'budget') {
+  if (nextStep === 'price') {
     return {
       replyText: `Got it. What price range are you hoping to stay around?`,
       nextState: 'WAITING_FOR_BUDGET',
-      nextPriority: 'budget',
+      nextPriority: 'price',
       temperature: 'hot',
       bestNextStep: 'none',
       confidence: 'medium',
-      currentObjective: 'budget',
+      currentObjective: 'price',
       appointmentReadiness: 2,
-      conversationTone: burst ? 'direct' : 'warm',
+      conversationTone: 'warm',
       sentiment,
       shouldEscalate: false,
-      debugReason: 'fallback_asked_budget_after_timeline',
-      lastQuestion: 'budget',
-      lpmamaCurrentStep: 'budget',
+      debugReason: 'fallback_ask_price',
+      lastQuestion: 'price',
+      lpmamaCurrentStep: 'price',
       lpmamaNextStep: nextStep,
       resumeStep: nextStep,
       detourReason: null,
       extractedFields: {
         move_timeline: timeline,
         timeline_answered: timeline ? true : null,
-        notes_append: notes,
+        notes_append: inboundText,
       },
-      aiSummary: 'Fallback captured timeline and asked budget',
+      aiSummary: 'Fallback asked price',
     }
   }
 
-  if (nextStep === 'area') {
+  if (nextStep === 'motivation') {
     return {
-      replyText: `Thanks. Are you already focused on a certain area like ${market.areaExamples}, or are you still narrowing that down?`,
-      nextState: 'WAITING_FOR_AREA',
-      nextPriority: 'area',
+      replyText: `What’s the main motivation for the move — work, family, lifestyle, retirement, or something else?`,
+      nextState: 'WAITING_FOR_MOTIVATION',
+      nextPriority: 'motivation',
       temperature: 'hot',
       bestNextStep: 'none',
       confidence: 'medium',
-      currentObjective: 'area',
+      currentObjective: 'motivation',
       appointmentReadiness: 3,
-      conversationTone: burst ? 'direct' : 'warm',
+      conversationTone: 'warm',
       sentiment,
       shouldEscalate: false,
-      debugReason: 'fallback_asked_area_after_budget',
-      lastQuestion: 'area',
-      lpmamaCurrentStep: 'area',
+      debugReason: 'fallback_ask_motivation',
+      lastQuestion: 'motivation',
+      lpmamaCurrentStep: 'motivation',
       lpmamaNextStep: nextStep,
       resumeStep: nextStep,
       detourReason: null,
       extractedFields: {
         move_timeline: timeline,
         timeline_answered: timeline ? true : null,
-        price_range: budget,
-        budget_answered: budget ? true : null,
-        notes_append: notes,
+        price_range: price,
+        budget_answered: price ? true : null,
+        notes_append: inboundText,
       },
-      aiSummary: 'Fallback asked area',
+      aiSummary: 'Fallback asked motivation',
     }
   }
 
   if (nextStep === 'agent_status') {
     return {
-      replyText: `Perfect. Are you already working with an agent here in the ${market.marketName} area?`,
+      replyText: `Are you already working with an agent there in the ${market.marketName} area?`,
       nextState: 'WAITING_FOR_AGENT_STATUS',
       nextPriority: 'agent_status',
       temperature: 'hot',
       bestNextStep: 'none',
       confidence: 'medium',
       currentObjective: 'agent_status',
-      appointmentReadiness: 4,
-      conversationTone: burst ? 'direct' : 'warm',
+      appointmentReadiness: 3,
+      conversationTone: 'warm',
       sentiment,
       shouldEscalate: false,
-      debugReason: 'fallback_asked_agent_after_area',
+      debugReason: 'fallback_ask_agent_status',
       lastQuestion: 'agent_status',
       lpmamaCurrentStep: 'agent_status',
       lpmamaNextStep: nextStep,
@@ -665,13 +670,134 @@ function fallbackReply(
       extractedFields: {
         move_timeline: timeline,
         timeline_answered: timeline ? true : null,
-        price_range: budget,
-        budget_answered: budget ? true : null,
-        preferred_areas: area,
-        area_answered: area ? true : null,
-        notes_append: notes,
+        price_range: price,
+        budget_answered: price ? true : null,
+        motivation: motivation,
+        notes_append: inboundText,
       },
       aiSummary: 'Fallback asked agent status',
+    }
+  }
+
+  if (nextStep === 'mortgage_or_cash') {
+    return {
+      replyText: `Will this move likely be cash, or will you probably need financing?`,
+      nextState: 'WAITING_FOR_MORTGAGE_OR_CASH',
+      nextPriority: 'mortgage_or_cash',
+      temperature: 'hot',
+      bestNextStep: 'none',
+      confidence: 'medium',
+      currentObjective: 'mortgage_or_cash',
+      appointmentReadiness: 4,
+      conversationTone: 'warm',
+      sentiment,
+      shouldEscalate: false,
+      debugReason: 'fallback_ask_mortgage_or_cash',
+      lastQuestion: 'mortgage_or_cash',
+      lpmamaCurrentStep: 'mortgage_or_cash',
+      lpmamaNextStep: nextStep,
+      resumeStep: nextStep,
+      detourReason: null,
+      extractedFields: {
+        move_timeline: timeline,
+        timeline_answered: timeline ? true : null,
+        price_range: price,
+        budget_answered: price ? true : null,
+        motivation: motivation,
+        agent_status: agentStatus,
+        agent_status_answered: agentStatus ? true : null,
+        notes_append: inboundText,
+      },
+      aiSummary: 'Fallback asked mortgage or cash',
+    }
+  }
+
+  if ((lead.mortgage_or_cash === 'loan' || mortgageOrCash === 'loan') && !lead.spoken_to_local_lender && !localLenderStatus) {
+    return {
+      replyText: `Have you already spoken with a local loan officer there in the area?`,
+      nextState: 'WAITING_FOR_LOCAL_LENDER_STATUS',
+      nextPriority: 'local_lender_status',
+      temperature: 'hot',
+      bestNextStep: 'lender_intro',
+      confidence: 'medium',
+      currentObjective: 'mortgage_or_cash',
+      appointmentReadiness: 4,
+      conversationTone: 'warm',
+      sentiment,
+      shouldEscalate: false,
+      debugReason: 'fallback_ask_local_lender_status',
+      lastQuestion: 'local_lender_status',
+      lpmamaCurrentStep: 'mortgage_or_cash',
+      lpmamaNextStep: 'appointment',
+      resumeStep: 'appointment',
+      detourReason: 'lender_flow',
+      extractedFields: {
+        mortgage_or_cash: 'loan',
+        lender_need_type: 'loan',
+        notes_append: inboundText,
+      },
+      aiSummary: 'Fallback asked local lender status',
+    }
+  }
+
+  if ((lead.mortgage_or_cash === 'loan' || mortgageOrCash === 'loan') && (localLenderStatus === 'no' || lead.spoken_to_local_lender === 'no') && lenderPermission !== true) {
+    return {
+      replyText: `No problem. I can refer you to a local loan officer with no pressure, no obligation, and no credit pull just to help set the foundation for the move. Would it be okay to have one reach out?`,
+      nextState: 'WAITING_FOR_LENDER_PERMISSION',
+      nextPriority: 'lender_permission',
+      temperature: 'hot',
+      bestNextStep: 'lender_intro',
+      confidence: 'high',
+      currentObjective: 'mortgage_or_cash',
+      appointmentReadiness: 4,
+      conversationTone: 'warm',
+      sentiment,
+      shouldEscalate: false,
+      debugReason: 'fallback_offer_local_lender_intro',
+      lastQuestion: 'lender_permission',
+      lpmamaCurrentStep: 'mortgage_or_cash',
+      lpmamaNextStep: 'appointment',
+      resumeStep: 'appointment',
+      detourReason: 'lender_flow',
+      extractedFields: {
+        mortgage_or_cash: 'loan',
+        spoken_to_local_lender: 'no',
+        lender_need_type: 'loan',
+        notes_append: inboundText,
+      },
+      aiSummary: 'Fallback offered local lender intro',
+    }
+  }
+
+  if ((lead.mortgage_or_cash === 'loan' || mortgageOrCash === 'loan') && lenderPermission === true) {
+    return {
+      replyText: `Perfect. I’ll have a local lender reach out with no pressure. From there, I can also give you two good times for a quick strategy call if you’d like.`,
+      nextState: 'OFFER_AGENT_CALL',
+      nextPriority: 'appointment',
+      temperature: 'hot',
+      bestNextStep: 'lender_intro',
+      confidence: 'high',
+      currentObjective: 'appointment',
+      appointmentReadiness: 5,
+      conversationTone: 'warm',
+      sentiment,
+      shouldEscalate: true,
+      debugReason: 'fallback_lender_intro_approved',
+      lastQuestion: 'appointment_offer',
+      lpmamaCurrentStep: 'appointment',
+      lpmamaNextStep: 'appointment',
+      resumeStep: 'appointment',
+      detourReason: 'lender_flow',
+      extractedFields: {
+        mortgage_or_cash: 'loan',
+        spoken_to_local_lender: 'no',
+        lender_intro_permission: true,
+        lender_need_type: 'loan',
+        wants_lender_connection: true,
+        preferred_next_step: 'lender_connection',
+        notes_append: inboundText,
+      },
+      aiSummary: 'Fallback lender intro approved',
     }
   }
 
@@ -684,10 +810,10 @@ function fallbackReply(
     confidence: 'medium',
     currentObjective: 'appointment',
     appointmentReadiness: 4,
-    conversationTone: burst ? 'direct' : 'warm',
+    conversationTone: 'warm',
     sentiment,
-    shouldEscalate: sentiment === 'frustrated',
-    debugReason: 'fallback_offered_appointment_after_lpmama',
+    shouldEscalate: false,
+    debugReason: 'fallback_offer_appointment',
     lastQuestion: 'appointment_offer',
     lpmamaCurrentStep: 'appointment',
     lpmamaNextStep: 'appointment',
@@ -696,15 +822,14 @@ function fallbackReply(
     extractedFields: {
       move_timeline: timeline,
       timeline_answered: timeline ? true : null,
-      price_range: budget,
-      budget_answered: budget ? true : null,
-      preferred_areas: area,
-      area_answered: area ? true : null,
+      price_range: price,
+      budget_answered: price ? true : null,
+      motivation: motivation,
       agent_status: agentStatus,
       agent_status_answered: agentStatus ? true : null,
-      wants_agent_call: true,
-      preferred_next_step: 'appointment',
-      notes_append: notes,
+      mortgage_or_cash: mortgageOrCash,
+      wants_lender_connection: mortgageOrCash === 'loan' ? true : null,
+      notes_append: inboundText,
     },
     aiSummary: 'Fallback offered appointment',
   }
@@ -726,6 +851,20 @@ export async function runRelocationSmsBrain(args: {
   const { default: OpenAI } = await import('openai')
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
+  const timeline = extractTimeline(inboundText)
+  const price = extractBudget(inboundText)
+  const motivation = extractMotivation(inboundText)
+  const agentStatus = extractAgentStatus(inboundText)
+  const mortgageOrCash = extractMortgageOrCash(inboundText)
+  const nextStep = nextMissingStep(lead, {
+    timeline,
+    price,
+    motivation,
+    agentStatus,
+    mortgageOrCash,
+  })
+  const currentStep = sanitizeStep(lead.sms_lpmama_current_step, nextStep)
+
   const transcript = recentMessages
     .slice(-10)
     .map(
@@ -736,59 +875,29 @@ export async function runRelocationSmsBrain(args: {
     )
     .join('\n')
 
-  const currentStep = sanitizeStep(lead.sms_lpmama_current_step, nextMissingStep(lead))
-  const nextStep = nextMissingStep(lead)
-
   const systemPrompt = `
 You are Samantha, the SMS real estate assistant for ${market.brandName}.
 You are handling a RELOCATION lead by SMS for the ${market.marketName} market.
 
-CORE MODEL:
-- LPMAMA is the core spine.
-- Answer objections, off-topic questions, value questions, and local questions as fully as needed to build trust.
-- After answering, return to the NEXT MISSING LPMAMA STEP exactly.
-- Do NOT force appointment too early.
-- Do NOT force short replies. Be as long as needed, but no longer.
-- Do NOT drift away from the core spine.
+Use TRUE LPMAMA for relocation:
+1. Location / Timeline
+2. Price
+3. Motivation
+4. Agent status
+5. Mortgage or Cash
+6. Appointment
 
-LPMAMA ORDER:
-1. timeline
-2. budget
-3. area
-4. agent_status
-5. appointment
+Rules:
+- Answer off-topic questions, objections, value questions, and local area questions as fully as needed.
+- Then return exactly to the NEXT MISSING LPMAMA STEP.
+- If the lead answers multiple steps in one message, capture them all.
+- If they already have a LOCAL ${market.marketName}-area agent, politely exit.
+- If they say they need a loan, ask whether they have already spoken with a LOCAL loan officer there.
+- If they have not, offer a no-pressure, no-obligation local lender introduction.
+- Ask permission before lender handoff.
+- If they approve lender handoff, mark lender intro requested and then continue toward appointment.
 
-IMPORTANT:
-- Unlimited intelligent detours are allowed.
-- Exact resume to the next missing LPMAMA step is required.
-- If the newest message answers multiple core items at once, capture them all.
-- If the lead already has a LOCAL ${market.marketName}-area agent or signed local agreement, politely exit.
-- If they ask for a human, prioritize handoff or appointment.
-- If they say stop / not interested / do not contact, politely stop.
-
-LOCAL VALUE ANSWERS:
-If they ask about ${market.brandName}, you may answer with:
-- local guidance
-- area / lifestyle fit
-- pricing and strategy clarity
-- search and execution support
-Then resume the next missing LPMAMA step.
-
-LOCAL TOPICS:
-You may answer fully on:
-- neighborhoods
-- commute
-- schools
-- weather
-- smoke
-- taxes
-- market conditions
-- pricing
-- lifestyle fit
-- resale concerns
-Then resume the next missing LPMAMA step.
-
-OUTPUT ONLY VALID JSON:
+Return only JSON:
 {
   "replyText": "string",
   "nextState": "string",
@@ -796,31 +905,33 @@ OUTPUT ONLY VALID JSON:
   "temperature": "hot|warm|cold",
   "bestNextStep": "agent_call|home_search|lender_intro|nurture|stop|none",
   "confidence": "high|medium|low",
-  "currentObjective": "timeline|budget|area|agent_status|appointment|clarify|handoff|stop",
+  "currentObjective": "location_timeline|price|motivation|agent_status|mortgage_or_cash|appointment|clarify|handoff|stop",
   "appointmentReadiness": 0,
   "conversationTone": "direct|warm|cautious",
   "sentiment": "positive|neutral|frustrated|skeptical",
   "shouldEscalate": false,
   "debugReason": "string",
   "lastQuestion": "string or null",
-  "lpmamaCurrentStep": "timeline|budget|area|agent_status|appointment",
-  "lpmamaNextStep": "timeline|budget|area|agent_status|appointment",
-  "resumeStep": "timeline|budget|area|agent_status|appointment",
+  "lpmamaCurrentStep": "location_timeline|price|motivation|agent_status|mortgage_or_cash|appointment",
+  "lpmamaNextStep": "location_timeline|price|motivation|agent_status|mortgage_or_cash|appointment",
+  "resumeStep": "location_timeline|price|motivation|agent_status|mortgage_or_cash|appointment",
   "detourReason": "string or null",
   "extractedFields": {
     "move_timeline": "string or null",
     "price_range": "string or null",
+    "motivation": "string or null",
     "preferred_areas": "string or null",
     "agent_status": "string or null",
+    "mortgage_or_cash": "string or null",
+    "spoken_to_local_lender": "string or null",
+    "lender_intro_permission": true,
+    "lender_need_type": "string or null",
+    "wants_lender_connection": true,
+    "preferred_next_step": "string or null",
     "primary_objection": "string or null",
     "secondary_objection": "string or null",
     "biggest_concern": "string or null",
     "biggest_unknown": "string or null",
-    "preferred_next_step": "string or null",
-    "wants_home_search": true,
-    "wants_agent_call": false,
-    "wants_lender_connection": false,
-    "monthly_payment_comfort": "string or null",
     "notes_append": "string or null",
     "timeline_answered": true,
     "budget_answered": false,
@@ -837,22 +948,16 @@ Market / brand: ${market.marketName} / ${market.brandName}
 Current sms_state: ${lead.sms_state || 'NEW_HOT'}
 Current core step: ${currentStep}
 Current next missing step: ${nextStep}
-Stored resume step: ${lead.sms_resume_step || 'none'}
-Stored detour reason: ${lead.sms_detour_reason || 'none'}
 
 Known fields:
 - move_timeline: ${lead.move_timeline || 'unknown'}
 - price_range: ${lead.price_range || 'unknown'}
-- preferred_areas: ${lead.preferred_areas || 'unknown'}
+- motivation: ${lead.motivation || 'unknown'}
 - agent_status: ${lead.agent_status || 'unknown'}
-- primary_objection: ${lead.primary_objection || 'unknown'}
-- biggest_concern: ${lead.biggest_concern || 'unknown'}
-- biggest_unknown: ${lead.biggest_unknown || 'unknown'}
+- mortgage_or_cash: ${lead.mortgage_or_cash || 'unknown'}
+- spoken_to_local_lender: ${lead.spoken_to_local_lender || 'unknown'}
+- lender_intro_permission: ${String(lead.lender_intro_permission ?? false)}
 - lead_heat: ${lead.lead_heat || 'unknown'}
-- sms_timeline_answered: ${String(lead.sms_timeline_answered ?? false)}
-- sms_budget_answered: ${String(lead.sms_budget_answered ?? false)}
-- sms_area_answered: ${String(lead.sms_area_answered ?? false)}
-- sms_agent_status_answered: ${String(lead.sms_agent_status_answered ?? false)}
 
 Available appointment slots:
 ${availableSlots.length ? availableSlots.join(' | ') : 'none'}
@@ -862,10 +967,6 @@ ${transcript || '(none)'}
 
 Newest inbound text:
 ${inboundText}
-
-Critical instruction:
-Answer the lead fully enough to build trust if they asked something off-path.
-Then resume exactly at the next missing LPMAMA step.
 `.trim()
 
   try {
@@ -902,17 +1003,19 @@ Then resume exactly at the next missing LPMAMA step.
       extractedFields: {
         move_timeline: trimOrNull(parsed?.extractedFields?.move_timeline),
         price_range: trimOrNull(parsed?.extractedFields?.price_range),
+        motivation: trimOrNull(parsed?.extractedFields?.motivation),
         preferred_areas: trimOrNull(parsed?.extractedFields?.preferred_areas),
         agent_status: trimOrNull(parsed?.extractedFields?.agent_status),
+        mortgage_or_cash: trimOrNull(parsed?.extractedFields?.mortgage_or_cash),
+        spoken_to_local_lender: trimOrNull(parsed?.extractedFields?.spoken_to_local_lender),
+        lender_intro_permission: asBoolOrNull(parsed?.extractedFields?.lender_intro_permission),
+        lender_need_type: trimOrNull(parsed?.extractedFields?.lender_need_type),
+        wants_lender_connection: asBoolOrNull(parsed?.extractedFields?.wants_lender_connection),
+        preferred_next_step: trimOrNull(parsed?.extractedFields?.preferred_next_step),
         primary_objection: trimOrNull(parsed?.extractedFields?.primary_objection),
         secondary_objection: trimOrNull(parsed?.extractedFields?.secondary_objection),
         biggest_concern: trimOrNull(parsed?.extractedFields?.biggest_concern),
         biggest_unknown: trimOrNull(parsed?.extractedFields?.biggest_unknown),
-        preferred_next_step: trimOrNull(parsed?.extractedFields?.preferred_next_step),
-        wants_home_search: asBoolOrNull(parsed?.extractedFields?.wants_home_search),
-        wants_agent_call: asBoolOrNull(parsed?.extractedFields?.wants_agent_call),
-        wants_lender_connection: asBoolOrNull(parsed?.extractedFields?.wants_lender_connection),
-        monthly_payment_comfort: trimOrNull(parsed?.extractedFields?.monthly_payment_comfort),
         notes_append: trimOrNull(parsed?.extractedFields?.notes_append),
         timeline_answered: asBoolOrNull(parsed?.extractedFields?.timeline_answered),
         budget_answered: asBoolOrNull(parsed?.extractedFields?.budget_answered),

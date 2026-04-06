@@ -39,6 +39,16 @@ function genericReply(firstName?: string | null) {
   return `Hi ${name}, this is Samantha with MPRE Boise. I got your message and will follow up shortly. If you'd like, text me your timeline, price range, and the area you're thinking about.`
 }
 
+// Placeholder until we wire exact preferred-lender lookup
+async function handlePreferredLenderIntro(args: {
+  leadId: string
+  agentId?: string | null
+  orgId?: string | null
+  phone: string
+}) {
+  console.log('TODO lender intro hook', args)
+}
+
 export async function POST(req: NextRequest) {
   try {
     const bodyText = await req.text()
@@ -88,27 +98,29 @@ export async function POST(req: NextRequest) {
         sms_campaign,
         move_timeline,
         price_range,
+        motivation,
         preferred_areas,
         agent_status,
+        mortgage_or_cash,
+        spoken_to_local_lender,
+        lender_intro_permission,
+        lender_need_type,
+        wants_lender_connection,
+        preferred_next_step,
         primary_objection,
         secondary_objection,
         biggest_concern,
         biggest_unknown,
-        preferred_next_step,
-        wants_home_search,
-        wants_agent_call,
-        wants_lender_connection,
-        monthly_payment_comfort,
         notes,
         ai_summary,
         agent_id,
         org_id,
-        sms_confidence,
-        sms_current_objective,
         sms_timeline_answered,
         sms_budget_answered,
         sms_area_answered,
         sms_agent_status_answered,
+        sms_confidence,
+        sms_current_objective,
         sms_appointment_readiness,
         sms_conversation_tone,
         sms_sentiment,
@@ -143,7 +155,7 @@ export async function POST(req: NextRequest) {
           sms_state: 'NEW_HOT',
           sms_campaign: 'general',
           sms_confidence: 'medium',
-          sms_current_objective: 'timeline',
+          sms_current_objective: 'location_timeline',
           sms_timeline_answered: false,
           sms_budget_answered: false,
           sms_area_answered: false,
@@ -154,9 +166,9 @@ export async function POST(req: NextRequest) {
           sms_should_escalate: false,
           sms_debug_reason: 'new_inbound_sms_lead',
           sms_last_question: 'timeline',
-          sms_lpmama_current_step: 'timeline',
-          sms_lpmama_next_step: 'timeline',
-          sms_resume_step: 'timeline',
+          sms_lpmama_current_step: 'location_timeline',
+          sms_lpmama_next_step: 'location_timeline',
+          sms_resume_step: 'location_timeline',
           sms_detour_reason: null,
           last_text_attempt_at: nowIso,
           last_contact_attempt_at: nowIso,
@@ -178,27 +190,29 @@ export async function POST(req: NextRequest) {
           sms_campaign,
           move_timeline,
           price_range,
+          motivation,
           preferred_areas,
           agent_status,
+          mortgage_or_cash,
+          spoken_to_local_lender,
+          lender_intro_permission,
+          lender_need_type,
+          wants_lender_connection,
+          preferred_next_step,
           primary_objection,
           secondary_objection,
           biggest_concern,
           biggest_unknown,
-          preferred_next_step,
-          wants_home_search,
-          wants_agent_call,
-          wants_lender_connection,
-          monthly_payment_comfort,
           notes,
           ai_summary,
           agent_id,
           org_id,
-          sms_confidence,
-          sms_current_objective,
           sms_timeline_answered,
           sms_budget_answered,
           sms_area_answered,
           sms_agent_status_answered,
+          sms_confidence,
+          sms_current_objective,
           sms_appointment_readiness,
           sms_conversation_tone,
           sms_sentiment,
@@ -294,36 +308,37 @@ export async function POST(req: NextRequest) {
         sms_resume_step: brain.resumeStep,
         sms_detour_reason: brain.detourReason,
         lead_heat: brain.temperature,
-        preferred_next_step:
-          brain.extractedFields.preferred_next_step ||
-          (brain.bestNextStep === 'agent_call'
-            ? 'appointment'
-            : brain.bestNextStep === 'home_search'
-              ? 'home_search'
-              : brain.bestNextStep === 'lender_intro'
-                ? 'lender_connection'
-                : brain.bestNextStep === 'nurture'
-                  ? 'nurture'
-                  : brain.bestNextStep === 'stop'
-                    ? 'stop'
-                    : lead.preferred_next_step || null),
-        wants_home_search:
-          brain.extractedFields.wants_home_search ??
-          brain.bestNextStep === 'home_search',
-        wants_agent_call:
-          brain.extractedFields.wants_agent_call ??
-          brain.bestNextStep === 'agent_call',
-        wants_lender_connection:
-          brain.extractedFields.wants_lender_connection ??
-          brain.bestNextStep === 'lender_intro',
         move_timeline:
           brain.extractedFields.move_timeline || lead.move_timeline || null,
         price_range:
           brain.extractedFields.price_range || lead.price_range || null,
+        motivation:
+          brain.extractedFields.motivation || lead.motivation || null,
         preferred_areas:
           brain.extractedFields.preferred_areas || lead.preferred_areas || null,
         agent_status:
           brain.extractedFields.agent_status || lead.agent_status || null,
+        mortgage_or_cash:
+          brain.extractedFields.mortgage_or_cash || lead.mortgage_or_cash || null,
+        spoken_to_local_lender:
+          brain.extractedFields.spoken_to_local_lender || lead.spoken_to_local_lender || null,
+        lender_intro_permission:
+          brain.extractedFields.lender_intro_permission ?? lead.lender_intro_permission ?? false,
+        lender_need_type:
+          brain.extractedFields.lender_need_type || lead.lender_need_type || null,
+        wants_lender_connection:
+          brain.extractedFields.wants_lender_connection ?? lead.wants_lender_connection ?? false,
+        preferred_next_step:
+          brain.extractedFields.preferred_next_step ||
+          (brain.bestNextStep === 'agent_call'
+            ? 'appointment'
+            : brain.bestNextStep === 'lender_intro'
+              ? 'lender_connection'
+              : brain.bestNextStep === 'nurture'
+                ? 'nurture'
+                : brain.bestNextStep === 'stop'
+                  ? 'stop'
+                  : lead.preferred_next_step || null),
         primary_objection:
           brain.extractedFields.primary_objection ||
           lead.primary_objection ||
@@ -339,10 +354,6 @@ export async function POST(req: NextRequest) {
         biggest_unknown:
           brain.extractedFields.biggest_unknown ||
           lead.biggest_unknown ||
-          null,
-        monthly_payment_comfort:
-          brain.extractedFields.monthly_payment_comfort ||
-          lead.monthly_payment_comfort ||
           null,
         ai_summary: brain.aiSummary,
         last_replied_text_at: nowIso,
@@ -368,6 +379,19 @@ export async function POST(req: NextRequest) {
 
       if (leadUpdateError) {
         console.error('❌ relocation sms lead update error', leadUpdateError)
+      }
+
+      if (
+        (brain.extractedFields.lender_intro_permission === true ||
+          leadPatch.lender_intro_permission === true) &&
+        leadPatch.wants_lender_connection === true
+      ) {
+        await handlePreferredLenderIntro({
+          leadId,
+          agentId: lead?.agent_id,
+          orgId: lead?.org_id,
+          phone: from,
+        })
       }
     } else if (leadId) {
       const leadPatch: Record<string, any> = {
