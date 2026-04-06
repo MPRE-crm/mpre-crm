@@ -86,7 +86,15 @@ export async function POST(req: NextRequest) {
         notes,
         ai_summary,
         agent_id,
-        org_id
+        org_id,
+        sms_confidence,
+        sms_current_objective,
+        sms_timeline_answered,
+        sms_budget_answered,
+        sms_area_answered,
+        sms_agent_status_answered,
+        sms_appointment_readiness,
+        sms_conversation_tone
       `
       )
       .eq('phone', from)
@@ -110,6 +118,14 @@ export async function POST(req: NextRequest) {
           lead_heat: 'hot',
           sms_state: 'NEW_HOT',
           sms_campaign: 'general',
+          sms_confidence: 'medium',
+          sms_current_objective: 'timeline',
+          sms_timeline_answered: false,
+          sms_budget_answered: false,
+          sms_area_answered: false,
+          sms_agent_status_answered: false,
+          sms_appointment_readiness: 0,
+          sms_conversation_tone: 'warm',
           last_text_attempt_at: nowIso,
           last_contact_attempt_at: nowIso,
           last_meaningful_engagement_at: nowIso,
@@ -144,7 +160,15 @@ export async function POST(req: NextRequest) {
           notes,
           ai_summary,
           agent_id,
-          org_id
+          org_id,
+          sms_confidence,
+          sms_current_objective,
+          sms_timeline_answered,
+          sms_budget_answered,
+          sms_area_answered,
+          sms_agent_status_answered,
+          sms_appointment_readiness,
+          sms_conversation_tone
         `
         )
         .single()
@@ -200,20 +224,40 @@ export async function POST(req: NextRequest) {
       const leadPatch: Record<string, any> = {
         sms_campaign: 'relocation',
         sms_state: brain.nextState,
+        sms_confidence: brain.confidence,
+        sms_current_objective: brain.currentObjective,
+        sms_timeline_answered:
+          brain.extractedFields.timeline_answered ??
+          lead.sms_timeline_answered ??
+          false,
+        sms_budget_answered:
+          brain.extractedFields.budget_answered ??
+          lead.sms_budget_answered ??
+          false,
+        sms_area_answered:
+          brain.extractedFields.area_answered ??
+          lead.sms_area_answered ??
+          false,
+        sms_agent_status_answered:
+          brain.extractedFields.agent_status_answered ??
+          lead.sms_agent_status_answered ??
+          false,
+        sms_appointment_readiness: brain.appointmentReadiness,
+        sms_conversation_tone: brain.conversationTone,
         lead_heat: brain.temperature,
         preferred_next_step:
           brain.extractedFields.preferred_next_step ||
           (brain.bestNextStep === 'agent_call'
             ? 'appointment'
             : brain.bestNextStep === 'home_search'
-            ? 'home_search'
-            : brain.bestNextStep === 'lender_intro'
-            ? 'lender_connection'
-            : brain.bestNextStep === 'nurture'
-            ? 'nurture'
-            : brain.bestNextStep === 'stop'
-              ? 'stop'
-              : lead.preferred_next_step || null),
+              ? 'home_search'
+              : brain.bestNextStep === 'lender_intro'
+                ? 'lender_connection'
+                : brain.bestNextStep === 'nurture'
+                  ? 'nurture'
+                  : brain.bestNextStep === 'stop'
+                    ? 'stop'
+                    : lead.preferred_next_step || null),
         wants_home_search:
           brain.extractedFields.wants_home_search ??
           brain.bestNextStep === 'home_search',
