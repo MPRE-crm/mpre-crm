@@ -36,6 +36,15 @@ type RelocationLead = {
   sms_agent_status_answered?: boolean | null
   sms_appointment_readiness?: number | null
   sms_conversation_tone?: string | null
+  sms_sentiment?: string | null
+  sms_should_escalate?: boolean | null
+  sms_debug_reason?: string | null
+  sms_last_question?: string | null
+  desired_home_type?: string | null
+  desired_bedrooms?: string | null
+  desired_bathrooms?: string | null
+  desired_must_haves?: string | null
+  desired_deal_breakers?: string | null
 }
 
 type BrainResult = {
@@ -60,8 +69,13 @@ type BrainResult = {
     | 'clarify'
     | 'handoff'
     | 'stop'
+    | 'search_criteria'
   appointmentReadiness: number
   conversationTone: 'direct' | 'warm' | 'cautious'
+  sentiment: 'positive' | 'neutral' | 'frustrated' | 'skeptical'
+  shouldEscalate: boolean
+  debugReason: string
+  lastQuestion: string | null
   extractedFields: {
     move_timeline?: string | null
     price_range?: string | null
@@ -81,6 +95,11 @@ type BrainResult = {
     budget_answered?: boolean | null
     area_answered?: boolean | null
     agent_status_answered?: boolean | null
+    desired_home_type?: string | null
+    desired_bedrooms?: string | null
+    desired_bathrooms?: string | null
+    desired_must_haves?: string | null
+    desired_deal_breakers?: string | null
   }
   aiSummary: string
 }
@@ -140,6 +159,12 @@ const APPOINTMENT_OFFER_VARIANTS = [
   'I think a quick local strategy call would help here. Want me to give you two time options?',
   'A quick call with a local agent would probably clear this up fast. Want me to give you two time options?',
   'I think a short local strategy call would help. Want me to give you two time options?',
+]
+
+const SEARCH_CRITERIA_QUESTION_VARIANTS = [
+  'Great. Are you looking more for a single-family home, townhouse, or something else?',
+  'Got it. What type of home are you picturing most — single-family, townhouse, or condo?',
+  'Before I set that up, what kind of home are you hoping for most?',
 ]
 
 function firstNameOf(lead: RelocationLead) {
@@ -206,7 +231,8 @@ function sanitizeObjective(
     s === 'next_step' ||
     s === 'clarify' ||
     s === 'handoff' ||
-    s === 'stop'
+    s === 'stop' ||
+    s === 'search_criteria'
   ) {
     return s
   }
@@ -218,6 +244,16 @@ function sanitizeTone(value: unknown): BrainResult['conversationTone'] {
   if (s === 'direct') return 'direct'
   if (s === 'cautious') return 'cautious'
   return 'warm'
+}
+
+function sanitizeSentiment(
+  value: unknown
+): BrainResult['sentiment'] {
+  const s = String(value || '').trim().toLowerCase()
+  if (s === 'positive') return 'positive'
+  if (s === 'frustrated') return 'frustrated'
+  if (s === 'skeptical') return 'skeptical'
+  return 'neutral'
 }
 
 function sanitizeReadiness(value: unknown) {
@@ -261,6 +297,44 @@ function marketContextFromLead(lead: RelocationLead) {
   }
 }
 
+function capReply(text: string) {
+  const trimmed = String(text || '').trim()
+  if (trimmed.length <= MAX_REPLY_CHARS) return trimmed
+  return trimmed.slice(0, MAX_REPLY_CHARS - 1).trimEnd() + '…'
+}
+
+function recentOutgoingTexts(recentMessages: SmsMessage[]) {
+  return recentMessages
+    .filter((m) => m.direction === 'outgoing')
+    .map((m) => String(m.body || '').trim().toLowerCase())
+}
+
+function recentIncomingTexts(recentMessages: SmsMessage[]) {
+  return recentMessages
+    .filter((m) => m.direction === 'incoming')
+    .map((m) => String(m.body || '').trim().toLowerCase())
+}
+
+function rotateVariant(options: string[], recentMessages: SmsMessage[]) {
+  const recent = recentOutgoingTexts(recentMessages).slice(-6)
+  for (const option of options) {
+    if (!recent.includes(option.toLowerCase())) return option
+  }
+  return options[0]
+}
+
+function maybePrefixReset(text: string, recentMessages: SmsMessage[]) {
+  const recent = recentOutgoingTexts(recentMessages).slice(-3).join(' ')
+  if (/that said|so i can point you the right way|with that in mind|so i can help the most/i.test(text.toLowerCase())) {
+    return text
+  }
+  if (/market|area|cost|question|clarify|compare|help/i.test(recent)) {
+    const idx = recent.length % RESET_LINES.length
+    return `${RESET_LINES[idx]} ${text}`
+  }
+  return text
+}
+
 function getUnclearCount(recentMessages: SmsMessage[]) {
   return recentMessages.filter(
     (m) =>
@@ -269,12 +343,6 @@ function getUnclearCount(recentMessages: SmsMessage[]) {
         String(m.body || '')
       )
   ).length
-}
-
-function recentOutgoingTexts(recentMessages: SmsMessage[]) {
-  return recentMessages
-    .filter((m) => m.direction === 'outgoing')
-    .map((m) => String(m.body || '').trim().toLowerCase())
 }
 
 function wasRecentlyAskedBudget(recentMessages: SmsMessage[]) {
@@ -293,7 +361,7 @@ function wasRecentlyAskedArea(recentMessages: SmsMessage[]) {
     (t) =>
       t.includes('specific area') ||
       t.includes('which areas') ||
-      t.includes('narrowing that down') ||
+      t.includes('narrowing it down') ||
       t.includes('focused on boise')
   )
 }
@@ -302,45 +370,21 @@ function wasRecentlyAskedAgent(recentMessages: SmsMessage[]) {
   const texts = recentOutgoingTexts(recentMessages).slice(-4)
   return texts.some(
     (t) =>
-      t.includes('working with a boise-area agent') ||
+      t.includes('boise-area agent') ||
       t.includes('local boise-area agent') ||
-      t.includes('working with an agent here')
+      t.includes('agent here in the boise area')
   )
 }
 
-function rotateVariant(options: string[], recentMessages: SmsMessage[]) {
-  const recent = recentOutgoingTexts(recentMessages).slice(-6)
-  for (const option of options) {
-    if (!recent.includes(option.toLowerCase())) return option
-  }
-  return options[0]
-}
-
-function capReply(text: string) {
-  const trimmed = String(text || '').trim()
-  if (trimmed.length <= MAX_REPLY_CHARS) return trimmed
-  return trimmed.slice(0, MAX_REPLY_CHARS - 1).trimEnd() + '…'
-}
-
-function maybePrefixReset(text: string, recentMessages: SmsMessage[]) {
-  const recent = recentOutgoingTexts(recentMessages).slice(-3).join(' ')
-  if (
-    /that said|so i can point you the right way|with that in mind|so i can help the most/i.test(
-      text.toLowerCase()
-    )
-  ) {
-    return text
-  }
-
-  if (
-    /price|area|agent|timeline|budget|question|help/i.test(text.toLowerCase()) &&
-    /market|area|cost|question|clarify|compare/i.test(recent)
-  ) {
-    const idx = Math.abs(recent.length) % RESET_LINES.length
-    return `${RESET_LINES[idx]} ${text}`
-  }
-
-  return text
+function wasRecentlyAskedSearchCriteria(recentMessages: SmsMessage[]) {
+  const texts = recentOutgoingTexts(recentMessages).slice(-4)
+  return texts.some(
+    (t) =>
+      t.includes('single-family') ||
+      t.includes('townhouse') ||
+      t.includes('what type of home') ||
+      t.includes('kind of home')
+  )
 }
 
 function hasHardStop(text: string) {
@@ -355,16 +399,26 @@ function wantsHuman(text: string) {
   )
 }
 
+function detectSentiment(text: string): BrainResult['sentiment'] {
+  const t = text.toLowerCase()
+  if (/frustrated|annoyed|confused|overwhelmed|upset|irritated|this is too much/i.test(t)) {
+    return 'frustrated'
+  }
+  if (/not sure|skeptical|hesitant|maybe|i guess|not convinced/i.test(t)) {
+    return 'skeptical'
+  }
+  if (/great|awesome|sounds good|perfect|yes|yeah|definitely/i.test(t)) {
+    return 'positive'
+  }
+  return 'neutral'
+}
+
 function classifySideQuestion(text: string) {
   const t = text.toLowerCase()
 
   if (hasHardStop(t)) return 'hard_stop'
   if (wantsHuman(t)) return 'human_handoff'
-  if (
-    /what do you do|why use you|what makes you different|how are you different|what does mpre|what can you help with/i.test(
-      t
-    )
-  ) {
+  if (/what do you do|why use you|what makes you different|how are you different|what does mpre|what can you help with/i.test(t)) {
     return 'value_question'
   }
   if (
@@ -374,13 +428,11 @@ function classifySideQuestion(text: string) {
   ) {
     return 'local_info_question'
   }
-  if (
-    /why|what|how|when|where|which|can you|could you|would you/i.test(t)
-  ) {
+  if (/why|what|how|when|where|which|can you|could you|would you/i.test(t)) {
     return 'info_question'
   }
   if (
-    /busy|researching|already have an agent|not interested|spouse|wife|husband|clarity|afford|budget|lender|compare|overwhelmed|rent first|waiting/i.test(
+    /busy|researching|already have an agent|spouse|wife|husband|clarity|afford|budget|lender|compare|overwhelmed|rent first|waiting/i.test(
       t
     )
   ) {
@@ -391,46 +443,31 @@ function classifySideQuestion(text: string) {
 
 function extractTimeline(text: string) {
   const t = text.toLowerCase()
-
   const monthMatch = t.match(/(\d+)\s*(month|months)/)
   if (monthMatch) return `${monthMatch[1]} months`
-
   if (/asap|right away|immediately|right now/.test(t)) return 'ASAP'
   if (/next month/.test(t)) return 'next month'
   if (/this year/.test(t)) return 'this year'
   if (/next year/.test(t)) return 'next year'
   if (/exploring|just browsing|just looking/.test(t)) return 'exploring'
   if (/soon/.test(t)) return 'soon'
-
   return null
 }
 
 function extractBudget(text: string) {
   const t = text.toLowerCase()
-
   const moneyMatch =
     t.match(/\$?\s?(\d{3,4})\s?k\b/) ||
     t.match(/\$?\s?(\d(?:\.\d+)?)\s?m\b/) ||
     t.match(/\$?\s?(\d{5,7})\b/)
-
   if (!moneyMatch) return null
-
-  if (t.includes('m') && moneyMatch[1]) {
-    return `$${moneyMatch[1]}M`
-  }
-
-  if (t.includes('k') && moneyMatch[1]) {
-    return `${moneyMatch[1]}k`
-  }
-
-  const digits = moneyMatch[1]
-  if (!digits) return null
-  return digits
+  if (t.includes('m') && moneyMatch[1]) return `$${moneyMatch[1]}M`
+  if (t.includes('k') && moneyMatch[1]) return `${moneyMatch[1]}k`
+  return moneyMatch[1] || null
 }
 
 function extractArea(text: string, marketName: string) {
   const t = text.toLowerCase()
-
   const areaTerms = [
     'boise',
     'meridian',
@@ -449,47 +486,63 @@ function extractArea(text: string, marketName: string) {
     'coeur dalene',
     'cda',
   ]
-
   const found = areaTerms.filter((a) => t.includes(a))
-  if (found.length) {
-    return found.join(', ')
-  }
-
-  if (/still narrowing that down|not sure yet|open/i.test(t)) {
-    return 'still narrowing down'
-  }
-
+  if (found.length) return found.join(', ')
+  if (/still narrowing that down|not sure yet|open/i.test(t)) return 'still narrowing down'
   if (marketName.toLowerCase() === 'boise' && /north end|bench|southeast boise/.test(t)) {
     return text
   }
-
   return null
 }
 
 function extractAgentStatus(text: string) {
   const t = text.toLowerCase()
-
   if (/signed buyer agreement|under contract with an agent|signed with an agent/.test(t)) {
     return 'signed_agent'
   }
-
   if (/local agent|boise agent|agent in boise|working with a boise-area agent/.test(t)) {
     return 'local_agent'
   }
-
   if (/out of state agent|agent from california|agent from out of state|not local|not in boise/.test(t)) {
     return 'out_of_area_agent'
   }
-
   if (/have an agent|working with an agent|already have a realtor|already have an agent/.test(t)) {
     return 'has_agent_unspecified'
   }
-
   if (/no agent|not working with an agent|dont have an agent|don't have an agent/.test(t)) {
     return 'no_agent'
   }
-
   return null
+}
+
+function extractSearchCriteria(text: string) {
+  const t = text.toLowerCase()
+
+  let homeType: string | null = null
+  if (/single-family|single family/.test(t)) homeType = 'single-family'
+  else if (/townhouse|town home/.test(t)) homeType = 'townhouse'
+  else if (/condo|condominium/.test(t)) homeType = 'condo'
+
+  const bedsMatch = t.match(/(\d+)\s*(bed|beds|bedroom|bedrooms)/)
+  const bathsMatch = t.match(/(\d+(\.\d+)?)\s*(bath|baths|bathroom|bathrooms)/)
+
+  const mustHaves =
+    /must have|need .*garage|yard|office|school|views|single level|one story|shop/i.test(t)
+      ? text
+      : null
+
+  const dealBreakers =
+    /deal breaker|dont want|don't want|no hoa|busy road|fixer|stairs/i.test(t)
+      ? text
+      : null
+
+  return {
+    desired_home_type: homeType,
+    desired_bedrooms: bedsMatch ? bedsMatch[1] : null,
+    desired_bathrooms: bathsMatch ? bathsMatch[1] : null,
+    desired_must_haves: mustHaves,
+    desired_deal_breakers: dealBreakers,
+  }
 }
 
 function detectMultiAnswer(text: string, lead: RelocationLead, marketName: string) {
@@ -497,16 +550,21 @@ function detectMultiAnswer(text: string, lead: RelocationLead, marketName: strin
   const budget = !lead.sms_budget_answered ? extractBudget(text) : null
   const area = !lead.sms_area_answered ? extractArea(text, marketName) : null
   const agentStatus = !lead.sms_agent_status_answered ? extractAgentStatus(text) : null
+  const searchCriteria = extractSearchCriteria(text)
 
   return {
     timeline,
     budget,
     area,
     agentStatus,
+    ...searchCriteria,
   }
 }
 
-function getNextObjectiveFromLead(lead: RelocationLead, extracted: ReturnType<typeof detectMultiAnswer>) {
+function getNextObjectiveFromLead(
+  lead: RelocationLead,
+  extracted: ReturnType<typeof detectMultiAnswer>
+) {
   const timelineAnswered = lead.sms_timeline_answered || !!lead.move_timeline || !!extracted.timeline
   const budgetAnswered = lead.sms_budget_answered || !!lead.price_range || !!extracted.budget
   const areaAnswered = lead.sms_area_answered || !!lead.preferred_areas || !!extracted.area
@@ -520,6 +578,19 @@ function getNextObjectiveFromLead(lead: RelocationLead, extracted: ReturnType<ty
   return 'next_step'
 }
 
+function detectBurst(recentMessages: SmsMessage[]) {
+  const incoming = recentMessages
+    .filter((m) => m.direction === 'incoming' && m.created_at)
+    .slice(-5)
+
+  if (incoming.length < 4) return false
+
+  const first = new Date(incoming[0].created_at as string).getTime()
+  const last = new Date(incoming[incoming.length - 1].created_at as string).getTime()
+
+  return last - first <= 2 * 60 * 1000
+}
+
 function buildManualProgressionReply(
   lead: RelocationLead,
   inboundText: string,
@@ -528,18 +599,18 @@ function buildManualProgressionReply(
   const market = marketContextFromLead(lead)
   const extracted = detectMultiAnswer(inboundText, lead, market.marketName)
   const nextObjective = getNextObjectiveFromLead(lead, extracted)
-
+  const burst = detectBurst(recentMessages)
+  const sentiment = detectSentiment(inboundText)
   const notesAppend = trimOrNull(inboundText)
 
-  const common: Omit<BrainResult, 'replyText' | 'nextState' | 'nextPriority' | 'currentObjective' | 'bestNextStep'> = {
-    temperature: 'hot',
-    confidence: 'high',
-    appointmentReadiness:
-      (extracted.timeline ? 1 : 0) +
-      (extracted.budget ? 1 : 0) +
-      (extracted.area ? 1 : 0) +
-      (extracted.agentStatus ? 1 : 0),
-    conversationTone: 'warm',
+  const common = {
+    temperature: 'hot' as const,
+    confidence: 'high' as const,
+    conversationTone: sentiment === 'frustrated' ? ('cautious' as const) : ('warm' as const),
+    sentiment,
+    shouldEscalate:
+      sentiment === 'frustrated' ||
+      classifySideQuestion(inboundText) === 'human_handoff',
     extractedFields: {
       move_timeline: extracted.timeline,
       price_range: extracted.budget,
@@ -549,9 +620,13 @@ function buildManualProgressionReply(
       budget_answered: extracted.budget ? true : null,
       area_answered: extracted.area ? true : null,
       agent_status_answered: extracted.agentStatus ? true : null,
+      desired_home_type: extracted.desired_home_type,
+      desired_bedrooms: extracted.desired_bedrooms,
+      desired_bathrooms: extracted.desired_bathrooms,
+      desired_must_haves: extracted.desired_must_haves,
+      desired_deal_breakers: extracted.desired_deal_breakers,
       notes_append: notesAppend,
     },
-    aiSummary: 'Manual extraction advanced relocation sequence',
   }
 
   if (extracted.agentStatus === 'local_agent' || extracted.agentStatus === 'signed_agent') {
@@ -561,8 +636,12 @@ function buildManualProgressionReply(
       ),
       nextState: 'EXIT_ALREADY_HAS_LOCAL_AGENT',
       nextPriority: 'stop',
-      currentObjective: 'stop',
       bestNextStep: 'stop',
+      currentObjective: 'stop',
+      appointmentReadiness: 0,
+      debugReason: 'local_agent_detected_exit',
+      lastQuestion: null,
+      aiSummary: 'Detected local/signed local agent and exited',
       ...common,
     }
   }
@@ -578,8 +657,12 @@ function buildManualProgressionReply(
         replyText: capReply(rotateVariant(AGENT_QUESTION_VARIANTS, recentMessages)),
         nextState: 'WAITING_FOR_AGENT_STATUS',
         nextPriority: 'agent_status',
-        currentObjective: 'agent_status',
         bestNextStep: 'none',
+        currentObjective: 'agent_status',
+        appointmentReadiness: 4,
+        debugReason: 'asked_agent_status_after_timeline_budget_area_known',
+        lastQuestion: 'agent_status',
+        aiSummary: 'Captured timeline/budget/area and asked agent status',
         ...common,
       }
     }
@@ -594,8 +677,12 @@ function buildManualProgressionReply(
         replyText: capReply(rotateVariant(BUDGET_QUESTION_VARIANTS, recentMessages)),
         nextState: 'WAITING_FOR_BUDGET',
         nextPriority: 'budget',
-        currentObjective: 'budget',
         bestNextStep: 'none',
+        currentObjective: 'budget',
+        appointmentReadiness: 2,
+        debugReason: 'asked_budget_because_timeline_known',
+        lastQuestion: 'budget',
+        aiSummary: 'Captured timeline and asked budget',
         ...common,
       }
     }
@@ -611,8 +698,12 @@ function buildManualProgressionReply(
         replyText: capReply(rotateVariant(AREA_QUESTION_VARIANTS, recentMessages)),
         nextState: 'WAITING_FOR_AREA',
         nextPriority: 'area',
-        currentObjective: 'area',
         bestNextStep: 'none',
+        currentObjective: 'area',
+        appointmentReadiness: 3,
+        debugReason: 'asked_area_because_timeline_budget_known',
+        lastQuestion: 'area',
+        aiSummary: 'Captured timeline/budget and asked area',
         ...common,
       }
     }
@@ -623,23 +714,84 @@ function buildManualProgressionReply(
     (lead.sms_budget_answered || extracted.budget || lead.price_range) &&
     (lead.sms_area_answered || extracted.area || lead.preferred_areas)
   ) {
-    const readiness = 4
-    const searchReply = rotateVariant(SEARCH_OFFER_VARIANTS, recentMessages)
+    const readiness = lead.agent_status || extracted.agentStatus ? 5 : 4
+
+    if (readiness >= 4 && !burst) {
+      return {
+        replyText: capReply(rotateVariant(APPOINTMENT_OFFER_VARIANTS, recentMessages)),
+        nextState: 'OFFER_AGENT_CALL',
+        nextPriority: 'next_step',
+        bestNextStep: 'agent_call',
+        currentObjective: 'next_step',
+        appointmentReadiness: readiness,
+        debugReason: 'offered_appointment_because_readiness_high',
+        lastQuestion: 'appointment_offer',
+        aiSummary: 'Offered appointment because readiness is high',
+        ...common,
+        extractedFields: {
+          ...common.extractedFields,
+          wants_agent_call: true,
+          preferred_next_step: 'appointment',
+        },
+      }
+    }
+
+    if (
+      !lead.desired_home_type &&
+      !lead.desired_bedrooms &&
+      !lead.desired_bathrooms &&
+      !wasRecentlyAskedSearchCriteria(recentMessages)
+    ) {
+      return {
+        replyText: capReply(rotateVariant(SEARCH_CRITERIA_QUESTION_VARIANTS, recentMessages)),
+        nextState: 'OFFER_HOME_SEARCH',
+        nextPriority: 'search_criteria',
+        bestNextStep: 'home_search',
+        currentObjective: 'search_criteria',
+        appointmentReadiness: readiness,
+        debugReason: 'asked_search_criteria_after_lpmama_basics',
+        lastQuestion: 'search_criteria',
+        aiSummary: 'Asked search criteria after core basics were known',
+        ...common,
+        extractedFields: {
+          ...common.extractedFields,
+          wants_home_search: true,
+          preferred_next_step: 'home_search',
+        },
+      }
+    }
 
     return {
-      replyText: capReply(searchReply),
+      replyText: capReply(rotateVariant(SEARCH_OFFER_VARIANTS, recentMessages)),
       nextState: 'OFFER_HOME_SEARCH',
       nextPriority: 'next_step',
-      currentObjective: 'next_step',
       bestNextStep: 'home_search',
-      ...common,
+      currentObjective: 'next_step',
       appointmentReadiness: readiness,
+      debugReason: 'offered_search_because_timeline_budget_area_known',
+      lastQuestion: 'search_offer',
+      aiSummary: 'Offered custom search because core basics were known',
+      ...common,
       extractedFields: {
         ...common.extractedFields,
         wants_home_search: true,
         preferred_next_step: 'home_search',
       },
-      aiSummary: 'Manual extraction reached search-ready trigger',
+    }
+  }
+
+  if (nextObjective === 'timeline') {
+    return {
+      replyText: `Are you planning to move in the next 3 months, 6 months, or just exploring for now?`,
+      nextState: 'WAITING_FOR_TIMELINE',
+      nextPriority: 'timeline',
+      bestNextStep: 'none',
+      currentObjective: 'timeline',
+      appointmentReadiness: 0,
+      debugReason: 'asked_timeline_because_unknown',
+      lastQuestion: 'timeline',
+      aiSummary: 'Asked timeline because it is still unknown',
+      ...common,
     }
   }
 
@@ -655,6 +807,7 @@ function fallbackReply(
   const lower = inboundText.toLowerCase()
   const unclearCount = getUnclearCount(recentMessages)
   const market = marketContextFromLead(lead)
+  const sentiment = detectSentiment(inboundText)
 
   if (hasHardStop(lower)) {
     return {
@@ -667,6 +820,10 @@ function fallbackReply(
       currentObjective: 'stop',
       appointmentReadiness: 0,
       conversationTone: 'cautious',
+      sentiment,
+      shouldEscalate: false,
+      debugReason: 'fallback_hard_stop',
+      lastQuestion: null,
       extractedFields: {
         primary_objection: 'not_interested',
         preferred_next_step: 'stop',
@@ -687,6 +844,10 @@ function fallbackReply(
       currentObjective: 'handoff',
       appointmentReadiness: 5,
       conversationTone: 'direct',
+      sentiment,
+      shouldEscalate: true,
+      debugReason: 'fallback_human_handoff',
+      lastQuestion: 'appointment_offer',
       extractedFields: {
         wants_agent_call: true,
         preferred_next_step: 'appointment',
@@ -717,6 +878,10 @@ function fallbackReply(
         currentObjective: 'clarify',
         appointmentReadiness: 0,
         conversationTone: 'warm',
+        sentiment,
+        shouldEscalate: false,
+        debugReason: 'fallback_unclear_first',
+        lastQuestion: 'clarify',
         extractedFields: { notes_append: inboundText },
         aiSummary: 'Fallback unclear reply asked for clarification',
       }
@@ -733,6 +898,10 @@ function fallbackReply(
         currentObjective: 'clarify',
         appointmentReadiness: 0,
         conversationTone: 'warm',
+        sentiment,
+        shouldEscalate: false,
+        debugReason: 'fallback_unclear_second',
+        lastQuestion: 'clarify',
         extractedFields: { notes_append: inboundText },
         aiSummary: 'Fallback second unclear reply simplified question',
       }
@@ -748,6 +917,10 @@ function fallbackReply(
       currentObjective: 'clarify',
       appointmentReadiness: 0,
       conversationTone: 'cautious',
+      sentiment,
+      shouldEscalate: false,
+      debugReason: 'fallback_unclear_third',
+      lastQuestion: null,
       extractedFields: {
         preferred_next_step: 'nurture',
         notes_append: inboundText,
@@ -767,34 +940,12 @@ function fallbackReply(
       currentObjective: 'timeline',
       appointmentReadiness: 1,
       conversationTone: 'warm',
+      sentiment,
+      shouldEscalate: false,
+      debugReason: 'fallback_relocation_opener',
+      lastQuestion: 'timeline',
       extractedFields: { notes_append: inboundText },
       aiSummary: 'Fallback relocation opener',
-    }
-  }
-
-  if (
-    lower.includes('month') ||
-    lower.includes('asap') ||
-    lower.includes('soon') ||
-    lower.includes('exploring') ||
-    lower.includes('year')
-  ) {
-    return {
-      replyText: capReply(rotateVariant(BUDGET_QUESTION_VARIANTS, recentMessages)),
-      nextState: 'WAITING_FOR_BUDGET',
-      nextPriority: 'budget',
-      temperature: 'hot',
-      bestNextStep: 'none',
-      confidence: 'medium',
-      currentObjective: 'budget',
-      appointmentReadiness: 2,
-      conversationTone: 'warm',
-      extractedFields: {
-        move_timeline: inboundText,
-        timeline_answered: true,
-        notes_append: inboundText,
-      },
-      aiSummary: 'Fallback captured timeline and asked budget',
     }
   }
 
@@ -808,6 +959,10 @@ function fallbackReply(
     currentObjective: 'timeline',
     appointmentReadiness: 0,
     conversationTone: 'warm',
+    sentiment,
+    shouldEscalate: false,
+    debugReason: 'fallback_default_timeline',
+    lastQuestion: 'timeline',
     extractedFields: { notes_append: inboundText },
     aiSummary: 'Fallback asked timeline',
   }
@@ -817,8 +972,9 @@ export async function runRelocationSmsBrain(args: {
   lead: RelocationLead
   inboundText: string
   recentMessages: SmsMessage[]
+  availableSlots?: string[]
 }): Promise<BrainResult> {
-  const { lead, inboundText, recentMessages } = args
+  const { lead, inboundText, recentMessages, availableSlots = [] } = args
 
   if (!process.env.OPENAI_API_KEY) {
     return fallbackReply(lead, inboundText, recentMessages)
@@ -843,52 +999,28 @@ You are Samantha, the SMS real estate assistant for ${market.brandName}.
 
 You are handling a RELOCATION lead by SMS for the ${market.marketName} market.
 
-CORE CHANNEL RULES:
-- This is SMS, not a phone call.
-- Keep messages short, natural, useful, and low-pressure.
-- Hard cap your reply length to roughly 320 characters.
-- Ask ONE main question at a time.
-- If the lead goes off path, answer naturally, then return to the next best question.
-- Do not ask a bundle of questions in one text.
-- Do not sound like a cold script.
-- Do not forget the conversion goal.
+CORE RULES:
+- SMS only. Short, natural, useful, low-pressure.
+- Hard cap replies to about 320 characters.
+- One main question at a time.
+- If the lead answers multiple things in one message, capture all of them, then ask only the next unanswered step.
+- Avoid repeating the same question if Samantha just asked it.
+- Stay on the LPMAMA-style path unless an objection or side question forces a detour.
 
-PRIMARY GOAL:
-Move the lead toward the best next step:
-1. appointment with a local agent
-2. home search setup
-3. lender introduction
-4. nurture if too early
-5. respectful exit if hard no or already working with a LOCAL ${market.marketName}-area agent
-
-STRICT SEQUENCE RULE:
-Unless there is an objection, side question, or clear special case, follow this order:
+SEQUENCE:
 1. timeline
 2. budget / payment comfort
 3. area / lifestyle fit
 4. agent status
 5. next best step
 
-IMPORTANT:
-Stay on the LPMAMA-style path.
-Do not randomly jump to home type, school details, commute details, or other subtopics unless:
-- the lead asked for it
-- the lead already answered the higher-priority step
-- or the objection clearly requires it
+NEXT STEP LOGIC:
+- If timeline + budget + area are known, it is okay to offer search.
+- If readiness >= 4 and no blocking objection, it is okay to offer appointment.
+- If affordability is the clear blocker, push harder toward lender intro.
+- After basics are known, you may collect search criteria like home type, beds, baths, must-haves, and deal-breakers.
 
-MULTI-ANSWER EXTRACTION RULE:
-If the lead answers multiple things in one message, capture ALL of them.
-Example:
-"3 months, around 650k, probably Meridian"
-should capture timeline + budget + area.
-Then ask only the next unanswered step.
-
-DUPLICATE-QUESTION GUARD:
-Do not re-ask the same budget, area, or agent-status question if Samantha asked it very recently.
-Move to the next sensible step.
-
-SIDE-QUESTION CLASSIFIER:
-Classify the lead’s newest message as one of:
+CLASSIFY the newest message as one of:
 - objection
 - info_question
 - local_info_question
@@ -898,105 +1030,44 @@ Classify the lead’s newest message as one of:
 - unclear
 - none
 
-UNCLEAR / GIBBERISH RULE:
-- Bad spelling and shorthand are normal. Do your best to understand them.
-- Real non-English messages are allowed. Respond in the lead’s language if clear.
-- If the message is too unclear to confidently interpret, do NOT guess.
-- First unclear reply: politely clarify and re-ask the current highest-priority question.
-- Second unclear reply: simplify the question to a very easy version.
-- Third unclear reply: gracefully stop pushing and move toward warm nurture.
+LOCAL AGENT RULE:
+If the lead already has a LOCAL ${market.marketName}-area agent or signed local agent, politely stop.
+If they have an out-of-area agent, you may offer local boots-on-the-ground support.
 
-HARD STOP RULE:
-If the lead clearly says stop, leave me alone, not interested, do not contact, or equivalent, stop politely and do not keep selling.
+UNCLEAR RULE:
+- Do your best with bad spelling.
+- Real other-language texts are allowed.
+- If too unclear, do not guess.
+- Clarify once, simplify once, then back off into nurture.
 
-HUMAN HANDOFF RULE:
-If the lead clearly asks for a real person, a local agent, or asks to be called, prioritize handoff / agent call.
+VALUE RULE:
+If asked what ${market.brandName} does, give a short value answer:
+- local guidance
+- neighborhood/lifestyle fit
+- pricing strategy clarity
+- search and execution support
+Then return to the flow.
 
-LOCAL AGENT DETECTION RULE:
-Distinguish among:
-- local_agent
-- out_of_area_agent
-- signed_agent
-- has_agent_unspecified
-- no_agent
-If local_agent or signed_agent in the local market, politely stop.
-If out_of_area_agent, you may offer local boots-on-the-ground support.
-
-MEMORY RULE:
-Track whether the following are answered:
-- timeline
-- budget
-- area
-- agent status
-
-CURRENT OBJECTIVE RULE:
-Always know the current objective:
-- timeline
-- budget
-- area
-- agent_status
-- next_step
-- clarify
-- handoff
-- stop
-
-READINESS RULE:
-Return appointment_readiness as an integer 0 to 5:
-0 = almost no readiness
-1 = very early
-2 = mildly engaged
-3 = serious but not ready for appointment
-4 = strong appointment candidate
-5 = explicitly wants call / human / agent help
-
-APPOINTMENT-CLOSE TRIGGER:
-If appointment_readiness >= 4 and there is no blocking objection, it is acceptable to offer appointment instead of dragging the conversation out.
-
-SEARCH-READY TRIGGER:
-If timeline, budget, and area are all known, and no blocking objection exists, it is acceptable to offer a custom home search.
-
-TONE RULE:
-Return conversation_tone as one of:
+TONE:
+Return one of:
 - direct
 - warm
 - cautious
 
-OBJECTION / VALUE RULES:
-You may freelance intelligently, answer objections, answer questions, and provide value statements.
-But after doing that, you must return to the flow.
+SENTIMENT:
+Return one of:
+- positive
+- neutral
+- frustrated
+- skeptical
 
-USE THESE THEMES WHEN RELEVANT:
-- budget / cost concern -> explore monthly payment vs overall price
-- spouse / family alignment
-- need more clarity
-- lifestyle / schools / commute
-- Zillow / online search confusion
-- comparing markets
-- market conditions
-- need lender
-- too busy
-- just researching
-- already have agent
-- not interested
-- emotional overwhelm
-- timing too far out
-- worried about moving too fast
-- worried about making wrong move
-- weather / policy / resale / routine concerns
+DEBUG:
+Return a short debugReason explaining why you chose the reply.
 
-VALUE STATEMENT BEHAVIOR:
-If the lead asks what ${market.brandName} actually does, answer with a short version of:
-- local guidance
-- neighborhood / lifestyle fit
-- pricing and strategy clarity
-- search + execution support
-Then return to the next best question or offer an appointment.
+LAST QUESTION:
+Return the main question category you just asked, or null.
 
-LOCAL EXAMPLES:
-Use local examples naturally when useful: ${market.areaExamples}
-
-OUTPUT RULE:
-Return ONLY valid JSON in this exact shape:
+OUTPUT ONLY VALID JSON:
 {
   "replyText": "string",
   "nextState": "string",
@@ -1004,9 +1075,13 @@ Return ONLY valid JSON in this exact shape:
   "temperature": "hot|warm|cold",
   "bestNextStep": "agent_call|home_search|lender_intro|nurture|stop|none",
   "confidence": "high|medium|low",
-  "currentObjective": "timeline|budget|area|agent_status|next_step|clarify|handoff|stop",
+  "currentObjective": "timeline|budget|area|agent_status|next_step|clarify|handoff|stop|search_criteria",
   "appointmentReadiness": 0,
   "conversationTone": "direct|warm|cautious",
+  "sentiment": "positive|neutral|frustrated|skeptical",
+  "shouldEscalate": false,
+  "debugReason": "string",
+  "lastQuestion": "string or null",
   "extractedFields": {
     "move_timeline": "string or null",
     "price_range": "string or null",
@@ -1025,7 +1100,12 @@ Return ONLY valid JSON in this exact shape:
     "timeline_answered": true,
     "budget_answered": false,
     "area_answered": false,
-    "agent_status_answered": false
+    "agent_status_answered": false,
+    "desired_home_type": "string or null",
+    "desired_bedrooms": "string or null",
+    "desired_bathrooms": "string or null",
+    "desired_must_haves": "string or null",
+    "desired_deal_breakers": "string or null"
   },
   "aiSummary": "short summary"
 }
@@ -1046,6 +1126,11 @@ Known fields:
 - biggest_concern: ${lead.biggest_concern || 'unknown'}
 - biggest_unknown: ${lead.biggest_unknown || 'unknown'}
 - monthly_payment_comfort: ${lead.monthly_payment_comfort || 'unknown'}
+- desired_home_type: ${lead.desired_home_type || 'unknown'}
+- desired_bedrooms: ${lead.desired_bedrooms || 'unknown'}
+- desired_bathrooms: ${lead.desired_bathrooms || 'unknown'}
+- desired_must_haves: ${lead.desired_must_haves || 'unknown'}
+- desired_deal_breakers: ${lead.desired_deal_breakers || 'unknown'}
 - lead_heat: ${lead.lead_heat || 'unknown'}
 - sms_confidence: ${lead.sms_confidence || 'unknown'}
 - sms_current_objective: ${lead.sms_current_objective || 'unknown'}
@@ -1055,21 +1140,16 @@ Known fields:
 - sms_agent_status_answered: ${String(lead.sms_agent_status_answered ?? false)}
 - sms_appointment_readiness: ${String(lead.sms_appointment_readiness ?? 0)}
 - sms_conversation_tone: ${lead.sms_conversation_tone || 'unknown'}
+- sms_sentiment: ${lead.sms_sentiment || 'unknown'}
 
-Desired sequence:
-timeline -> budget -> area -> agent status -> best next step
+Available appointment slots:
+${availableSlots.length ? availableSlots.join(' | ') : 'none'}
 
 Recent transcript:
 ${transcript || '(none)'}
 
 Newest inbound text:
 ${inboundText}
-
-Reminder:
-If no objection or side question is forcing a detour, stay on the sequence above.
-If the newest inbound text is too unclear to confidently interpret, do not guess.
-Capture multiple answers from one text when present.
-Avoid re-asking a question Samantha just asked recently.
 `.trim()
 
   try {
@@ -1085,19 +1165,13 @@ Avoid re-asking a question Samantha just asked recently.
     const raw = completion.choices[0]?.message?.content?.trim() || ''
     const parsed = JSON.parse(extractJson(raw))
 
-    let replyText =
-      trimOrNull(parsed.replyText) ||
-      fallbackReply(lead, inboundText, recentMessages).replyText
-
+    let replyText = trimOrNull(parsed.replyText) || fallbackReply(lead, inboundText, recentMessages).replyText
     replyText = maybePrefixReset(replyText, recentMessages)
     replyText = capReply(replyText)
 
     return {
       replyText,
-      nextState: sanitizeState(
-        parsed.nextState,
-        lead.sms_state || 'WAITING_FOR_TIMELINE'
-      ),
+      nextState: sanitizeState(parsed.nextState, lead.sms_state || 'WAITING_FOR_TIMELINE'),
       nextPriority: trimOrNull(parsed.nextPriority) || 'timeline',
       temperature: sanitizeTemperature(parsed.temperature),
       bestNextStep: sanitizeBestNextStep(parsed.bestNextStep),
@@ -1105,43 +1179,34 @@ Avoid re-asking a question Samantha just asked recently.
       currentObjective: sanitizeObjective(parsed.currentObjective),
       appointmentReadiness: sanitizeReadiness(parsed.appointmentReadiness),
       conversationTone: sanitizeTone(parsed.conversationTone),
+      sentiment: sanitizeSentiment(parsed.sentiment),
+      shouldEscalate: Boolean(parsed.shouldEscalate),
+      debugReason: trimOrNull(parsed.debugReason) || 'model_response',
+      lastQuestion: trimOrNull(parsed.lastQuestion),
       extractedFields: {
         move_timeline: trimOrNull(parsed?.extractedFields?.move_timeline),
         price_range: trimOrNull(parsed?.extractedFields?.price_range),
         preferred_areas: trimOrNull(parsed?.extractedFields?.preferred_areas),
         agent_status: trimOrNull(parsed?.extractedFields?.agent_status),
         primary_objection: trimOrNull(parsed?.extractedFields?.primary_objection),
-        secondary_objection: trimOrNull(
-          parsed?.extractedFields?.secondary_objection
-        ),
+        secondary_objection: trimOrNull(parsed?.extractedFields?.secondary_objection),
         biggest_concern: trimOrNull(parsed?.extractedFields?.biggest_concern),
         biggest_unknown: trimOrNull(parsed?.extractedFields?.biggest_unknown),
-        preferred_next_step: trimOrNull(
-          parsed?.extractedFields?.preferred_next_step
-        ),
-        wants_home_search: asBoolOrNull(
-          parsed?.extractedFields?.wants_home_search
-        ),
-        wants_agent_call: asBoolOrNull(
-          parsed?.extractedFields?.wants_agent_call
-        ),
-        wants_lender_connection: asBoolOrNull(
-          parsed?.extractedFields?.wants_lender_connection
-        ),
-        monthly_payment_comfort: trimOrNull(
-          parsed?.extractedFields?.monthly_payment_comfort
-        ),
+        preferred_next_step: trimOrNull(parsed?.extractedFields?.preferred_next_step),
+        wants_home_search: asBoolOrNull(parsed?.extractedFields?.wants_home_search),
+        wants_agent_call: asBoolOrNull(parsed?.extractedFields?.wants_agent_call),
+        wants_lender_connection: asBoolOrNull(parsed?.extractedFields?.wants_lender_connection),
+        monthly_payment_comfort: trimOrNull(parsed?.extractedFields?.monthly_payment_comfort),
         notes_append: trimOrNull(parsed?.extractedFields?.notes_append),
-        timeline_answered: asBoolOrNull(
-          parsed?.extractedFields?.timeline_answered
-        ),
-        budget_answered: asBoolOrNull(
-          parsed?.extractedFields?.budget_answered
-        ),
+        timeline_answered: asBoolOrNull(parsed?.extractedFields?.timeline_answered),
+        budget_answered: asBoolOrNull(parsed?.extractedFields?.budget_answered),
         area_answered: asBoolOrNull(parsed?.extractedFields?.area_answered),
-        agent_status_answered: asBoolOrNull(
-          parsed?.extractedFields?.agent_status_answered
-        ),
+        agent_status_answered: asBoolOrNull(parsed?.extractedFields?.agent_status_answered),
+        desired_home_type: trimOrNull(parsed?.extractedFields?.desired_home_type),
+        desired_bedrooms: trimOrNull(parsed?.extractedFields?.desired_bedrooms),
+        desired_bathrooms: trimOrNull(parsed?.extractedFields?.desired_bathrooms),
+        desired_must_haves: trimOrNull(parsed?.extractedFields?.desired_must_haves),
+        desired_deal_breakers: trimOrNull(parsed?.extractedFields?.desired_deal_breakers),
       },
       aiSummary: trimOrNull(parsed.aiSummary) || 'Relocation SMS brain response',
     }

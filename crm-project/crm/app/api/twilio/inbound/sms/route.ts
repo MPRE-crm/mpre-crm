@@ -55,6 +55,22 @@ export async function POST(req: NextRequest) {
     const now = new Date()
     const nowIso = now.toISOString()
 
+    if (messageSid) {
+      const { data: existingMessage } = await supabaseAdmin
+        .from('messages')
+        .select('id')
+        .eq('twilio_sid', messageSid)
+        .maybeSingle()
+
+      if (existingMessage?.id) {
+        const twiml = new twilio.twiml.MessagingResponse()
+        return new NextResponse(twiml.toString(), {
+          status: 200,
+          headers: { 'Content-Type': 'text/xml' },
+        })
+      }
+    }
+
     const { data: existingLead, error: leadError } = await supabaseAdmin
       .from('leads')
       .select(
@@ -94,7 +110,16 @@ export async function POST(req: NextRequest) {
         sms_area_answered,
         sms_agent_status_answered,
         sms_appointment_readiness,
-        sms_conversation_tone
+        sms_conversation_tone,
+        sms_sentiment,
+        sms_should_escalate,
+        sms_debug_reason,
+        sms_last_question,
+        desired_home_type,
+        desired_bedrooms,
+        desired_bathrooms,
+        desired_must_haves,
+        desired_deal_breakers
       `
       )
       .eq('phone', from)
@@ -126,6 +151,10 @@ export async function POST(req: NextRequest) {
           sms_agent_status_answered: false,
           sms_appointment_readiness: 0,
           sms_conversation_tone: 'warm',
+          sms_sentiment: 'neutral',
+          sms_should_escalate: false,
+          sms_debug_reason: 'new_inbound_sms_lead',
+          sms_last_question: 'timeline',
           last_text_attempt_at: nowIso,
           last_contact_attempt_at: nowIso,
           last_meaningful_engagement_at: nowIso,
@@ -168,7 +197,16 @@ export async function POST(req: NextRequest) {
           sms_area_answered,
           sms_agent_status_answered,
           sms_appointment_readiness,
-          sms_conversation_tone
+          sms_conversation_tone,
+          sms_sentiment,
+          sms_should_escalate,
+          sms_debug_reason,
+          sms_last_question,
+          desired_home_type,
+          desired_bedrooms,
+          desired_bathrooms,
+          desired_must_haves,
+          desired_deal_breakers
         `
         )
         .single()
@@ -207,7 +245,7 @@ export async function POST(req: NextRequest) {
         .select('direction, body, created_at')
         .eq('lead_id', leadId)
         .order('created_at', { ascending: true })
-        .limit(8)
+        .limit(10)
 
       const brain = await runRelocationSmsBrain({
         lead,
@@ -217,6 +255,7 @@ export async function POST(req: NextRequest) {
           body: string
           created_at?: string | null
         }>,
+        availableSlots: [],
       })
 
       replyText = brain.replyText
@@ -244,6 +283,10 @@ export async function POST(req: NextRequest) {
           false,
         sms_appointment_readiness: brain.appointmentReadiness,
         sms_conversation_tone: brain.conversationTone,
+        sms_sentiment: brain.sentiment,
+        sms_should_escalate: brain.shouldEscalate,
+        sms_debug_reason: brain.debugReason,
+        sms_last_question: brain.lastQuestion,
         lead_heat: brain.temperature,
         preferred_next_step:
           brain.extractedFields.preferred_next_step ||
@@ -294,6 +337,26 @@ export async function POST(req: NextRequest) {
         monthly_payment_comfort:
           brain.extractedFields.monthly_payment_comfort ||
           lead.monthly_payment_comfort ||
+          null,
+        desired_home_type:
+          brain.extractedFields.desired_home_type ||
+          lead.desired_home_type ||
+          null,
+        desired_bedrooms:
+          brain.extractedFields.desired_bedrooms ||
+          lead.desired_bedrooms ||
+          null,
+        desired_bathrooms:
+          brain.extractedFields.desired_bathrooms ||
+          lead.desired_bathrooms ||
+          null,
+        desired_must_haves:
+          brain.extractedFields.desired_must_haves ||
+          lead.desired_must_haves ||
+          null,
+        desired_deal_breakers:
+          brain.extractedFields.desired_deal_breakers ||
+          lead.desired_deal_breakers ||
           null,
         ai_summary: brain.aiSummary,
         last_replied_text_at: nowIso,
@@ -354,7 +417,7 @@ export async function POST(req: NextRequest) {
           lead_phone: from,
           direction: 'outgoing',
           body: replyText,
-          status: 'sent',
+          status: 'twiml_reply_prepared',
           twilio_sid: null,
           created_at: nowIso,
         })
