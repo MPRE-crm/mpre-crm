@@ -115,11 +115,10 @@ export async function POST(req: NextRequest) {
         sms_should_escalate,
         sms_debug_reason,
         sms_last_question,
-        desired_home_type,
-        desired_bedrooms,
-        desired_bathrooms,
-        desired_must_haves,
-        desired_deal_breakers
+        sms_lpmama_current_step,
+        sms_lpmama_next_step,
+        sms_resume_step,
+        sms_detour_reason
       `
       )
       .eq('phone', from)
@@ -155,6 +154,10 @@ export async function POST(req: NextRequest) {
           sms_should_escalate: false,
           sms_debug_reason: 'new_inbound_sms_lead',
           sms_last_question: 'timeline',
+          sms_lpmama_current_step: 'timeline',
+          sms_lpmama_next_step: 'timeline',
+          sms_resume_step: 'timeline',
+          sms_detour_reason: null,
           last_text_attempt_at: nowIso,
           last_contact_attempt_at: nowIso,
           last_meaningful_engagement_at: nowIso,
@@ -202,11 +205,10 @@ export async function POST(req: NextRequest) {
           sms_should_escalate,
           sms_debug_reason,
           sms_last_question,
-          desired_home_type,
-          desired_bedrooms,
-          desired_bathrooms,
-          desired_must_haves,
-          desired_deal_breakers
+          sms_lpmama_current_step,
+          sms_lpmama_next_step,
+          sms_resume_step,
+          sms_detour_reason
         `
         )
         .single()
@@ -287,6 +289,10 @@ export async function POST(req: NextRequest) {
         sms_should_escalate: brain.shouldEscalate,
         sms_debug_reason: brain.debugReason,
         sms_last_question: brain.lastQuestion,
+        sms_lpmama_current_step: brain.lpmamaCurrentStep,
+        sms_lpmama_next_step: brain.lpmamaNextStep,
+        sms_resume_step: brain.resumeStep,
+        sms_detour_reason: brain.detourReason,
         lead_heat: brain.temperature,
         preferred_next_step:
           brain.extractedFields.preferred_next_step ||
@@ -337,26 +343,6 @@ export async function POST(req: NextRequest) {
         monthly_payment_comfort:
           brain.extractedFields.monthly_payment_comfort ||
           lead.monthly_payment_comfort ||
-          null,
-        desired_home_type:
-          brain.extractedFields.desired_home_type ||
-          lead.desired_home_type ||
-          null,
-        desired_bedrooms:
-          brain.extractedFields.desired_bedrooms ||
-          lead.desired_bedrooms ||
-          null,
-        desired_bathrooms:
-          brain.extractedFields.desired_bathrooms ||
-          lead.desired_bathrooms ||
-          null,
-        desired_must_haves:
-          brain.extractedFields.desired_must_haves ||
-          lead.desired_must_haves ||
-          null,
-        desired_deal_breakers:
-          brain.extractedFields.desired_deal_breakers ||
-          lead.desired_deal_breakers ||
           null,
         ai_summary: brain.aiSummary,
         last_replied_text_at: nowIso,
