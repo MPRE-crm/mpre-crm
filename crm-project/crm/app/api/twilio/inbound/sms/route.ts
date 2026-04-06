@@ -31,10 +31,7 @@ function isRelocationLead(lead: any) {
   const sourceDetail = String(lead?.lead_source_detail || '').toLowerCase()
   const smsCampaign = String(lead?.sms_campaign || '').toLowerCase()
 
-  return (
-    smsCampaign === 'relocation' ||
-    sourceDetail.includes('relocation')
-  )
+  return smsCampaign === 'relocation' || sourceDetail.includes('relocation')
 }
 
 function genericReply(firstName?: string | null) {
@@ -215,8 +212,8 @@ export async function POST(req: NextRequest) {
             : brain.bestNextStep === 'nurture'
             ? 'nurture'
             : brain.bestNextStep === 'stop'
-            ? 'stop'
-            : lead.preferred_next_step || null),
+              ? 'stop'
+              : lead.preferred_next_step || null),
         wants_home_search:
           brain.extractedFields.wants_home_search ??
           brain.bestNextStep === 'home_search',
@@ -259,6 +256,7 @@ export async function POST(req: NextRequest) {
         last_meaningful_engagement_at: nowIso,
         last_contact_attempt_at: nowIso,
         last_text_attempt_at: nowIso,
+        best_contact_channel: 'text',
         hot_until:
           brain.temperature === 'hot' ? addHours(now, 48).toISOString() : null,
         updated_at: nowIso,
@@ -285,6 +283,7 @@ export async function POST(req: NextRequest) {
         last_contact_attempt_at: nowIso,
         last_text_attempt_at: nowIso,
         lead_heat: 'hot',
+        best_contact_channel: 'text',
         hot_until: addHours(now, 48).toISOString(),
         updated_at: nowIso,
       }
@@ -300,6 +299,27 @@ export async function POST(req: NextRequest) {
 
       if (leadUpdateError) {
         console.error('❌ inbound sms lead update error', leadUpdateError)
+      }
+    }
+
+    if (leadId && replyText) {
+      const { error: outgoingMessageInsertError } = await supabaseAdmin
+        .from('messages')
+        .insert({
+          lead_id: leadId,
+          lead_phone: from,
+          direction: 'outgoing',
+          body: replyText,
+          status: 'sent',
+          twilio_sid: null,
+          created_at: nowIso,
+        })
+
+      if (outgoingMessageInsertError) {
+        console.error(
+          '❌ outbound sms message insert error',
+          outgoingMessageInsertError
+        )
       }
     }
 
