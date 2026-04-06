@@ -133,9 +133,69 @@ function extractJson(text: string) {
   return text.slice(start, end + 1)
 }
 
-function fallbackReply(lead: RelocationLead, inboundText: string): BrainResult {
+function getUnclearCount(recentMessages: SmsMessage[]) {
+  return recentMessages.filter(
+    (m) =>
+      m.direction === 'outgoing' &&
+      /want to make sure i understood|let's keep it simple|lets keep it simple|didn’t quite catch that|didn't quite catch that/i.test(
+        String(m.body || '')
+      )
+  ).length
+}
+
+function fallbackReply(
+  lead: RelocationLead,
+  inboundText: string,
+  recentMessages: SmsMessage[]
+): BrainResult {
   const name = firstNameOf(lead)
   const lower = inboundText.toLowerCase()
+  const unclearCount = getUnclearCount(recentMessages)
+
+  if (
+    lower.includes('???') ||
+    lower.includes('asdf') ||
+    lower.includes('lollllkkk') ||
+    (lower.replace(/[^a-z0-9]/gi, '').length > 0 &&
+      lower.replace(/[^a-z0-9]/gi, '').length < 4)
+  ) {
+    if (unclearCount === 0) {
+      return {
+        replyText: `Sorry ${name}, I want to make sure I understood you correctly. Are you planning to move in the next 3 months, 6 months, or just exploring for now?`,
+        nextState: lead.sms_state || 'WAITING_FOR_TIMELINE',
+        nextPriority: 'clarify',
+        temperature: 'hot',
+        bestNextStep: 'none',
+        extractedFields: { notes_append: inboundText },
+        aiSummary: 'Fallback unclear reply asked for clarification',
+      }
+    }
+
+    if (unclearCount === 1) {
+      return {
+        replyText: `No worries. Let’s keep it simple — are you moving soon, later, or just browsing?`,
+        nextState: lead.sms_state || 'WAITING_FOR_TIMELINE',
+        nextPriority: 'clarify_simple',
+        temperature: 'hot',
+        bestNextStep: 'none',
+        extractedFields: { notes_append: inboundText },
+        aiSummary: 'Fallback second unclear reply simplified question',
+      }
+    }
+
+    return {
+      replyText: `No problem. When you're ready, just text me something simple like "moving soon," "later," or "just browsing," and I’ll take it from there.`,
+      nextState: 'NURTURE_WARM',
+      nextPriority: 'nurture',
+      temperature: 'warm',
+      bestNextStep: 'nurture',
+      extractedFields: {
+        preferred_next_step: 'nurture',
+        notes_append: inboundText,
+      },
+      aiSummary: 'Fallback repeated unclear replies moved to warm nurture',
+    }
+  }
 
   if (!lead.sms_state || lead.sms_state === 'NEW_HOT') {
     return {
@@ -189,7 +249,7 @@ export async function runRelocationSmsBrain(args: {
   const { lead, inboundText, recentMessages } = args
 
   if (!process.env.OPENAI_API_KEY) {
-    return fallbackReply(lead, inboundText)
+    return fallbackReply(lead, inboundText, recentMessages)
   }
 
   const { default: OpenAI } = await import('openai')
@@ -237,10 +297,18 @@ Unless there is an objection, side question, or clear special case, follow this 
 
 IMPORTANT:
 Stay on the LPMAMA-style path.
-Do not randomly jump to home type, school details, or other subtopics unless:
+Do not randomly jump to home type, school details, commute details, or other subtopics unless:
 - the lead asked for it
 - the lead already answered the higher-priority step
 - or the objection clearly requires it
+
+UNCLEAR / GIBBERISH RULE:
+- Bad spelling and shorthand are normal. Do your best to understand them.
+- Real non-English messages are allowed. Respond in the lead’s language if clear.
+- If the message is too unclear to confidently interpret, do NOT guess.
+- First unclear reply: politely clarify and re-ask the current highest-priority question.
+- Second unclear reply: simplify the question to a very easy version.
+- Third unclear reply: gracefully stop pushing and move toward warm nurture.
 
 THIS MEANS:
 - If timeline is unknown, ask timeline.
@@ -381,6 +449,7 @@ ${inboundText}
 
 Reminder:
 If no objection or side question is forcing a detour, stay on the sequence above.
+If the newest inbound text is too unclear to confidently interpret, do not guess.
 `.trim()
 
   try {
@@ -404,7 +473,7 @@ If no objection or side question is forcing a detour, stay on the sequence above
     return {
       replyText:
         trimOrNull(parsed.replyText) ||
-        fallbackReply(lead, inboundText).replyText,
+        fallbackReply(lead, inboundText, recentMessages).replyText,
       nextState,
       nextPriority: trimOrNull(parsed.nextPriority) || 'timeline',
       temperature: sanitizeTemperature(parsed.temperature),
@@ -440,6 +509,6 @@ If no objection or side question is forcing a detour, stay on the sequence above
       aiSummary: trimOrNull(parsed.aiSummary) || 'Relocation SMS brain response',
     }
   } catch {
-    return fallbackReply(lead, inboundText)
+    return fallbackReply(lead, inboundText, recentMessages)
   }
 }
