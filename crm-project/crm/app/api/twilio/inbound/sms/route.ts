@@ -46,7 +46,188 @@ async function handlePreferredLenderIntro(args: {
   orgId?: string | null
   phone: string
 }) {
-  console.log('TODO lender intro hook', args)
+  try {
+    const { leadId, agentId, orgId, phone } = args
+
+    if (!agentId || !orgId || !phone) {
+      console.error('❌ lender intro missing agentId/orgId/phone', args)
+      return
+    }
+
+    const accountSid = process.env.TWILIO_ACCOUNT_SID
+    const authToken = process.env.TWILIO_AUTH_TOKEN
+    const fromNumber = process.env.TWILIO_PHONE_NUMBER
+
+    if (!accountSid || !authToken || !fromNumber) {
+      console.error('❌ lender intro missing Twilio env vars')
+      return
+    }
+
+    const { data: agentUser, error: agentLookupError } = await supabaseAdmin
+      .from('users')
+      .select('id, user_id, org_id, name, email')
+      .eq('user_id', agentId)
+      .eq('org_id', orgId)
+      .maybeSingle()
+
+    if (agentLookupError) {
+      console.error('❌ lender intro agent lookup error', agentLookupError)
+      return
+    }
+
+    if (!agentUser?.id) {
+      console.error('❌ lender intro could not map lead.agent_id to users.id', {
+        agentId,
+        orgId,
+      })
+      return
+    }
+
+    const { data: preferences, error: prefsError } = await supabaseAdmin
+      .from('agent_lender_preferences')
+      .select('lender_user_id, position, is_active')
+      .eq('org_id', orgId)
+      .eq('agent_user_id', agentUser.id)
+      .eq('is_active', true)
+      .order('position', { ascending: true })
+
+    if (prefsError) {
+      console.error('❌ lender intro prefs lookup error', prefsError)
+      return
+    }
+
+    if (!preferences || preferences.length === 0) {
+      console.error('❌ lender intro no active preferred lenders found', {
+        agentUserId: agentUser.id,
+        orgId,
+      })
+      return
+    }
+
+    const { data: rotationState, error: rotationError } = await supabaseAdmin
+      .from('agent_lender_rotation_state')
+      .select('last_lender_user_id')
+      .eq('org_id', orgId)
+      .eq('agent_user_id', agentUser.id)
+      .maybeSingle()
+
+    if (rotationError) {
+      console.error('❌ lender intro rotation lookup error', rotationError)
+      return
+    }
+
+    let selectedPref = preferences[0]
+
+    if (rotationState?.last_lender_user_id) {
+      const lastIndex = preferences.findIndex(
+        (p) => p.lender_user_id === rotationState.last_lender_user_id
+      )
+
+      if (lastIndex >= 0) {
+        selectedPref = preferences[(lastIndex + 1) % preferences.length]
+      }
+    }
+
+    const { data: lenderUser, error: lenderLookupError } = await supabaseAdmin
+      .from('users')
+      .select('id, name, email, phone, role, is_active, org_id')
+      .eq('id', selectedPref.lender_user_id)
+      .eq('org_id', orgId)
+      .eq('role', 'lender')
+      .eq('is_active', true)
+      .maybeSingle()
+
+    if (lenderLookupError) {
+      console.error('❌ lender intro lender lookup error', lenderLookupError)
+      return
+    }
+
+    if (!lenderUser?.phone) {
+      console.error('❌ lender intro lender missing phone', {
+        lenderUserId: selectedPref.lender_user_id,
+      })
+      return
+    }
+
+        const { data: leadRow, error: leadLookupError } = await supabaseAdmin
+      .from('leads')
+      .select(
+        'id, name, first_name, full_name, owner_name, phone, email, move_timeline, price_range'
+      )
+      .eq('id', leadId)
+      .maybeSingle()
+
+    if (leadLookupError) {
+      console.error('❌ lender intro lead lookup error', leadLookupError)
+      return
+    }
+
+    const { data: orgRow, error: orgLookupError } = await supabaseAdmin
+      .from('organizations')
+      .select('name, org_display, market_name, city, state')
+      .eq('id', orgId)
+      .maybeSingle()
+
+    if (orgLookupError) {
+      console.error('❌ lender intro org lookup error', orgLookupError)
+      return
+    }
+
+    const twilioClient = twilio(accountSid, authToken)
+
+    const leadName =
+      leadRow?.name ||
+      leadRow?.full_name ||
+      leadRow?.first_name ||
+      leadRow?.owner_name ||
+      'Unknown Lead'
+
+    const requestedAt = new Date().toLocaleString('en-US')
+
+    const orgDisplay =
+      orgRow?.org_display ||
+      orgRow?.name ||
+      'Organization'
+
+    const lenderMessage =
+      `${orgDisplay} lender follow-up needed.\n` +
+      `Requested By Agent: ${agentUser.name || agentUser.email || 'Unknown Agent'}\n` +
+      `Requested At: ${requestedAt}\n` +
+      `Lead: ${leadName}\n` +
+      `Phone: ${leadRow?.phone || phone || 'N/A'}\n` +
+      `Email: ${leadRow?.email || 'N/A'}\n` +
+      `Timeline: ${leadRow?.move_timeline || 'N/A'}\n` +
+      `Price Range: ${leadRow?.price_range || 'N/A'}\n` +
+      `Reason: Requested lender after Samantha SMS conversation.\n` +
+      `Please contact them as soon as possible.`
+
+    const sent = await twilioClient.messages.create({
+      from: fromNumber,
+      to: normalizePhone(lenderUser.phone),
+      body: lenderMessage,
+    })
+
+    const { error: rotationUpsertError } = await supabaseAdmin
+      .from('agent_lender_rotation_state')
+      .upsert({
+        org_id: orgId,
+        agent_user_id: agentUser.id,
+        last_lender_user_id: selectedPref.lender_user_id,
+        updated_at: new Date().toISOString(),
+      })
+
+    if (rotationUpsertError) {
+      console.error('❌ lender intro rotation upsert error', rotationUpsertError)
+    }
+
+    console.log('✅ lender intro sent', {
+      leadId,
+      lenderUserId: selectedPref.lender_user_id,
+      lenderMessageSid: sent.sid,
+    })
+  } catch (error) {
+    console.error('❌ lender intro unexpected error', error)
+  }
 }
 
 export async function POST(req: NextRequest) {
