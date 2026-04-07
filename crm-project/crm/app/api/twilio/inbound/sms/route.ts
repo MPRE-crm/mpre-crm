@@ -152,7 +152,7 @@ async function handlePreferredLenderIntro(args: {
         const { data: leadRow, error: leadLookupError } = await supabaseAdmin
       .from('leads')
       .select(
-        'id, name, first_name, owner_name, phone, email, move_timeline, price_range'
+        'id, name, first_name, phone, email, move_timeline, price_range'
     )
       .eq('id', leadId)
       .maybeSingle()
@@ -178,9 +178,8 @@ async function handlePreferredLenderIntro(args: {
     const leadName =
       leadRow?.name ||
       leadRow?.first_name ||
-      leadRow?.owner_name ||
       'Unknown Lead'
-      
+
     const requestedAt = new Date().toLocaleString('en-US')
 
     const orgDisplay =
