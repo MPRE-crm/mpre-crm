@@ -260,63 +260,97 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const { data: existingLead, error: leadError } = await supabaseAdmin
-      .from('leads')
-      .select(
-        `
-        id,
-        first_name,
-        last_name,
-        name,
-        email,
-        phone,
-        status,
-        lead_heat,
-        lead_source_detail,
-        sms_state,
-        sms_campaign,
-        move_timeline,
-        price_range,
-        motivation,
-        preferred_areas,
-        agent_status,
-        mortgage_or_cash,
-        spoken_to_local_lender,
-        lender_intro_permission,
-        lender_need_type,
-        wants_lender_connection,
-        preferred_next_step,
-        primary_objection,
-        secondary_objection,
-        biggest_concern,
-        biggest_unknown,
-        notes,
-        ai_summary,
-        agent_id,
-        org_id,
-        sms_timeline_answered,
-        sms_budget_answered,
-        sms_area_answered,
-        sms_agent_status_answered,
-        sms_confidence,
-        sms_current_objective,
-        sms_appointment_readiness,
-        sms_conversation_tone,
-        sms_sentiment,
-        sms_should_escalate,
-        sms_debug_reason,
-        sms_last_question,
-        sms_lpmama_current_step,
-        sms_lpmama_next_step,
-        sms_resume_step,
-        sms_detour_reason
-      `
-      )
-      .eq('phone', from)
-      .maybeSingle()
+const fromDigits = from.replace(/\D/g, '')
+const from10 = fromDigits.length === 11 && fromDigits.startsWith('1')
+  ? fromDigits.slice(1)
+  : fromDigits
+
+const leadSelect = `
+  id,
+  first_name,
+  last_name,
+  name,
+  email,
+  phone,
+  status,
+  lead_heat,
+  lead_source_detail,
+  sms_state,
+  sms_campaign,
+  move_timeline,
+  price_range,
+  motivation,
+  preferred_areas,
+  agent_status,
+  mortgage_or_cash,
+  spoken_to_local_lender,
+  lender_intro_permission,
+  lender_need_type,
+  wants_lender_connection,
+  preferred_next_step,
+  primary_objection,
+  secondary_objection,
+  biggest_concern,
+  biggest_unknown,
+  notes,
+  ai_summary,
+  agent_id,
+  org_id,
+  sms_timeline_answered,
+  sms_budget_answered,
+  sms_area_answered,
+  sms_agent_status_answered,
+  sms_confidence,
+  sms_current_objective,
+  sms_appointment_readiness,
+  sms_conversation_tone,
+  sms_sentiment,
+  sms_should_escalate,
+  sms_debug_reason,
+  sms_last_question,
+  sms_lpmama_current_step,
+  sms_lpmama_next_step,
+  sms_resume_step,
+  sms_detour_reason
+`
+
+let existingLead: any = null
+let leadError: any = null
+
+const exactLeadResult = await supabaseAdmin
+  .from('leads')
+  .select(leadSelect)
+  .eq('phone', from)
+  .maybeSingle()
+
+existingLead = exactLeadResult.data
+leadError = exactLeadResult.error
+
+if (!existingLead && !leadError && from10) {
+  const altLeadResult = await supabaseAdmin
+    .from('leads')
+    .select(leadSelect)
+    .in('phone', [from10, `1${from10}`])
+    .maybeSingle()
+
+  existingLead = altLeadResult.data
+  leadError = altLeadResult.error
+}
 
     let lead = existingLead
     let leadId: string | null = lead?.id ?? null
+
+    if (lead?.id && lead.phone !== from) {
+  await supabaseAdmin
+    .from('leads')
+    .update({
+      phone: from,
+      updated_at: nowIso,
+    })
+    .eq('id', lead.id)
+
+  lead.phone = from
+}
 
     if (!lead && !leadError) {
       const { data: newLead, error: insertError } = await supabaseAdmin

@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
+import { sendText } from "../../../lib/sendText";
 import { logSamanthaAction } from "./logSamanthaAction";
 
 type MissedCallRow = {
@@ -38,6 +39,13 @@ function contactAllowedNow(lead: LeadRow) {
   return hour >= start && hour < end;
 }
 
+function buildMissedCallFallbackText(lead: LeadRow) {
+  const firstName =
+    String(lead?.first_name || "").trim().split(" ")[0] || "there";
+
+  return `Hi ${firstName}, this is Samantha with MPRE Boise. I just tried giving you a quick call because you requested our Boise relocation guide. Did you happen to receive it yet?`;
+}
+
 function chooseMissedCallAction(lead: LeadRow, missedCountLast7d: number) {
   const heat = (lead.lead_heat || "").toLowerCase();
 
@@ -59,9 +67,9 @@ function chooseMissedCallAction(lead: LeadRow, missedCountLast7d: number) {
 
   if (heat === "hot") {
     return {
-      action: "ai_call",
+      action: "text",
       callbackStatus: "completed",
-      reason: "MISSED_CALL_HOT_CALLBACK",
+      reason: "MISSED_CALL_HOT_TEXT_IMMEDIATE",
     };
   }
 
@@ -81,7 +89,8 @@ function chooseMissedCallAction(lead: LeadRow, missedCountLast7d: number) {
 }
 
 export async function processMissedCalls() {
-  const nowIso = new Date().toISOString();
+  const now = new Date();
+  const nowIso = now.toISOString();
 
   const { data: dueLogs, error: dueError } = await supabaseAdmin
     .from("missed_call_logs")
@@ -148,6 +157,8 @@ export async function processMissedCalls() {
       continue;
     }
 
+    const typedLead = lead as LeadRow;
+
     const sevenDaysAgo = new Date(
       Date.now() - 7 * 24 * 60 * 60 * 1000
     ).toISOString();
@@ -176,25 +187,22 @@ export async function processMissedCalls() {
       continue;
     }
 
-    const decision = chooseMissedCallAction(lead as LeadRow, count || 0);
+    const decision = chooseMissedCallAction(typedLead, count || 0);
     const executionMode = process.env.SAMANTHA_EXECUTION_MODE || "mock";
 
-    await logSamanthaAction({
-      db: supabaseAdmin,
-      leadId: log.lead_id,
-      source: "missed_call_processor",
-      triggerType: "missed_call",
-      plannedAction: decision.action,
-      executedAction: decision.action,
-      executionMode: executionMode === "live" ? "live" : "mock",
-      status: executionMode === "mock" ? "skipped" : "executed",
-      reasonCodes: [decision.reason],
-      details: {
-        missed_call_log_id: log.id,
-        original_call_status: log.call_status,
-        missed_calls_last_7d: count || 0,
-      },
-    });
+    let callbackResult =
+      executionMode === "mock"
+        ? `Mock ${decision.action} recorded`
+        : `Live ${decision.action} queued`;
+
+    let executedStatus: "executed" | "failed" | "skipped" =
+      executionMode === "mock" ? "skipped" : "executed";
+
+    let actionDetails: Record<string, any> = {
+      missed_call_log_id: log.id,
+      original_call_status: log.call_status,
+      missed_calls_last_7d: count || 0,
+    };
 
     if (decision.callbackStatus === "escalated") {
       await supabaseAdmin.from("escalation_logs").insert({
@@ -207,7 +215,155 @@ export async function processMissedCalls() {
           missed_calls_last_7d: count || 0,
         },
       });
+    } else if (decision.action === "text") {
+      const message = buildMissedCallFallbackText(typedLead);
+
+      if (!typedLead.phone) {
+        executedStatus = "failed";
+        callbackResult = "Lead missing phone number";
+        actionDetails = {
+          ...actionDetails,
+          to: null,
+          message,
+        };
+
+        await logSamanthaAction({
+          db: supabaseAdmin,
+          leadId: log.lead_id,
+          source: "missed_call_processor",
+          triggerType: "missed_call",
+          plannedAction: decision.action,
+          executedAction: decision.action,
+          executionMode: executionMode === "live" ? "live" : "mock",
+          status: executedStatus,
+          reasonCodes: [decision.reason],
+          details: actionDetails,
+        });
+
+        await supabaseAdmin
+          .from("missed_call_logs")
+          .update({
+            callback_status: "failed",
+            callback_action: decision.action,
+            callback_reason: decision.reason,
+            callback_result: callbackResult,
+            callback_attempted_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", log.id);
+
+        results.push({
+          id: log.id,
+          ok: false,
+          action: decision.action,
+          reason: decision.reason,
+          mode: executionMode,
+          error: callbackResult,
+        });
+
+        continue;
+      }
+
+      if (executionMode === "live") {
+        const smsResult = await sendText({
+          to: typedLead.phone,
+          message,
+          leadId: log.lead_id,
+          bypassGovernor: true,
+        });
+
+        if (!smsResult.success) {
+          executedStatus = "failed";
+          callbackResult =
+            smsResult.error || "Failed to send missed-call fallback text";
+          actionDetails = {
+            ...actionDetails,
+            to: typedLead.phone ?? null,
+            message,
+            smsResult,
+          };
+
+          await logSamanthaAction({
+            db: supabaseAdmin,
+            leadId: log.lead_id,
+            source: "missed_call_processor",
+            triggerType: "missed_call",
+            plannedAction: decision.action,
+            executedAction: decision.action,
+            executionMode: "live",
+            status: executedStatus,
+            reasonCodes: [decision.reason],
+            details: actionDetails,
+          });
+
+          await supabaseAdmin
+            .from("missed_call_logs")
+            .update({
+              callback_status: "failed",
+              callback_action: decision.action,
+              callback_reason: decision.reason,
+              callback_result: callbackResult,
+              callback_attempted_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", log.id);
+
+          results.push({
+            id: log.id,
+            ok: false,
+            action: decision.action,
+            reason: decision.reason,
+            mode: executionMode,
+            error: callbackResult,
+          });
+
+          continue;
+        }
+
+        callbackResult = `Live text sent (${smsResult.sid || "no sid"})`;
+        actionDetails = {
+          ...actionDetails,
+          to: typedLead.phone ?? null,
+          message,
+          smsResult,
+        };
+
+        await supabaseAdmin
+          .from("leads")
+          .update({
+            last_text_attempt_at: nowIso,
+            last_contact_attempt_at: nowIso,
+            sms_state: "active",
+            sms_campaign: "relocation",
+            sms_current_objective: "confirm_received_guide",
+            sms_last_question: "Did you happen to receive it yet?",
+            sms_lpmama_current_step: "guide_confirmation",
+            sms_lpmama_next_step: "timeline",
+            updated_at: nowIso,
+          })
+          .eq("id", log.lead_id);
+      } else {
+        actionDetails = {
+          ...actionDetails,
+          to: typedLead.phone ?? null,
+          message,
+          mock: true,
+        };
+      }
     }
+
+    await logSamanthaAction({
+      db: supabaseAdmin,
+      leadId: log.lead_id,
+      source: "missed_call_processor",
+      triggerType: "missed_call",
+      plannedAction: decision.action,
+      executedAction: decision.action,
+      executionMode: executionMode === "live" ? "live" : "mock",
+      status: executedStatus,
+      reasonCodes: [decision.reason],
+      details: actionDetails,
+    });
 
     await supabaseAdmin
       .from("missed_call_logs")
@@ -215,10 +371,7 @@ export async function processMissedCalls() {
         callback_status: decision.callbackStatus,
         callback_action: decision.action,
         callback_reason: decision.reason,
-        callback_result:
-          executionMode === "mock"
-            ? `Mock ${decision.action} recorded`
-            : `Live ${decision.action} queued`,
+        callback_result: callbackResult,
         callback_attempted_at: new Date().toISOString(),
         resolved_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
