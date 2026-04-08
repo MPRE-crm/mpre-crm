@@ -247,7 +247,7 @@ function marketContextFromLead(lead: RelocationLead) {
     return {
       marketName: 'Twin Falls',
       brandName: 'MPRE Twin Falls',
-      areaExamples: 'Twin Falls, Jerome, Kimberly, and nearby areas',
+      teamLabel: 'our team here at MPRE Twin Falls',
     }
   }
 
@@ -255,14 +255,14 @@ function marketContextFromLead(lead: RelocationLead) {
     return {
       marketName: 'Coeur d’Alene',
       brandName: 'MPRE CDA',
-      areaExamples: 'Coeur d’Alene, Post Falls, Hayden, and nearby areas',
+      teamLabel: 'our team here at MPRE CDA',
     }
   }
 
   return {
     marketName: 'Boise',
     brandName: 'MPRE Boise',
-    areaExamples: 'Boise, Meridian, Eagle, Kuna, and nearby areas',
+    teamLabel: 'our team here at MPRE Boise',
   }
 }
 
@@ -351,7 +351,7 @@ function extractAgentStatus(text: string) {
   if (/signed buyer agreement|under contract with an agent|signed with an agent/.test(t)) {
     return 'signed_agent'
   }
-  if (/local agent|boise agent|agent in boise|working with a boise-area agent|local realtor/i.test(t)) {
+  if (/working with your team|working with mpre|local agent|boise agent|agent in boise|working with a boise-area agent|local realtor/i.test(t)) {
     return 'local_agent'
   }
   if (/out of state agent|agent from california|agent from out of state|not local|not in boise/.test(t)) {
@@ -445,7 +445,7 @@ function fallbackReply(
 
   if (hasHardStop(inboundText)) {
     return {
-      replyText: `No problem ${name}. I’ll stop here. If things change later, you can always text back.`,
+      replyText: `No problem, ${name}. I’ll stop here. If anything changes later on, you can always text me back.`,
       nextState: 'EXIT_NOT_INTERESTED',
       nextPriority: 'stop',
       temperature: 'warm',
@@ -473,7 +473,7 @@ function fallbackReply(
 
   if (wantsHuman(inboundText)) {
     return {
-      replyText: `Absolutely. I can have a local ${market.marketName}-area agent reach out. Would you prefer I give you two time options, or is there a time that usually works better for you?`,
+      replyText: `Absolutely, ${name}. I can have someone from ${market.teamLabel} reach out. Would you like me to give you two good time options, or is there usually a time that works best for you?`,
       nextState: 'OFFER_AGENT_CALL',
       nextPriority: 'appointment',
       temperature: 'hot',
@@ -501,7 +501,7 @@ function fallbackReply(
 
   if (waitingForGuideConfirmation && guideReceived === 'yes') {
     return {
-      replyText: `Perfect, ${name}. When are you thinking about making your move — in the next few months, later this year, or are you still just exploring right now?`,
+      replyText: `Perfect, ${name}. Glad you got it. Just so I can point you in the right direction, when are you thinking about making your move — in the next few months, later this year, or are you still just exploring right now?`,
       nextState: 'WAITING_FOR_TIMELINE',
       nextPriority: 'timeline',
       temperature: 'hot',
@@ -527,7 +527,7 @@ function fallbackReply(
 
   if (waitingForGuideConfirmation && guideReceived === 'no') {
     return {
-      replyText: `No problem, ${name}. I can resend the guide. Is this still the best email for you?`,
+      replyText: `No problem, ${name}. I can resend the guide for you. Is this still the best email to send it to?`,
       nextState: 'WAITING_FOR_TIMELINE',
       nextPriority: 'guide_resend',
       temperature: 'hot',
@@ -559,7 +559,7 @@ function fallbackReply(
   ) {
     if (unclearCount === 0) {
       return {
-        replyText: `Sorry ${name}, I want to make sure I understood you correctly. Are you planning to move in the next 3 months, 6 months, or just exploring for now?`,
+        replyText: `Sorry ${name}, I want to make sure I understood you correctly. Are you thinking about moving in the next 3 months, around 6 months, or are you still just exploring for now?`,
         nextState: 'WAITING_FOR_TIMELINE',
         nextPriority: 'clarify',
         temperature: 'hot',
@@ -583,7 +583,7 @@ function fallbackReply(
 
     if (unclearCount === 1) {
       return {
-        replyText: `No worries. Let’s keep it simple — are you moving soon, later, or just browsing?`,
+        replyText: `No worries. Let’s keep it simple — are you moving soon, later, or just browsing right now?`,
         nextState: 'WAITING_FOR_TIMELINE',
         nextPriority: 'clarify',
         temperature: 'hot',
@@ -606,7 +606,7 @@ function fallbackReply(
     }
 
     return {
-      replyText: `No problem. When you're ready, just text me something simple like "moving soon," "later," or "just browsing," and I’ll take it from there.`,
+      replyText: `No problem. Whenever you're ready, just text me something simple like "moving soon," "later," or "just browsing," and I’ll take it from there.`,
       nextState: 'NURTURE_WARM',
       nextPriority: 'nurture',
       temperature: 'warm',
@@ -633,7 +633,7 @@ function fallbackReply(
 
   if (agentStatus === 'local_agent' || agentStatus === 'signed_agent') {
     return {
-      replyText: `Got it. If you’re already working with a local ${market.marketName}-area agent, you’re probably in good hands. If anything changes, feel free to reach back out.`,
+      replyText: `Got it, ${name}. If you’re already working with ${market.teamLabel}, you’re in good hands. If anything changes and you need something else from us, just text me back.`,
       nextState: 'EXIT_ALREADY_HAS_LOCAL_AGENT',
       nextPriority: 'stop',
       temperature: 'warm',
@@ -661,7 +661,7 @@ function fallbackReply(
 
   if (nextStep === 'location_timeline') {
     return {
-      replyText: `When are you thinking about making your move — in the next few months, later this year, or are you still just exploring right now?`,
+      replyText: `That helps, ${name}. So I can be useful here, when are you thinking about making your move — in the next few months, later this year, or are you still just exploring right now?`,
       nextState: 'WAITING_FOR_TIMELINE',
       nextPriority: 'timeline',
       temperature: 'hot',
@@ -689,7 +689,7 @@ function fallbackReply(
 
   if (nextStep === 'price') {
     return {
-      replyText: `Got it. What price range are you hoping to stay around?`,
+      replyText: `Got it. And just so we stay realistic with what you’re looking for, what price range are you hoping to stay around?`,
       nextState: 'WAITING_FOR_BUDGET',
       nextPriority: 'price',
       temperature: 'hot',
@@ -717,7 +717,7 @@ function fallbackReply(
 
   if (nextStep === 'motivation') {
     return {
-      replyText: `What’s the main motivation for the move — work, family, lifestyle, retirement, or something else?`,
+      replyText: `That helps. What’s really driving the move for you — work, family, lifestyle, retirement, or something else?`,
       nextState: 'WAITING_FOR_MOTIVATION',
       nextPriority: 'motivation',
       temperature: 'hot',
@@ -747,7 +747,7 @@ function fallbackReply(
 
   if (nextStep === 'agent_status') {
     return {
-      replyText: `Are you already working with an agent there in the ${market.marketName} area?`,
+      replyText: `Just so I know how best to help, are you already working with an agent, or would you want help from ${market.teamLabel}?`,
       nextState: 'WAITING_FOR_AGENT_STATUS',
       nextPriority: 'agent_status',
       temperature: 'hot',
@@ -778,7 +778,7 @@ function fallbackReply(
 
   if (nextStep === 'mortgage_or_cash') {
     return {
-      replyText: `Will this move likely be cash, or will you probably need financing?`,
+      replyText: `Perfect. One other thing so we know what lane to stay in — will this move likely be cash, or will you probably need financing?`,
       nextState: 'WAITING_FOR_MORTGAGE_OR_CASH',
       nextPriority: 'mortgage_or_cash',
       temperature: 'hot',
@@ -815,7 +815,7 @@ function fallbackReply(
     !localLenderStatus
   ) {
     return {
-      replyText: `Have you already spoken with a local loan officer there in the area?`,
+      replyText: `Got it. Have you already spoken with a local loan officer here through ${market.brandName}, or do you still need that piece lined up?`,
       nextState: 'WAITING_FOR_LOCAL_LENDER_STATUS',
       nextPriority: 'local_lender_status',
       temperature: 'hot',
@@ -847,7 +847,7 @@ function fallbackReply(
     lenderPermission !== true
   ) {
     return {
-      replyText: `No problem. I can refer you to a local loan officer with no pressure, no obligation, and no credit pull just to help set the foundation for the move. Would it be okay to have one reach out?`,
+      replyText: `No problem at all. We can connect you with one of our trusted local lenders here through ${market.brandName}. It would just be a no-pressure intro to help you get the financing side squared away. Would you like me to set that up?`,
       nextState: 'WAITING_FOR_LENDER_PERMISSION',
       nextPriority: 'lender_permission',
       temperature: 'hot',
@@ -876,7 +876,7 @@ function fallbackReply(
 
   if ((lead.mortgage_or_cash === 'loan' || mortgageOrCash === 'loan') && lenderPermission === true) {
     return {
-      replyText: `Perfect. I’ll have a local lender reach out with no pressure. From there, I can also give you two good times for a quick strategy call if you’d like.`,
+      replyText: `Perfect. I’ll have one of our trusted local lenders reach out. After that, if you want, I can also help line up a quick strategy call with ${market.teamLabel}.`,
       nextState: 'OFFER_AGENT_CALL',
       nextPriority: 'appointment',
       temperature: 'hot',
@@ -907,7 +907,7 @@ function fallbackReply(
   }
 
   return {
-    replyText: `That helps. I think a quick local strategy call would help here. Want me to give you two time options?`,
+    replyText: `That helps. The next best step would probably be a quick strategy call with ${market.teamLabel}. Want me to give you two good time options?`,
     nextState: 'OFFER_AGENT_CALL',
     nextPriority: 'appointment',
     temperature: 'hot',
@@ -1001,16 +1001,19 @@ Use TRUE TPMAMA for relocation:
 6. Appointment
 
 Important:
+- Sound human, conversational, helpful, and warm. Do not sound abrupt, robotic, or like a form.
 - Start by confirming whether they received the relocation guide.
 - After they confirm they received it, ask for TIMELINE first.
 - Do not assume facts the lead has not explicitly given in the current active thread or saved lead fields.
 - Do not repeat the same question twice in a row.
+- When referring to agent help, always keep it in-house with ${market.brandName}. Say things like "our team here at ${market.brandName}" or "someone on our team here at ${market.brandName}".
+- Never suggest some random outside local agent.
+- If they already have a local agent and it is not your team, politely acknowledge it and exit.
 - Answer off-topic questions, objections, value questions, and local area questions as fully as needed.
 - Then return exactly to the NEXT MISSING TPMAMA STEP.
 - If the lead answers multiple steps in one message, capture them all.
-- If they already have a LOCAL ${market.marketName}-area agent, politely exit.
 - If they say they need a loan, ask whether they have already spoken with a LOCAL loan officer there.
-- If they have not, offer a no-pressure, no-obligation local lender introduction.
+- If they have not, offer a no-pressure, no-obligation local lender introduction through ${market.brandName}.
 - Ask permission before lender handoff.
 - If they approve lender handoff, mark lender intro requested and then continue toward appointment.
 
@@ -1053,7 +1056,8 @@ Return only JSON:
     "timeline_answered": true,
     "budget_answered": false,
     "area_answered": false,
-    "agent_status_answered": false
+    "agent_status_answered": false,
+    "wants_agent_call": false
   },
   "aiSummary": "short summary"
 }
