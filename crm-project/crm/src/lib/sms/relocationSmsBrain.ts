@@ -46,6 +46,8 @@ type RelocationLead = {
   sms_lpmama_next_step?: string | null
   sms_resume_step?: string | null
   sms_detour_reason?: string | null
+  sms_current_objective?: string | null
+  sms_last_question?: string | null
 }
 
 type BrainResult = {
@@ -300,10 +302,19 @@ function getUnclearCount(recentMessages: SmsMessage[]) {
   ).length
 }
 
+function detectGuideReceived(text: string): 'yes' | 'no' | null {
+  const t = text.toLowerCase()
+  if (/yes|yeah|yep|i did|got it|received it|thanks/i.test(t)) return 'yes'
+  if (/no|not yet|didn't|did not|never got it|haven't|have not/i.test(t)) return 'no'
+  return null
+}
+
 function extractTimeline(text: string) {
   const t = text.toLowerCase()
   const monthMatch = t.match(/(\d+)\s*(month|months)/)
   if (monthMatch) return `${monthMatch[1]} months`
+  if (/3\s*[-–]\s*6\s*months|3 to 6 months/.test(t)) return '3-6 months'
+  if (/6\s*[-–]\s*12\s*months|6 to 12 months/.test(t)) return '6-12 months'
   if (/asap|right away|immediately|right now/.test(t)) return 'ASAP'
   if (/next month/.test(t)) return 'next month'
   if (/this year/.test(t)) return 'this year'
@@ -316,8 +327,8 @@ function extractTimeline(text: string) {
 function extractBudget(text: string) {
   const t = text.toLowerCase()
   const moneyMatch =
-    t.match(/\$?\s?(\d{3,4})\s?k\b/) ||
-    t.match(/\$?\s?(\d(?:\.\d+)?)\s?m\b/) ||
+    t.match(/\$?\s?(\d{3,4})\s*k\b/) ||
+    t.match(/\$?\s?(\d(?:\.\d+)?)\s*m\b/) ||
     t.match(/\$?\s?(\d{5,7})\b/)
   if (!moneyMatch) return null
   if (t.includes('m') && moneyMatch[1]) return `$${moneyMatch[1]}M`
@@ -417,6 +428,7 @@ function fallbackReply(
   const mortgageOrCash = extractMortgageOrCash(inboundText)
   const localLenderStatus = extractLocalLenderStatus(inboundText)
   const lenderPermission = extractLenderPermission(inboundText)
+  const guideReceived = detectGuideReceived(inboundText)
 
   const nextStep = nextMissingStep(lead, {
     timeline,
@@ -425,6 +437,11 @@ function fallbackReply(
     agentStatus,
     mortgageOrCash,
   })
+
+  const waitingForGuideConfirmation =
+    lead.sms_current_objective === 'confirm_received_guide' ||
+    lead.sms_lpmama_current_step === 'guide_confirmation' ||
+    String(lead.sms_last_question || '').toLowerCase().includes('receive it yet')
 
   if (hasHardStop(inboundText)) {
     return {
@@ -479,6 +496,58 @@ function fallbackReply(
         notes_append: inboundText,
       },
       aiSummary: 'Fallback human handoff',
+    }
+  }
+
+  if (waitingForGuideConfirmation && guideReceived === 'yes') {
+    return {
+      replyText: `Perfect, ${name}. When are you thinking about making your move — in the next few months, later this year, or are you still just exploring right now?`,
+      nextState: 'WAITING_FOR_TIMELINE',
+      nextPriority: 'timeline',
+      temperature: 'hot',
+      bestNextStep: 'none',
+      confidence: 'high',
+      currentObjective: 'location_timeline',
+      appointmentReadiness: 1,
+      conversationTone: 'warm',
+      sentiment,
+      shouldEscalate: false,
+      debugReason: 'fallback_guide_received_yes_ask_timeline',
+      lastQuestion: 'timeline',
+      lpmamaCurrentStep: 'location_timeline',
+      lpmamaNextStep: 'price',
+      resumeStep: 'location_timeline',
+      detourReason: null,
+      extractedFields: {
+        notes_append: inboundText,
+      },
+      aiSummary: 'Guide received, asked timeline',
+    }
+  }
+
+  if (waitingForGuideConfirmation && guideReceived === 'no') {
+    return {
+      replyText: `No problem, ${name}. I can resend the guide. Is this still the best email for you?`,
+      nextState: 'WAITING_FOR_TIMELINE',
+      nextPriority: 'guide_resend',
+      temperature: 'hot',
+      bestNextStep: 'none',
+      confidence: 'high',
+      currentObjective: 'clarify',
+      appointmentReadiness: 0,
+      conversationTone: 'warm',
+      sentiment,
+      shouldEscalate: false,
+      debugReason: 'fallback_guide_received_no_resend',
+      lastQuestion: 'guide_resend',
+      lpmamaCurrentStep: 'location_timeline',
+      lpmamaNextStep: 'location_timeline',
+      resumeStep: 'location_timeline',
+      detourReason: 'guide_resend',
+      extractedFields: {
+        notes_append: inboundText,
+      },
+      aiSummary: 'Guide not received, offered resend',
     }
   }
 
@@ -587,6 +656,34 @@ function fallbackReply(
         notes_append: inboundText,
       },
       aiSummary: 'Fallback local agent exit',
+    }
+  }
+
+  if (nextStep === 'location_timeline') {
+    return {
+      replyText: `When are you thinking about making your move — in the next few months, later this year, or are you still just exploring right now?`,
+      nextState: 'WAITING_FOR_TIMELINE',
+      nextPriority: 'timeline',
+      temperature: 'hot',
+      bestNextStep: 'none',
+      confidence: 'medium',
+      currentObjective: 'location_timeline',
+      appointmentReadiness: 1,
+      conversationTone: 'warm',
+      sentiment,
+      shouldEscalate: false,
+      debugReason: 'fallback_ask_timeline',
+      lastQuestion: 'timeline',
+      lpmamaCurrentStep: 'location_timeline',
+      lpmamaNextStep: 'price',
+      resumeStep: 'location_timeline',
+      detourReason: null,
+      extractedFields: {
+        move_timeline: timeline,
+        timeline_answered: timeline ? true : null,
+        notes_append: inboundText,
+      },
+      aiSummary: 'Fallback asked timeline',
     }
   }
 
@@ -712,7 +809,11 @@ function fallbackReply(
     }
   }
 
-  if ((lead.mortgage_or_cash === 'loan' || mortgageOrCash === 'loan') && !lead.spoken_to_local_lender && !localLenderStatus) {
+  if (
+    (lead.mortgage_or_cash === 'loan' || mortgageOrCash === 'loan') &&
+    !lead.spoken_to_local_lender &&
+    !localLenderStatus
+  ) {
     return {
       replyText: `Have you already spoken with a local loan officer there in the area?`,
       nextState: 'WAITING_FOR_LOCAL_LENDER_STATUS',
@@ -740,7 +841,11 @@ function fallbackReply(
     }
   }
 
-  if ((lead.mortgage_or_cash === 'loan' || mortgageOrCash === 'loan') && (localLenderStatus === 'no' || lead.spoken_to_local_lender === 'no') && lenderPermission !== true) {
+  if (
+    (lead.mortgage_or_cash === 'loan' || mortgageOrCash === 'loan') &&
+    (localLenderStatus === 'no' || lead.spoken_to_local_lender === 'no') &&
+    lenderPermission !== true
+  ) {
     return {
       replyText: `No problem. I can refer you to a local loan officer with no pressure, no obligation, and no credit pull just to help set the foundation for the move. Would it be okay to have one reach out?`,
       nextState: 'WAITING_FOR_LENDER_PERMISSION',
@@ -865,8 +970,16 @@ export async function runRelocationSmsBrain(args: {
   })
   const currentStep = sanitizeStep(lead.sms_lpmama_current_step, nextStep)
 
-  const transcript = recentMessages
-    .slice(-10)
+  const guidePromptIndex = recentMessages
+    .map((m) => String(m.body || '').toLowerCase())
+    .lastIndexOf(
+      'hi john, this is samantha with mpre boise. i just tried giving you a quick call because you requested our boise relocation guide. did you happen to receive it yet?'.toLowerCase()
+    )
+
+  const transcriptWindow =
+    guidePromptIndex >= 0 ? recentMessages.slice(guidePromptIndex) : recentMessages.slice(-10)
+
+  const transcript = transcriptWindow
     .map(
       (m) =>
         `${m.direction === 'incoming' ? 'Lead' : 'Samantha'}: ${String(
@@ -879,17 +992,21 @@ export async function runRelocationSmsBrain(args: {
 You are Samantha, the SMS real estate assistant for ${market.brandName}.
 You are handling a RELOCATION lead by SMS for the ${market.marketName} market.
 
-Use TRUE LPMAMA for relocation:
-1. Location / Timeline
+Use TRUE TPMAMA for relocation:
+1. Timeline
 2. Price
 3. Motivation
 4. Agent status
 5. Mortgage or Cash
 6. Appointment
 
-Rules:
+Important:
+- Start by confirming whether they received the relocation guide.
+- After they confirm they received it, ask for TIMELINE first.
+- Do not assume facts the lead has not explicitly given in the current active thread or saved lead fields.
+- Do not repeat the same question twice in a row.
 - Answer off-topic questions, objections, value questions, and local area questions as fully as needed.
-- Then return exactly to the NEXT MISSING LPMAMA STEP.
+- Then return exactly to the NEXT MISSING TPMAMA STEP.
 - If the lead answers multiple steps in one message, capture them all.
 - If they already have a LOCAL ${market.marketName}-area agent, politely exit.
 - If they say they need a loan, ask whether they have already spoken with a LOCAL loan officer there.
@@ -983,7 +1100,9 @@ ${inboundText}
     const parsed = JSON.parse(extractJson(raw))
 
     return {
-      replyText: trimOrNull(parsed.replyText) || fallbackReply(lead, inboundText, recentMessages).replyText,
+      replyText:
+        trimOrNull(parsed.replyText) ||
+        fallbackReply(lead, inboundText, recentMessages).replyText,
       nextState: sanitizeState(parsed.nextState, lead.sms_state || 'WAITING_FOR_TIMELINE'),
       nextPriority: trimOrNull(parsed.nextPriority) || nextStep,
       temperature: sanitizeTemperature(parsed.temperature),
@@ -1021,6 +1140,7 @@ ${inboundText}
         budget_answered: asBoolOrNull(parsed?.extractedFields?.budget_answered),
         area_answered: asBoolOrNull(parsed?.extractedFields?.area_answered),
         agent_status_answered: asBoolOrNull(parsed?.extractedFields?.agent_status_answered),
+        wants_agent_call: asBoolOrNull(parsed?.extractedFields?.wants_agent_call),
       },
       aiSummary: trimOrNull(parsed.aiSummary) || 'Relocation SMS brain response',
     }
