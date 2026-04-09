@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import twilio from 'twilio'
 import { supabaseAdmin } from '../../../../../lib/supabaseAdmin'
 import { runRelocationSmsBrain } from '../../../../../src/lib/sms/relocationSmsBrain'
+import { getTwoSlots } from '../../../../../lib/calendar/getTwoSlots'
 
 export const runtime = 'nodejs'
 
@@ -476,16 +477,33 @@ if (!existingLead && !leadError && from10) {
         .order('created_at', { ascending: true })
         .limit(10)
 
-      const brain = await runRelocationSmsBrain({
-        lead,
-        inboundText: body,
-        recentMessages: (recentMessages || []) as Array<{
-          direction: 'incoming' | 'outgoing'
-          body: string
-          created_at?: string | null
-        }>,
-        availableSlots: [],
-      })
+let availableSlots: string[] = []
+
+try {
+  if (lead?.org_id) {
+    const slots = await getTwoSlots({
+      org_id: lead.org_id,
+      lead_id: leadId,
+    })
+
+    availableSlots = [slots?.A?.slot_human, slots?.B?.slot_human].filter(
+      Boolean
+    ) as string[]
+  }
+} catch (error) {
+  console.error('❌ sms calendar slot load error', error)
+}
+
+const brain = await runRelocationSmsBrain({
+  lead,
+  inboundText: body,
+  recentMessages: (recentMessages || []) as Array<{
+    direction: 'incoming' | 'outgoing'
+    body: string
+    created_at?: string | null
+  }>,
+  availableSlots,
+})
 
       replyText = brain.replyText
 

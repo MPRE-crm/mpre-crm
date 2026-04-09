@@ -411,6 +411,32 @@ function nextMissingStep(
   return 'appointment'
 }
 
+function requiredStepAfterReply(
+  lead: RelocationLead,
+  inboundText: string
+): LpmamaStep {
+  const timeline = extractTimeline(inboundText)
+  const price = extractBudget(inboundText)
+  const motivation = extractMotivation(inboundText)
+  const agentStatus = extractAgentStatus(inboundText)
+  const mortgageOrCash = extractMortgageOrCash(inboundText)
+
+  return nextMissingStep(lead, {
+    timeline,
+    price,
+    motivation,
+    agentStatus,
+    mortgageOrCash,
+  })
+}
+
+function formatSlotOptions(availableSlots: string[]) {
+  const a = availableSlots?.[0]
+  const b = availableSlots?.[1]
+  if (!a || !b) return null
+  return `I can give you two good options: ${a} or ${b}. Which one works better for you?`
+}
+
 function fallbackReply(
   lead: RelocationLead,
   inboundText: string,
@@ -501,7 +527,7 @@ function fallbackReply(
 
   if (waitingForGuideConfirmation && guideReceived === 'yes') {
     return {
-      replyText: `Perfect, ${name}. Glad you got it. Just so I can point you in the right direction, when are you thinking about making your move — in the next few months, later this year, or are you still just exploring right now?`,
+      replyText: `Perfect, ${name} — glad you got it. So I can get a feel for your timing, when are you thinking about making your move? Are you thinking in the next few months, later this year, or are you still just exploring for now?`,
       nextState: 'WAITING_FOR_TIMELINE',
       nextPriority: 'timeline',
       temperature: 'hot',
@@ -661,7 +687,7 @@ function fallbackReply(
 
   if (nextStep === 'location_timeline') {
     return {
-      replyText: `That helps, ${name}. So I can be useful here, when are you thinking about making your move — in the next few months, later this year, or are you still just exploring right now?`,
+      replyText: `That helps, ${name}. So I can be useful here, when are you thinking about making your move? Are you thinking in the next few months, later this year, or are you still just exploring for now?`,
       nextState: 'WAITING_FOR_TIMELINE',
       nextPriority: 'timeline',
       temperature: 'hot',
@@ -689,7 +715,7 @@ function fallbackReply(
 
   if (nextStep === 'price') {
     return {
-      replyText: `Got it. And just so we stay realistic with what you’re looking for, what price range are you hoping to stay around?`,
+      replyText: `That helps. And so I can keep this realistic and useful for you, what kind of price range are you hoping to stay around?`,
       nextState: 'WAITING_FOR_BUDGET',
       nextPriority: 'price',
       temperature: 'hot',
@@ -717,7 +743,7 @@ function fallbackReply(
 
   if (nextStep === 'motivation') {
     return {
-      replyText: `That helps. What’s really driving the move for you — work, family, lifestyle, retirement, or something else?`,
+      replyText: `Makes sense. What’s really driving the move for you? Is this more about work, family, lifestyle, retirement, or something else going on right now?`,
       nextState: 'WAITING_FOR_MOTIVATION',
       nextPriority: 'motivation',
       temperature: 'hot',
@@ -778,7 +804,7 @@ function fallbackReply(
 
   if (nextStep === 'mortgage_or_cash') {
     return {
-      replyText: `Perfect. One other thing so we know what lane to stay in — will this move likely be cash, or will you probably need financing?`,
+      replyText: `Perfect. One other thing I like to clarify so we know the best path forward — are you thinking this will be a cash purchase, or will you probably want financing?`,
       nextState: 'WAITING_FOR_MORTGAGE_OR_CASH',
       nextPriority: 'mortgage_or_cash',
       temperature: 'hot',
@@ -815,7 +841,7 @@ function fallbackReply(
     !localLenderStatus
   ) {
     return {
-      replyText: `Got it. Have you already spoken with a local loan officer here through ${market.brandName}, or do you still need that piece lined up?`,
+      replyText: `Got it. Have you already spoken with a local loan officer yet, or is that still something you’d want help getting lined up?`,
       nextState: 'WAITING_FOR_LOCAL_LENDER_STATUS',
       nextPriority: 'local_lender_status',
       temperature: 'hot',
@@ -847,7 +873,7 @@ function fallbackReply(
     lenderPermission !== true
   ) {
     return {
-      replyText: `No problem at all. We can connect you with one of our trusted local lenders here through ${market.brandName}. It would just be a no-pressure intro to help you get the financing side squared away. Would you like me to set that up?`,
+      replyText: `No problem at all. We can connect you with one of our trusted local lenders here at ${market.brandName}. It would just be a simple, no-pressure intro to help you get the financing side squared away. Want me to set that up for you?`,
       nextState: 'WAITING_FOR_LENDER_PERMISSION',
       nextPriority: 'lender_permission',
       temperature: 'hot',
@@ -1016,6 +1042,7 @@ Important:
 - If they have not, offer a no-pressure, no-obligation local lender introduction through ${market.brandName}.
 - Ask permission before lender handoff.
 - If they approve lender handoff, mark lender intro requested and then continue toward appointment.
+- Do not move to appointment until timeline, price, motivation, agent status, and mortgage/cash are all clearly answered.
 
 Return only JSON:
 {
@@ -1102,6 +1129,82 @@ ${inboundText}
 
     const raw = completion.choices[0]?.message?.content?.trim() || ''
     const parsed = JSON.parse(extractJson(raw))
+
+    const forcedNextStep = requiredStepAfterReply(lead, inboundText)
+
+    if (
+      forcedNextStep === 'mortgage_or_cash' &&
+      (parsed.currentObjective === 'appointment' ||
+        parsed.bestNextStep === 'agent_call' ||
+        parsed.lpmamaCurrentStep === 'appointment' ||
+        parsed.lpmamaNextStep === 'appointment')
+    ) {
+      return {
+        replyText: `That makes sense, ${firstNameOf(lead)}. One other piece I like to clarify so we know the best path forward — are you thinking this will be a cash purchase, or will you probably want financing?`,
+        nextState: 'WAITING_FOR_MORTGAGE_OR_CASH',
+        nextPriority: 'mortgage_or_cash',
+        temperature: 'hot',
+        bestNextStep: 'none',
+        confidence: 'high',
+        currentObjective: 'mortgage_or_cash',
+        appointmentReadiness: 4,
+        conversationTone: 'warm',
+        sentiment: sanitizeSentiment(parsed.sentiment),
+        shouldEscalate: false,
+        debugReason: 'guardrail_force_mortgage_before_appointment',
+        lastQuestion: 'mortgage_or_cash',
+        lpmamaCurrentStep: 'mortgage_or_cash',
+        lpmamaNextStep: 'appointment',
+        resumeStep: 'mortgage_or_cash',
+        detourReason: null,
+        extractedFields: {
+          move_timeline: trimOrNull(parsed?.extractedFields?.move_timeline),
+          price_range: trimOrNull(parsed?.extractedFields?.price_range),
+          motivation: trimOrNull(parsed?.extractedFields?.motivation),
+          preferred_areas: trimOrNull(parsed?.extractedFields?.preferred_areas),
+          agent_status: trimOrNull(parsed?.extractedFields?.agent_status),
+          notes_append: trimOrNull(parsed?.extractedFields?.notes_append) || inboundText,
+          timeline_answered: asBoolOrNull(parsed?.extractedFields?.timeline_answered),
+          budget_answered: asBoolOrNull(parsed?.extractedFields?.budget_answered),
+          area_answered: asBoolOrNull(parsed?.extractedFields?.area_answered),
+          agent_status_answered: asBoolOrNull(parsed?.extractedFields?.agent_status_answered),
+        },
+        aiSummary: 'Guardrail forced mortgage/cash before appointment',
+      }
+    }
+
+    if (
+      forcedNextStep === 'appointment' &&
+      Array.isArray(availableSlots) &&
+      availableSlots.length >= 2 &&
+      /yes|yeah|yep|sounds good|that works|let's do it|lets do it/i.test(inboundText)
+    ) {
+      return {
+        replyText: `Perfect, ${firstNameOf(lead)}. ${formatSlotOptions(availableSlots)}`,
+        nextState: 'OFFER_AGENT_CALL',
+        nextPriority: 'appointment',
+        temperature: 'hot',
+        bestNextStep: 'agent_call',
+        confidence: 'high',
+        currentObjective: 'appointment',
+        appointmentReadiness: 5,
+        conversationTone: 'warm',
+        sentiment: sanitizeSentiment(parsed.sentiment),
+        shouldEscalate: true,
+        debugReason: 'guardrail_offer_real_calendar_slots',
+        lastQuestion: 'appointment_offer',
+        lpmamaCurrentStep: 'appointment',
+        lpmamaNextStep: 'appointment',
+        resumeStep: 'appointment',
+        detourReason: null,
+        extractedFields: {
+          notes_append: inboundText,
+          preferred_next_step: 'appointment',
+          wants_agent_call: true,
+        },
+        aiSummary: 'Offered real calendar slots',
+      }
+    }
 
     return {
       replyText:
