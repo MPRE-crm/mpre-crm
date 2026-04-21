@@ -46,13 +46,13 @@ async function handlePreferredLenderIntro(args: {
   agentId?: string | null
   orgId?: string | null
   phone: string
-}) {
+}): Promise<boolean> {
   try {
     const { leadId, agentId, orgId, phone } = args
 
     if (!agentId || !orgId || !phone) {
       console.error('❌ lender intro missing agentId/orgId/phone', args)
-      return
+      return false
     }
 
     const accountSid = process.env.TWILIO_ACCOUNT_SID
@@ -61,33 +61,33 @@ async function handlePreferredLenderIntro(args: {
 
     if (!accountSid || !authToken || !fromNumber) {
       console.error('❌ lender intro missing Twilio env vars')
-      return
+      return false
     }
 
-const { data: agentUser, error: agentLookupError } = await supabaseAdmin
-  .from('users')
-  .select('id, user_id, org_id, name, email')
-  .eq('user_id', agentId)
-  .eq('org_id', orgId)
-  .maybeSingle()
+    const { data: agentUser, error: agentLookupError } = await supabaseAdmin
+      .from('users')
+      .select('id, user_id, org_id, name, email')
+      .eq('user_id', agentId)
+      .eq('org_id', orgId)
+      .maybeSingle()
 
-if (agentLookupError) {
-  console.error('❌ lender intro agent lookup error', agentLookupError)
-  return
-}
+    if (agentLookupError) {
+      console.error('❌ lender intro agent lookup error', agentLookupError)
+      return false
+    }
 
-// Fallback: some leads store profiles.id in lead.agent_id instead of users.user_id.
-// If no users row exists, use the lead.agent_id directly for agent_lender_preferences.
-const resolvedAgentUserId = agentUser?.id || agentId
-const resolvedAgentName = agentUser?.name || agentUser?.email || 'Assigned Agent'
+    // Fallback: some leads store profiles.id in lead.agent_id instead of users.user_id.
+    // If no users row exists, use the lead.agent_id directly for agent_lender_preferences.
+    const resolvedAgentUserId = agentUser?.id || agentId
+    const resolvedAgentName = agentUser?.name || agentUser?.email || 'Assigned Agent'
 
-if (!resolvedAgentUserId) {
-  console.error('❌ lender intro could not resolve agent id', {
-    agentId,
-    orgId,
-  })
-  return
-}
+    if (!resolvedAgentUserId) {
+      console.error('❌ lender intro could not resolve agent id', {
+        agentId,
+        orgId,
+      })
+      return false
+    }
 
     const { data: preferences, error: prefsError } = await supabaseAdmin
       .from('agent_lender_preferences')
@@ -99,7 +99,7 @@ if (!resolvedAgentUserId) {
 
     if (prefsError) {
       console.error('❌ lender intro prefs lookup error', prefsError)
-      return
+      return false
     }
 
     if (!preferences || preferences.length === 0) {
@@ -107,7 +107,7 @@ if (!resolvedAgentUserId) {
         agentUserId: resolvedAgentUserId,
         orgId,
       })
-      return
+      return false
     }
 
     const { data: rotationState, error: rotationError } = await supabaseAdmin
@@ -119,7 +119,7 @@ if (!resolvedAgentUserId) {
 
     if (rotationError) {
       console.error('❌ lender intro rotation lookup error', rotationError)
-      return
+      return false
     }
 
     let selectedPref = preferences[0]
@@ -145,27 +145,25 @@ if (!resolvedAgentUserId) {
 
     if (lenderLookupError) {
       console.error('❌ lender intro lender lookup error', lenderLookupError)
-      return
+      return false
     }
 
     if (!lenderUser?.phone) {
       console.error('❌ lender intro lender missing phone', {
         lenderUserId: selectedPref.lender_user_id,
       })
-      return
+      return false
     }
 
-        const { data: leadRow, error: leadLookupError } = await supabaseAdmin
+    const { data: leadRow, error: leadLookupError } = await supabaseAdmin
       .from('leads')
-      .select(
-        'id, name, first_name, phone, email, move_timeline, price_range'
-    )
+      .select('id, name, first_name, phone, email, move_timeline, price_range')
       .eq('id', leadId)
       .maybeSingle()
 
     if (leadLookupError) {
       console.error('❌ lender intro lead lookup error', leadLookupError)
-      return
+      return false
     }
 
     const { data: orgRow, error: orgLookupError } = await supabaseAdmin
@@ -176,22 +174,14 @@ if (!resolvedAgentUserId) {
 
     if (orgLookupError) {
       console.error('❌ lender intro org lookup error', orgLookupError)
-      return
+      return false
     }
 
     const twilioClient = twilio(accountSid, authToken)
 
-    const leadName =
-      leadRow?.name ||
-      leadRow?.first_name ||
-      'Unknown Lead'
-
+    const leadName = leadRow?.name || leadRow?.first_name || 'Unknown Lead'
     const requestedAt = new Date().toLocaleString('en-US')
-
-    const orgDisplay =
-      orgRow?.org_display ||
-      orgRow?.name ||
-      'Organization'
+    const orgDisplay = orgRow?.org_display || orgRow?.name || 'Organization'
 
     const lenderMessage =
       `${orgDisplay} lender follow-up needed.\n` +
@@ -229,8 +219,11 @@ if (!resolvedAgentUserId) {
       lenderUserId: selectedPref.lender_user_id,
       lenderMessageSid: sent.sid,
     })
+
+    return true
   } catch (error) {
     console.error('❌ lender intro unexpected error', error)
+    return false
   }
 }
 
@@ -266,12 +259,13 @@ export async function POST(req: NextRequest) {
       }
     }
 
-const fromDigits = from.replace(/\D/g, '')
-const from10 = fromDigits.length === 11 && fromDigits.startsWith('1')
-  ? fromDigits.slice(1)
-  : fromDigits
+    const fromDigits = from.replace(/\D/g, '')
+    const from10 =
+      fromDigits.length === 11 && fromDigits.startsWith('1')
+        ? fromDigits.slice(1)
+        : fromDigits
 
-const leadSelect = `
+    const leadSelect = `
   id,
   first_name,
   last_name,
@@ -320,43 +314,43 @@ const leadSelect = `
   sms_detour_reason
 `
 
-let existingLead: any = null
-let leadError: any = null
+    let existingLead: any = null
+    let leadError: any = null
 
-const exactLeadResult = await supabaseAdmin
-  .from('leads')
-  .select(leadSelect)
-  .eq('phone', from)
-  .maybeSingle()
+    const exactLeadResult = await supabaseAdmin
+      .from('leads')
+      .select(leadSelect)
+      .eq('phone', from)
+      .maybeSingle()
 
-existingLead = exactLeadResult.data
-leadError = exactLeadResult.error
+    existingLead = exactLeadResult.data
+    leadError = exactLeadResult.error
 
-if (!existingLead && !leadError && from10) {
-  const altLeadResult = await supabaseAdmin
-    .from('leads')
-    .select(leadSelect)
-    .in('phone', [from10, `1${from10}`])
-    .maybeSingle()
+    if (!existingLead && !leadError && from10) {
+      const altLeadResult = await supabaseAdmin
+        .from('leads')
+        .select(leadSelect)
+        .in('phone', [from10, `1${from10}`])
+        .maybeSingle()
 
-  existingLead = altLeadResult.data
-  leadError = altLeadResult.error
-}
+      existingLead = altLeadResult.data
+      leadError = altLeadResult.error
+    }
 
     let lead = existingLead
     let leadId: string | null = lead?.id ?? null
 
     if (lead?.id && lead.phone !== from) {
-  await supabaseAdmin
-    .from('leads')
-    .update({
-      phone: from,
-      updated_at: nowIso,
-    })
-    .eq('id', lead.id)
+      await supabaseAdmin
+        .from('leads')
+        .update({
+          phone: from,
+          updated_at: nowIso,
+        })
+        .eq('id', lead.id)
 
-  lead.phone = from
-}
+      lead.phone = from
+    }
 
     if (!lead && !leadError) {
       const { data: newLead, error: insertError } = await supabaseAdmin
@@ -482,33 +476,33 @@ if (!existingLead && !leadError && from10) {
         .order('created_at', { ascending: true })
         .limit(10)
 
-let availableSlots: string[] = []
+      let availableSlots: string[] = []
 
-try {
-  if (lead?.org_id) {
-    const slots = await getTwoSlots({
-      org_id: lead.org_id,
-      lead_id: leadId,
-    })
+      try {
+        if (lead?.org_id) {
+          const slots = await getTwoSlots({
+            org_id: lead.org_id,
+            lead_id: leadId,
+          })
 
-    availableSlots = [slots?.A?.slot_human, slots?.B?.slot_human].filter(
-      Boolean
-    ) as string[]
-  }
-} catch (error) {
-  console.error('❌ sms calendar slot load error', error)
-}
+          availableSlots = [slots?.A?.slot_human, slots?.B?.slot_human].filter(
+            Boolean
+          ) as string[]
+        }
+      } catch (error) {
+        console.error('❌ sms calendar slot load error', error)
+      }
 
-const brain = await runRelocationSmsBrain({
-  lead,
-  inboundText: body,
-  recentMessages: (recentMessages || []) as Array<{
-    direction: 'incoming' | 'outgoing'
-    body: string
-    created_at?: string | null
-  }>,
-  availableSlots,
-})
+      const brain = await runRelocationSmsBrain({
+        lead,
+        inboundText: body,
+        recentMessages: (recentMessages || []) as Array<{
+          direction: 'incoming' | 'outgoing'
+          body: string
+          created_at?: string | null
+        }>,
+        availableSlots,
+      })
 
       replyText = brain.replyText
 
@@ -548,22 +542,29 @@ const brain = await runRelocationSmsBrain({
           brain.extractedFields.move_timeline || lead.move_timeline || null,
         price_range:
           brain.extractedFields.price_range || lead.price_range || null,
-        motivation:
-          brain.extractedFields.motivation || lead.motivation || null,
+        motivation: brain.extractedFields.motivation || lead.motivation || null,
         preferred_areas:
           brain.extractedFields.preferred_areas || lead.preferred_areas || null,
         agent_status:
           brain.extractedFields.agent_status || lead.agent_status || null,
         mortgage_or_cash:
-          brain.extractedFields.mortgage_or_cash || lead.mortgage_or_cash || null,
+          brain.extractedFields.mortgage_or_cash ||
+          lead.mortgage_or_cash ||
+          null,
         spoken_to_local_lender:
-          brain.extractedFields.spoken_to_local_lender || lead.spoken_to_local_lender || null,
+          brain.extractedFields.spoken_to_local_lender ||
+          lead.spoken_to_local_lender ||
+          null,
         lender_intro_permission:
-          brain.extractedFields.lender_intro_permission ?? lead.lender_intro_permission ?? false,
+          brain.extractedFields.lender_intro_permission ??
+          lead.lender_intro_permission ??
+          false,
         lender_need_type:
           brain.extractedFields.lender_need_type || lead.lender_need_type || null,
         wants_lender_connection:
-          brain.extractedFields.wants_lender_connection ?? lead.wants_lender_connection ?? false,
+          brain.extractedFields.wants_lender_connection ??
+          lead.wants_lender_connection ??
+          false,
         preferred_next_step:
           brain.extractedFields.preferred_next_step ||
           (brain.bestNextStep === 'agent_call'
@@ -617,17 +618,45 @@ const brain = await runRelocationSmsBrain({
         console.error('❌ relocation sms lead update error', leadUpdateError)
       }
 
-      if (
-        (brain.extractedFields.lender_intro_permission === true ||
-          leadPatch.lender_intro_permission === true) &&
-        leadPatch.wants_lender_connection === true
-      ) {
-        await handlePreferredLenderIntro({
+      const lenderApprovedThisTurn =
+        brain.extractedFields.lender_intro_permission === true &&
+        lead?.lender_intro_permission !== true
+
+      if (lenderApprovedThisTurn) {
+        const lenderIntroSent = await handlePreferredLenderIntro({
           leadId,
           agentId: lead?.agent_id,
           orgId: lead?.org_id,
           phone: from,
         })
+
+        if (lenderIntroSent) {
+          replyText = `Perfect, ${clean(lead?.first_name) || 'there'} — I’ll make that introduction for you. The next best step would probably be a quick strategy call with our team here at MPRE Boise so we can help you put a real game plan together. Want me to give you two good time options?`
+
+          const appointmentPatch = {
+            sms_state: 'OFFER_AGENT_CALL',
+            sms_current_objective: 'appointment',
+            sms_last_question: 'appointment_offer',
+            sms_lpmama_current_step: 'appointment',
+            sms_lpmama_next_step: 'appointment',
+            sms_resume_step: 'appointment',
+            sms_detour_reason: null,
+            preferred_next_step: 'appointment',
+            updated_at: nowIso,
+          }
+
+          const { error: appointmentPatchError } = await supabaseAdmin
+            .from('leads')
+            .update(appointmentPatch)
+            .eq('id', leadId)
+
+          if (appointmentPatchError) {
+            console.error(
+              '❌ relocation sms appointment patch after lender intro error',
+              appointmentPatchError
+            )
+          }
+        }
       }
     } else if (leadId) {
       const leadPatch: Record<string, any> = {
