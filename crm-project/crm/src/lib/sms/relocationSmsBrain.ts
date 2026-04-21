@@ -134,13 +134,35 @@ function firstNameOf(lead: RelocationLead) {
 
 function trimOrNull(value: unknown) {
   const s = String(value ?? '').trim()
-  return s ? s : null
+  if (!s) return null
+
+  const normalized = s.toLowerCase()
+
+  if (
+    normalized === 'null' ||
+    normalized === 'undefined' ||
+    normalized === 'string or null' ||
+    normalized === 'boolean' ||
+    normalized === 'true or false' ||
+    normalized === 'n/a' ||
+    normalized === 'na' ||
+    normalized === 'unknown'
+  ) {
+    return null
+  }
+
+  return s
 }
 
 function asBoolOrNull(value: unknown) {
   if (typeof value === 'boolean') return value
-  if (value === 'true') return true
-  if (value === 'false') return false
+
+  const s = String(value ?? '').trim().toLowerCase()
+
+  if (!s) return null
+  if (s === 'true') return true
+  if (s === 'false') return false
+
   return null
 }
 
