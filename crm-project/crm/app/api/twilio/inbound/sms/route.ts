@@ -64,31 +64,36 @@ async function handlePreferredLenderIntro(args: {
       return
     }
 
-    const { data: agentUser, error: agentLookupError } = await supabaseAdmin
-      .from('users')
-      .select('id, user_id, org_id, name, email')
-      .eq('user_id', agentId)
-      .eq('org_id', orgId)
-      .maybeSingle()
+const { data: agentUser, error: agentLookupError } = await supabaseAdmin
+  .from('users')
+  .select('id, user_id, org_id, name, email')
+  .eq('user_id', agentId)
+  .eq('org_id', orgId)
+  .maybeSingle()
 
-    if (agentLookupError) {
-      console.error('❌ lender intro agent lookup error', agentLookupError)
-      return
-    }
+if (agentLookupError) {
+  console.error('❌ lender intro agent lookup error', agentLookupError)
+  return
+}
 
-    if (!agentUser?.id) {
-      console.error('❌ lender intro could not map lead.agent_id to users.id', {
-        agentId,
-        orgId,
-      })
-      return
-    }
+// Fallback: some leads store profiles.id in lead.agent_id instead of users.user_id.
+// If no users row exists, use the lead.agent_id directly for agent_lender_preferences.
+const resolvedAgentUserId = agentUser?.id || agentId
+const resolvedAgentName = agentUser?.name || agentUser?.email || 'Assigned Agent'
+
+if (!resolvedAgentUserId) {
+  console.error('❌ lender intro could not resolve agent id', {
+    agentId,
+    orgId,
+  })
+  return
+}
 
     const { data: preferences, error: prefsError } = await supabaseAdmin
       .from('agent_lender_preferences')
       .select('lender_user_id, position, is_active')
       .eq('org_id', orgId)
-      .eq('agent_user_id', agentUser.id)
+      .eq('agent_user_id', resolvedAgentUserId)
       .eq('is_active', true)
       .order('position', { ascending: true })
 
@@ -99,7 +104,7 @@ async function handlePreferredLenderIntro(args: {
 
     if (!preferences || preferences.length === 0) {
       console.error('❌ lender intro no active preferred lenders found', {
-        agentUserId: agentUser.id,
+        agentUserId: resolvedAgentUserId,
         orgId,
       })
       return
@@ -109,7 +114,7 @@ async function handlePreferredLenderIntro(args: {
       .from('agent_lender_rotation_state')
       .select('last_lender_user_id')
       .eq('org_id', orgId)
-      .eq('agent_user_id', agentUser.id)
+      .eq('agent_user_id', resolvedAgentUserId)
       .maybeSingle()
 
     if (rotationError) {
@@ -190,7 +195,7 @@ async function handlePreferredLenderIntro(args: {
 
     const lenderMessage =
       `${orgDisplay} lender follow-up needed.\n` +
-      `Requested By Agent: ${agentUser.name || agentUser.email || 'Unknown Agent'}\n` +
+      `Requested By Agent: ${resolvedAgentName}\n` +
       `Requested At: ${requestedAt}\n` +
       `Lead: ${leadName}\n` +
       `Phone: ${leadRow?.phone || phone || 'N/A'}\n` +
@@ -210,7 +215,7 @@ async function handlePreferredLenderIntro(args: {
       .from('agent_lender_rotation_state')
       .upsert({
         org_id: orgId,
-        agent_user_id: agentUser.id,
+        agent_user_id: resolvedAgentUserId,
         last_lender_user_id: selectedPref.lender_user_id,
         updated_at: new Date().toISOString(),
       })
