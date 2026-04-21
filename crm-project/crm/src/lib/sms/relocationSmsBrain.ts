@@ -387,6 +387,13 @@ function extractLenderPermission(text: string) {
   return null
 }
 
+function wantsLenderIntro(text: string) {
+  const t = text.toLowerCase()
+  return /introduction|introduce me|connect me|please connect|connect us|set that up|set it up|yes please|that would be great|that would be helpful|i would like an introduction|i'd like an introduction|please do|sounds good/i.test(
+    t
+  )
+}
+
 function nextMissingStep(
   lead: RelocationLead,
   extracted?: {
@@ -469,7 +476,7 @@ function fallbackReply(
     lead.sms_lpmama_current_step === 'guide_confirmation' ||
     String(lead.sms_last_question || '').toLowerCase().includes('receive it yet')
 
-    if (lead.sms_state === 'WAITING_FOR_LOCAL_LENDER_STATUS') {
+if (lead.sms_state === 'WAITING_FOR_LOCAL_LENDER_STATUS') {
   if (localLenderStatus === 'yes') {
     return {
       replyText: `Perfect — that helps. Since you already have that piece moving, the next best step would probably be a quick strategy call with ${market.teamLabel}. Want me to give you two good time options?`,
@@ -498,7 +505,7 @@ function fallbackReply(
     }
   }
 
-  if (localLenderStatus === 'no') {
+  if (localLenderStatus === 'no' || wantsLenderIntro(inboundText)) {
     return {
       replyText: `No problem at all. We can connect you with one of our trusted local lenders here at ${market.brandName}. It would just be a simple, no-pressure intro to help you get the financing side squared away. Want me to set that up for you?`,
       nextState: 'WAITING_FOR_LENDER_PERMISSION',
@@ -511,7 +518,9 @@ function fallbackReply(
       conversationTone: 'warm',
       sentiment,
       shouldEscalate: false,
-      debugReason: 'fallback_local_lender_status_no_offer_intro',
+      debugReason: wantsLenderIntro(inboundText)
+        ? 'fallback_local_lender_status_direct_intro_request'
+        : 'fallback_local_lender_status_no_offer_intro',
       lastQuestion: 'lender_permission',
       lpmamaCurrentStep: 'mortgage_or_cash',
       lpmamaNextStep: 'appointment',
@@ -528,7 +537,7 @@ function fallbackReply(
 }
 
 if (lead.sms_state === 'WAITING_FOR_LENDER_PERMISSION') {
-  if (lenderPermission === true) {
+  if (lenderPermission === true || wantsLenderIntro(inboundText)) {
     return {
       replyText: `Perfect. I’ll have one of our trusted local lenders reach out. After that, if you want, I can also help line up a quick strategy call with ${market.teamLabel}.`,
       nextState: 'OFFER_AGENT_CALL',
@@ -541,7 +550,9 @@ if (lead.sms_state === 'WAITING_FOR_LENDER_PERMISSION') {
       conversationTone: 'warm',
       sentiment,
       shouldEscalate: true,
-      debugReason: 'fallback_lender_permission_yes',
+      debugReason: wantsLenderIntro(inboundText)
+        ? 'fallback_lender_permission_direct_yes'
+        : 'fallback_lender_permission_yes',
       lastQuestion: 'appointment_offer',
       lpmamaCurrentStep: 'appointment',
       lpmamaNextStep: 'appointment',
@@ -1249,6 +1260,133 @@ ${inboundText}
 
     const raw = completion.choices[0]?.message?.content?.trim() || ''
     const parsed = JSON.parse(extractJson(raw))
+
+    const localLenderStatus = extractLocalLenderStatus(inboundText)
+    const lenderPermission = extractLenderPermission(inboundText)
+
+    if (lead.sms_state === 'WAITING_FOR_LOCAL_LENDER_STATUS') {
+      if (localLenderStatus === 'yes') {
+        return {
+          replyText: `Perfect — that helps. Since you already have that piece moving, the next best step would probably be a quick strategy call with ${market.teamLabel}. Want me to give you two good time options?`,
+          nextState: 'OFFER_AGENT_CALL',
+          nextPriority: 'appointment',
+          temperature: 'hot',
+          bestNextStep: 'agent_call',
+          confidence: 'high',
+          currentObjective: 'appointment',
+          appointmentReadiness: 5,
+          conversationTone: 'warm',
+          sentiment: sanitizeSentiment(parsed.sentiment),
+          shouldEscalate: false,
+          debugReason: 'state_override_local_lender_status_yes_move_to_appointment',
+          lastQuestion: 'appointment_offer',
+          lpmamaCurrentStep: 'appointment',
+          lpmamaNextStep: 'appointment',
+          resumeStep: 'appointment',
+          detourReason: null,
+          extractedFields: {
+            spoken_to_local_lender: 'yes',
+            preferred_next_step: 'appointment',
+            notes_append: inboundText,
+          },
+          aiSummary: 'Confirmed local lender already involved',
+        }
+      }
+
+      if (localLenderStatus === 'no' || wantsLenderIntro(inboundText)) {
+        return {
+          replyText: `No problem at all. We can connect you with one of our trusted local lenders here at ${market.brandName}. It would just be a simple, no-pressure intro to help you get the financing side squared away. Want me to set that up for you?`,
+          nextState: 'WAITING_FOR_LENDER_PERMISSION',
+          nextPriority: 'lender_permission',
+          temperature: 'hot',
+          bestNextStep: 'lender_intro',
+          confidence: 'high',
+          currentObjective: 'mortgage_or_cash',
+          appointmentReadiness: 4,
+          conversationTone: 'warm',
+          sentiment: sanitizeSentiment(parsed.sentiment),
+          shouldEscalate: false,
+          debugReason: wantsLenderIntro(inboundText)
+            ? 'state_override_local_lender_status_direct_intro_request'
+            : 'state_override_local_lender_status_no_offer_intro',
+          lastQuestion: 'lender_permission',
+          lpmamaCurrentStep: 'mortgage_or_cash',
+          lpmamaNextStep: 'appointment',
+          resumeStep: 'appointment',
+          detourReason: 'lender_flow',
+          extractedFields: {
+            spoken_to_local_lender: 'no',
+            lender_need_type: 'loan',
+            notes_append: inboundText,
+          },
+          aiSummary: 'Needs local lender intro offered',
+        }
+      }
+    }
+
+    if (lead.sms_state === 'WAITING_FOR_LENDER_PERMISSION') {
+      if (lenderPermission === true || wantsLenderIntro(inboundText)) {
+        return {
+          replyText: `Perfect. I’ll have one of our trusted local lenders reach out. After that, if you want, I can also help line up a quick strategy call with ${market.teamLabel}.`,
+          nextState: 'OFFER_AGENT_CALL',
+          nextPriority: 'appointment',
+          temperature: 'hot',
+          bestNextStep: 'lender_intro',
+          confidence: 'high',
+          currentObjective: 'appointment',
+          appointmentReadiness: 5,
+          conversationTone: 'warm',
+          sentiment: sanitizeSentiment(parsed.sentiment),
+          shouldEscalate: true,
+          debugReason: wantsLenderIntro(inboundText)
+            ? 'state_override_lender_permission_direct_yes'
+            : 'state_override_lender_permission_yes',
+          lastQuestion: 'appointment_offer',
+          lpmamaCurrentStep: 'appointment',
+          lpmamaNextStep: 'appointment',
+          resumeStep: 'appointment',
+          detourReason: 'lender_flow',
+          extractedFields: {
+            spoken_to_local_lender: 'no',
+            lender_intro_permission: true,
+            lender_need_type: 'loan',
+            wants_lender_connection: true,
+            preferred_next_step: 'lender_connection',
+            notes_append: inboundText,
+          },
+          aiSummary: 'Lender intro approved',
+        }
+      }
+
+      if (lenderPermission === false) {
+        return {
+          replyText: `No worries at all. We can leave that piece alone for now. The next best step would probably be a quick strategy call with ${market.teamLabel} so you can get real answers and a game plan. Want me to give you two good time options?`,
+          nextState: 'OFFER_AGENT_CALL',
+          nextPriority: 'appointment',
+          temperature: 'hot',
+          bestNextStep: 'agent_call',
+          confidence: 'high',
+          currentObjective: 'appointment',
+          appointmentReadiness: 5,
+          conversationTone: 'warm',
+          sentiment: sanitizeSentiment(parsed.sentiment),
+          shouldEscalate: false,
+          debugReason: 'state_override_lender_permission_no_move_to_appointment',
+          lastQuestion: 'appointment_offer',
+          lpmamaCurrentStep: 'appointment',
+          lpmamaNextStep: 'appointment',
+          resumeStep: 'appointment',
+          detourReason: null,
+          extractedFields: {
+            spoken_to_local_lender: 'no',
+            lender_intro_permission: false,
+            preferred_next_step: 'appointment',
+            notes_append: inboundText,
+          },
+          aiSummary: 'Lender intro declined, moved to appointment',
+        }
+      }
+    }
 
     const forcedNextStep = requiredStepAfterReply(lead, inboundText)
 
