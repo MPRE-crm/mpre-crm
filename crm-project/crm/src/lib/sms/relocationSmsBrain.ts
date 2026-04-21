@@ -1472,6 +1472,101 @@ ${inboundText}
       }
     }
 
+        if (lead.sms_state === 'OFFER_AGENT_CALL') {
+      const appointmentYes =
+        /yes|yeah|yep|yes please|sounds good|that works|go ahead|let's do it|lets do it|please do|ok|okay|sure/i.test(
+          inboundText
+        )
+
+      const appointmentNo =
+        /no|not right now|maybe later|later|not yet|busy|another time/i.test(
+          inboundText
+        )
+
+      if (appointmentYes) {
+        if (Array.isArray(availableSlots) && availableSlots.length >= 2) {
+          return {
+            replyText: `Perfect, ${firstNameOf(lead)}. ${formatSlotOptions(availableSlots)}`,
+            nextState: 'OFFER_AGENT_CALL',
+            nextPriority: 'appointment',
+            temperature: 'hot',
+            bestNextStep: 'agent_call',
+            confidence: 'high',
+            currentObjective: 'appointment',
+            appointmentReadiness: 5,
+            conversationTone: 'warm',
+            sentiment: sanitizeSentiment(parsed.sentiment),
+            shouldEscalate: true,
+            debugReason: 'state_override_offer_agent_call_yes_with_slots',
+            lastQuestion: 'appointment_offer',
+            lpmamaCurrentStep: 'appointment',
+            lpmamaNextStep: 'appointment',
+            resumeStep: 'appointment',
+            detourReason: null,
+            extractedFields: {
+              preferred_next_step: 'appointment',
+              wants_agent_call: true,
+              notes_append: inboundText,
+            },
+            aiSummary: 'Appointment accepted and real slots offered',
+          }
+        }
+
+        return {
+          replyText: `Perfect, ${firstNameOf(lead)}. I don’t have live time slots showing right this second, but I can still help get this moving. Is there usually a better time for a quick call — mornings, afternoons, or evenings?`,
+          nextState: 'CALLBACK_LATER',
+          nextPriority: 'appointment',
+          temperature: 'hot',
+          bestNextStep: 'agent_call',
+          confidence: 'high',
+          currentObjective: 'appointment',
+          appointmentReadiness: 5,
+          conversationTone: 'warm',
+          sentiment: sanitizeSentiment(parsed.sentiment),
+          shouldEscalate: true,
+          debugReason: 'state_override_offer_agent_call_yes_no_slots',
+          lastQuestion: 'appointment_time_preference',
+          lpmamaCurrentStep: 'appointment',
+          lpmamaNextStep: 'appointment',
+          resumeStep: 'appointment',
+          detourReason: 'calendar_unavailable',
+          extractedFields: {
+            preferred_next_step: 'appointment',
+            wants_agent_call: true,
+            notes_append: inboundText,
+          },
+          aiSummary: 'Appointment accepted but no live slots available',
+        }
+      }
+
+      if (appointmentNo) {
+        return {
+          replyText: `No problem at all. We can circle back when the timing is better for you. Is there a day or part of the day that usually works best when you do want us to reach out?`,
+          nextState: 'CALLBACK_LATER',
+          nextPriority: 'nurture',
+          temperature: 'warm',
+          bestNextStep: 'nurture',
+          confidence: 'high',
+          currentObjective: 'appointment',
+          appointmentReadiness: 3,
+          conversationTone: 'warm',
+          sentiment: sanitizeSentiment(parsed.sentiment),
+          shouldEscalate: false,
+          debugReason: 'state_override_offer_agent_call_no',
+          lastQuestion: 'callback_preference',
+          lpmamaCurrentStep: 'appointment',
+          lpmamaNextStep: 'appointment',
+          resumeStep: 'appointment',
+          detourReason: 'appointment_delayed',
+          extractedFields: {
+            preferred_next_step: 'nurture',
+            notes_append: inboundText,
+          },
+          aiSummary: 'Appointment delayed by lead',
+        }
+      }
+    }
+
     const forcedNextStep = requiredStepAfterReply(lead, inboundText)
 
     if (
