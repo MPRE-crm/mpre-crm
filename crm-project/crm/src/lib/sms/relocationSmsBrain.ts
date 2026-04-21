@@ -1286,6 +1286,68 @@ ${inboundText}
     const localLenderStatus = extractLocalLenderStatus(inboundText)
     const lenderPermission = extractLenderPermission(inboundText)
 
+        if (lead.sms_state === 'WAITING_FOR_MORTGAGE_OR_CASH') {
+      if (mortgageOrCash === 'cash') {
+        return {
+          replyText: `Got it — cash gives you a lot of flexibility. The next best step would probably be a quick strategy call with ${market.teamLabel} so we can help you line things up and talk through the best options. Want me to give you two good time options?`,
+          nextState: 'OFFER_AGENT_CALL',
+          nextPriority: 'appointment',
+          temperature: 'hot',
+          bestNextStep: 'agent_call',
+          confidence: 'high',
+          currentObjective: 'appointment',
+          appointmentReadiness: 5,
+          conversationTone: 'warm',
+          sentiment: sanitizeSentiment(parsed.sentiment),
+          shouldEscalate: false,
+          debugReason: 'state_override_mortgage_or_cash_cash_move_to_appointment',
+          lastQuestion: 'appointment_offer',
+          lpmamaCurrentStep: 'appointment',
+          lpmamaNextStep: 'appointment',
+          resumeStep: 'appointment',
+          detourReason: null,
+          extractedFields: {
+            mortgage_or_cash: 'cash',
+            preferred_next_step: 'appointment',
+            notes_append: inboundText,
+          },
+          aiSummary: 'Cash purchase confirmed, moved to appointment',
+        }
+      }
+
+      if (mortgageOrCash === 'loan' || wantsLenderIntro(inboundText)) {
+        return {
+          replyText: `Absolutely — we can help with that. I can connect you with one of our trusted local lenders here at ${market.brandName}. It would just be a simple, no-pressure introduction so you can explore your financing options. Want me to set that up for you?`,
+          nextState: 'WAITING_FOR_LENDER_PERMISSION',
+          nextPriority: 'lender_permission',
+          temperature: 'hot',
+          bestNextStep: 'lender_intro',
+          confidence: 'high',
+          currentObjective: 'mortgage_or_cash',
+          appointmentReadiness: 4,
+          conversationTone: 'warm',
+          sentiment: sanitizeSentiment(parsed.sentiment),
+          shouldEscalate: false,
+          debugReason: wantsLenderIntro(inboundText)
+            ? 'state_override_mortgage_or_cash_direct_intro_request'
+            : 'state_override_mortgage_or_cash_loan_offer_lender',
+          lastQuestion: 'lender_permission',
+          lpmamaCurrentStep: 'mortgage_or_cash',
+          lpmamaNextStep: 'appointment',
+          resumeStep: 'appointment',
+          detourReason: 'lender_flow',
+          extractedFields: {
+            mortgage_or_cash: 'loan',
+            spoken_to_local_lender: 'no',
+            lender_need_type: 'loan',
+            wants_lender_connection: true,
+            notes_append: inboundText,
+          },
+          aiSummary: 'Loan path confirmed, offered lender intro',
+        }
+      }
+    }
+
     if (lead.sms_state === 'WAITING_FOR_LOCAL_LENDER_STATUS') {
       if (localLenderStatus === 'yes') {
         return {
