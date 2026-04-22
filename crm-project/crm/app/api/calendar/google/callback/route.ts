@@ -41,6 +41,13 @@ export async function GET(req: NextRequest) {
       );
     }
 
+        const { data: existingConnection } = await supabaseAdmin
+      .from("calendar_connections")
+      .select("id, refresh_token, account_email")
+      .eq("agent_id", profile.id)
+      .eq("provider", "google")
+      .maybeSingle();
+
     const oauth2Client = getGoogleOAuthClient();
     const { tokens } = await oauth2Client.getToken(code);
 
@@ -60,7 +67,7 @@ export async function GET(req: NextRequest) {
       provider: "google",
       account_email: accountEmail || profile.email || null,
       access_token: tokens.access_token || null,
-      refresh_token: tokens.refresh_token || null,
+      refresh_token: tokens.refresh_token || existingConnection?.refresh_token || null,
       token_expires_at: expiresAt,
       scope: Array.isArray(tokens.scope) ? tokens.scope.join(" ") : tokens.scope || null,
       calendar_connected: true,
@@ -108,7 +115,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    return NextResponse.redirect(`${origin}/dashboard?calendar=google_connected`);
+    return NextResponse.redirect(`${origin}/dashboard/preferences?calendar=google_connected`);
   } catch (error: any) {
     return NextResponse.json(
       { error: "Google callback failed", details: error.message },
