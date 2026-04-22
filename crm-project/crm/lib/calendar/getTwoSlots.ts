@@ -11,7 +11,11 @@ export type TwoCalendarSlots = { A: CalendarSlot; B: CalendarSlot };
 
 const BOISE_TZ = "America/Boise";
 const SLOT_MINUTES = 30;
-const CANDIDATE_HOURS = [10, 14];
+
+// Search more realistic times instead of only 10 AM and 2 PM.
+const START_HOUR = 9;
+const END_HOUR = 17; // 5 PM
+const SEARCH_DAYS = 14;
 
 function toBoiseNow(): Date {
   return new Date(new Date().toLocaleString("en-US", { timeZone: BOISE_TZ }));
@@ -20,6 +24,8 @@ function toBoiseNow(): Date {
 function toHuman(d: Date): string {
   const day = d.toLocaleDateString("en-US", {
     weekday: "short",
+    month: "short",
+    day: "numeric",
     timeZone: BOISE_TZ,
   });
 
@@ -32,10 +38,10 @@ function toHuman(d: Date): string {
   return `${day} ${time} America/Boise`;
 }
 
-function makeCandidate(dayOffset: number, hour: number): Date {
+function makeCandidate(dayOffset: number, hour: number, minute: number): Date {
   const d = toBoiseNow();
   d.setDate(d.getDate() + dayOffset);
-  d.setHours(hour, 0, 0, 0);
+  d.setHours(hour, minute, 0, 0);
   return d;
 }
 
@@ -44,8 +50,70 @@ function isWeekend(d: Date): boolean {
   return day === 0 || day === 6;
 }
 
-async function getOrgGoogleConnection(org_id: string) {
-  const preferred = await supabaseAdmin
+async function getLeadAgentId(lead_id?: string | null): Promise<string | null> {
+  if (!lead_id) return null;
+
+  const { data, error } = await supabaseAdmin
+    .from("leads")
+    .select("id, agent_id, org_id")
+    .eq("id", lead_id)
+    .maybeSingle();
+
+  if (error) {
+    console.error("❌ getTwoSlots lead lookup error", error);
+    return null;
+  }
+
+  return data?.agent_id || null;
+}
+
+async function getAgentGoogleConnection(args: {
+  org_id: string;
+  agent_id?: string | null;
+}) {
+  const { org_id, agent_id } = args;
+
+  if (agent_id) {
+    const preferredAgent = await supabaseAdmin
+      .from("calendar_connections")
+      .select("*")
+      .eq("organization_id", org_id)
+      .eq("agent_id", agent_id)
+      .eq("provider", "google")
+      .eq("is_active", true)
+      .eq("is_default", true)
+      .maybeSingle();
+
+    if (preferredAgent.data) {
+      console.log("✅ getTwoSlots using default agent Google connection", {
+        org_id,
+        agent_id,
+        connection_id: preferredAgent.data.id,
+      });
+      return preferredAgent.data;
+    }
+
+    const fallbackAgent = await supabaseAdmin
+      .from("calendar_connections")
+      .select("*")
+      .eq("organization_id", org_id)
+      .eq("agent_id", agent_id)
+      .eq("provider", "google")
+      .eq("is_active", true)
+      .limit(1)
+      .maybeSingle();
+
+    if (fallbackAgent.data) {
+      console.log("✅ getTwoSlots using fallback agent Google connection", {
+        org_id,
+        agent_id,
+        connection_id: fallbackAgent.data.id,
+      });
+      return fallbackAgent.data;
+    }
+  }
+
+  const preferredOrg = await supabaseAdmin
     .from("calendar_connections")
     .select("*")
     .eq("organization_id", org_id)
@@ -54,9 +122,16 @@ async function getOrgGoogleConnection(org_id: string) {
     .eq("is_default", true)
     .maybeSingle();
 
-  if (preferred.data) return preferred.data;
+  if (preferredOrg.data) {
+    console.log("⚠️ getTwoSlots falling back to org Google connection", {
+      org_id,
+      agent_id,
+      connection_id: preferredOrg.data.id,
+    });
+    return preferredOrg.data;
+  }
 
-  const fallback = await supabaseAdmin
+  const fallbackOrg = await supabaseAdmin
     .from("calendar_connections")
     .select("*")
     .eq("organization_id", org_id)
@@ -65,14 +140,64 @@ async function getOrgGoogleConnection(org_id: string) {
     .limit(1)
     .maybeSingle();
 
-  if (!fallback.data) {
-    throw new Error(`No active Google calendar connection found for org ${org_id}`);
+  if (fallbackOrg.data) {
+    console.log("⚠️ getTwoSlots using last-resort org Google connection", {
+      org_id,
+      agent_id,
+      connection_id: fallbackOrg.data.id,
+    });
+    return fallbackOrg.data;
   }
 
-  return fallback.data;
+  throw new Error(
+    `No active Google calendar connection found for org ${org_id} agent ${agent_id || "unknown"}`
+  );
 }
 
-async function isSlotFree(calendarId: string, start: Date, end: Date, oauth2Client: any) {
+async function resolveCalendarId(connection: any): Promise<string> {
+  const { data: selectedCalendar, error } = await supabaseAdmin
+    .from("calendar_calendars")
+    .select("provider_calendar_id, is_selected, is_primary")
+    .eq("calendar_connection_id", connection.id)
+    .eq("is_selected", true)
+    .maybeSingle();
+
+  if (error) {
+    console.error("❌ getTwoSlots selected calendar lookup error", error);
+  }
+
+  if (selectedCalendar?.provider_calendar_id) {
+    return selectedCalendar.provider_calendar_id;
+  }
+
+  const { data: primaryCalendar } = await supabaseAdmin
+    .from("calendar_calendars")
+    .select("provider_calendar_id, is_selected, is_primary")
+    .eq("calendar_connection_id", connection.id)
+    .eq("is_primary", true)
+    .maybeSingle();
+
+  if (primaryCalendar?.provider_calendar_id) {
+    return primaryCalendar.provider_calendar_id;
+  }
+
+  if (connection.default_calendar_id) {
+    return connection.default_calendar_id;
+  }
+
+  if (connection.account_email) {
+    return connection.account_email;
+  }
+
+  throw new Error("No default Google calendar id found on connection");
+}
+
+async function isSlotFree(
+  calendarId: string,
+  start: Date,
+  end: Date,
+  oauth2Client: any
+) {
   const calendar = google.calendar({
     version: "v3",
     auth: oauth2Client,
@@ -92,7 +217,11 @@ async function isSlotFree(calendarId: string, start: Date, end: Date, oauth2Clie
 }
 
 export async function getTwoSlots(args: GetTwoSlotsArgs): Promise<TwoCalendarSlots> {
-  const connection = await getOrgGoogleConnection(args.org_id);
+  const agent_id = await getLeadAgentId(args.lead_id);
+  const connection = await getAgentGoogleConnection({
+    org_id: args.org_id,
+    agent_id,
+  });
 
   const oauth2Client = getGoogleOAuthClient();
   oauth2Client.setCredentials({
@@ -103,38 +232,50 @@ export async function getTwoSlots(args: GetTwoSlotsArgs): Promise<TwoCalendarSlo
       : undefined,
   });
 
-  const calendarId = connection.default_calendar_id || connection.account_email;
+  const calendarId = await resolveCalendarId(connection);
 
-  if (!calendarId) {
-    throw new Error("No default Google calendar id found on connection");
-  }
+  console.log("📅 getTwoSlots calendar resolution", {
+    lead_id: args.lead_id || null,
+    org_id: args.org_id,
+    agent_id,
+    connection_id: connection.id,
+    calendarId,
+    account_email: connection.account_email,
+  });
 
   const found: CalendarSlot[] = [];
   const now = toBoiseNow();
 
-  for (let dayOffset = 1; dayOffset <= 14; dayOffset++) {
-    for (const hour of CANDIDATE_HOURS) {
-      const start = makeCandidate(dayOffset, hour);
+  for (let dayOffset = 1; dayOffset <= SEARCH_DAYS; dayOffset++) {
+    for (let hour = START_HOUR; hour < END_HOUR; hour++) {
+      for (const minute of [0, 30]) {
+        const start = makeCandidate(dayOffset, hour, minute);
 
-      if (isWeekend(start)) continue;
-      if (start <= now) continue;
+        if (isWeekend(start)) continue;
+        if (start <= now) continue;
 
-      const end = new Date(start.getTime() + SLOT_MINUTES * 60 * 1000);
+        const end = new Date(start.getTime() + SLOT_MINUTES * 60 * 1000);
 
-      const free = await isSlotFree(calendarId, start, end, oauth2Client);
+        const free = await isSlotFree(calendarId, start, end, oauth2Client);
 
-      if (!free) continue;
+        if (!free) continue;
 
-      found.push({
-        slot_iso: start.toISOString(),
-        slot_human: toHuman(start),
-      });
+        found.push({
+          slot_iso: start.toISOString(),
+          slot_human: toHuman(start),
+        });
 
-      if (found.length === 2) {
-        return {
-          A: found[0],
-          B: found[1],
-        };
+        if (found.length === 2) {
+          console.log("✅ getTwoSlots found two slots", {
+            A: found[0],
+            B: found[1],
+          });
+
+          return {
+            A: found[0],
+            B: found[1],
+          };
+        }
       }
     }
   }

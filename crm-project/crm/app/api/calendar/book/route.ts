@@ -25,7 +25,8 @@ function formatTimeParts(slotIso: string) {
 
   const hour = Number(parts.find((p) => p.type === "hour")?.value || "0");
   const minute = parts.find((p) => p.type === "minute")?.value || "00";
-  const ampm = parts.find((p) => p.type === "dayPeriod")?.value?.toUpperCase() || "";
+  const ampm =
+    parts.find((p) => p.type === "dayPeriod")?.value?.toUpperCase() || "";
 
   const dateText = d.toLocaleDateString("en-CA", {
     timeZone: BOISE_TZ,
@@ -38,6 +39,131 @@ function formatTimeParts(slotIso: string) {
     minute,
     ampm,
   };
+}
+
+async function getAgentGoogleConnection(args: {
+  org_id: string;
+  agent_id?: string | null;
+}) {
+  const { org_id, agent_id } = args;
+
+  if (agent_id) {
+    const preferredAgent = await supabaseAdmin
+      .from("calendar_connections")
+      .select("*")
+      .eq("organization_id", org_id)
+      .eq("agent_id", agent_id)
+      .eq("provider", "google")
+      .eq("is_active", true)
+      .eq("is_default", true)
+      .maybeSingle();
+
+    if (preferredAgent.data) {
+      console.log("✅ calendar book using default agent Google connection", {
+        org_id,
+        agent_id,
+        connection_id: preferredAgent.data.id,
+      });
+      return preferredAgent.data;
+    }
+
+    const fallbackAgent = await supabaseAdmin
+      .from("calendar_connections")
+      .select("*")
+      .eq("organization_id", org_id)
+      .eq("agent_id", agent_id)
+      .eq("provider", "google")
+      .eq("is_active", true)
+      .limit(1)
+      .maybeSingle();
+
+    if (fallbackAgent.data) {
+      console.log("✅ calendar book using fallback agent Google connection", {
+        org_id,
+        agent_id,
+        connection_id: fallbackAgent.data.id,
+      });
+      return fallbackAgent.data;
+    }
+  }
+
+  const preferredOrg = await supabaseAdmin
+    .from("calendar_connections")
+    .select("*")
+    .eq("organization_id", org_id)
+    .eq("provider", "google")
+    .eq("is_active", true)
+    .eq("is_default", true)
+    .maybeSingle();
+
+  if (preferredOrg.data) {
+    console.log("⚠️ calendar book falling back to org Google connection", {
+      org_id,
+      agent_id,
+      connection_id: preferredOrg.data.id,
+    });
+    return preferredOrg.data;
+  }
+
+  const fallbackOrg = await supabaseAdmin
+    .from("calendar_connections")
+    .select("*")
+    .eq("organization_id", org_id)
+    .eq("provider", "google")
+    .eq("is_active", true)
+    .limit(1)
+    .maybeSingle();
+
+  if (fallbackOrg.data) {
+    console.log("⚠️ calendar book using last-resort org Google connection", {
+      org_id,
+      agent_id,
+      connection_id: fallbackOrg.data.id,
+    });
+    return fallbackOrg.data;
+  }
+
+  throw new Error(
+    `No active Google calendar connection found for org ${org_id} agent ${agent_id || "unknown"}`
+  );
+}
+
+async function resolveCalendarId(connection: any): Promise<string> {
+  const { data: selectedCalendar, error } = await supabaseAdmin
+    .from("calendar_calendars")
+    .select("provider_calendar_id, is_selected, is_primary")
+    .eq("calendar_connection_id", connection.id)
+    .eq("is_selected", true)
+    .maybeSingle();
+
+  if (error) {
+    console.error("❌ calendar book selected calendar lookup error", error);
+  }
+
+  if (selectedCalendar?.provider_calendar_id) {
+    return selectedCalendar.provider_calendar_id;
+  }
+
+  const { data: primaryCalendar } = await supabaseAdmin
+    .from("calendar_calendars")
+    .select("provider_calendar_id, is_selected, is_primary")
+    .eq("calendar_connection_id", connection.id)
+    .eq("is_primary", true)
+    .maybeSingle();
+
+  if (primaryCalendar?.provider_calendar_id) {
+    return primaryCalendar.provider_calendar_id;
+  }
+
+  if (connection.default_calendar_id) {
+    return connection.default_calendar_id;
+  }
+
+  if (connection.account_email) {
+    return connection.account_email;
+  }
+
+  throw new Error("No default Google calendar id found on connection");
 }
 
 export async function POST(req: NextRequest) {
@@ -65,24 +191,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { data: connection, error: connectionError } = await supabaseAdmin
-      .from("calendar_connections")
-      .select("*")
-      .eq("organization_id", org_id)
-      .eq("provider", "google")
-      .eq("is_active", true)
-      .eq("is_default", true)
-      .maybeSingle();
-
-    if (connectionError || !connection) {
-      return NextResponse.json(
-        {
-          error: "No active default Google calendar connection found",
-          details: connectionError?.message,
-        },
-        { status: 404 }
-      );
-    }
+    const connection = await getAgentGoogleConnection({
+      org_id,
+      agent_id: lead.agent_id || null,
+    });
 
     const oauth2Client = getGoogleOAuthClient();
     oauth2Client.setCredentials({
@@ -91,6 +203,17 @@ export async function POST(req: NextRequest) {
       expiry_date: connection.token_expires_at
         ? new Date(connection.token_expires_at).getTime()
         : undefined,
+    });
+
+    const calendarId = await resolveCalendarId(connection);
+
+    console.log("📅 calendar book resolution", {
+      lead_id,
+      org_id,
+      agent_id: lead.agent_id || null,
+      connection_id: connection.id,
+      calendarId,
+      account_email: connection.account_email,
     });
 
     const calendar = google.calendar({
@@ -137,11 +260,13 @@ export async function POST(req: NextRequest) {
     };
 
     const { data: createdEvent } = await calendar.events.insert({
-      calendarId: connection.default_calendar_id || connection.account_email,
+      calendarId,
       requestBody: event,
     });
 
-    const { dateText, timeText, hour, minute, ampm } = formatTimeParts(slot.slot_iso);
+    const { dateText, timeText, hour, minute, ampm } = formatTimeParts(
+      slot.slot_iso
+    );
 
     const notesPrefix = lead.notes ? `${lead.notes}\n\n` : "";
     const notesWithEvent =
@@ -149,7 +274,9 @@ export async function POST(req: NextRequest) {
       `Google Calendar Link: ${createdEvent.htmlLink || "N/A"}`;
 
     const nowIso = new Date().toISOString();
-    const hotUntilIso = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+    const hotUntilIso = new Date(
+      Date.now() + 48 * 60 * 60 * 1000
+    ).toISOString();
 
     const { error: updateError } = await supabaseAdmin
       .from("leads")

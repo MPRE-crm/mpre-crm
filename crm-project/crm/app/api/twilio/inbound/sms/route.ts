@@ -28,6 +28,56 @@ function addHours(date: Date, hours: number) {
   return new Date(date.getTime() + hours * 60 * 60 * 1000)
 }
 
+type SlotChoice = {
+  slot_iso: string
+  slot_human: string
+}
+
+function normalizeTextForMatch(value?: string | null) {
+  return clean(value).toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
+function buildSlotChoices(slots?: { A?: any; B?: any } | null): SlotChoice[] {
+  const out: SlotChoice[] = []
+
+  if (slots?.A?.slot_iso && slots?.A?.slot_human) {
+    out.push({
+      slot_iso: slots.A.slot_iso,
+      slot_human: slots.A.slot_human,
+    })
+  }
+
+  if (slots?.B?.slot_iso && slots?.B?.slot_human) {
+    out.push({
+      slot_iso: slots.B.slot_iso,
+      slot_human: slots.B.slot_human,
+    })
+  }
+
+  return out
+}
+
+function detectChosenSlot(inboundText: string, slotChoices: SlotChoice[]): SlotChoice | null {
+  if (!slotChoices.length) return null
+
+  const raw = clean(inboundText)
+  const normalized = normalizeTextForMatch(raw)
+
+  const firstPatterns = ['a', 'optiona', 'slota', 'first', 'thefirstone', '1', 'one']
+  const secondPatterns = ['b', 'optionb', 'slotb', 'second', 'thesecondone', '2', 'two']
+
+  if (slotChoices[0] && firstPatterns.includes(normalized)) return slotChoices[0]
+  if (slotChoices[1] && secondPatterns.includes(normalized)) return slotChoices[1]
+
+  for (const slot of slotChoices) {
+    if (normalizeTextForMatch(slot.slot_human) === normalized) {
+      return slot
+    }
+  }
+
+  return null
+}
+
 function isRelocationLead(lead: any) {
   const sourceDetail = String(lead?.lead_source_detail || '').toLowerCase()
   const smsCampaign = String(lead?.sms_campaign || '').toLowerCase()
@@ -296,6 +346,16 @@ export async function POST(req: NextRequest) {
   ai_summary,
   agent_id,
   org_id,
+  appointment_requested_slot_iso,
+  appointment_requested_slot_human,
+  appointment_pending_agent_id,
+  appointment_pending_expires_at,
+  appointment_rotation_attempt,
+  appointment_decline_reason,
+  appointment_offer_slot_a_iso,
+  appointment_offer_slot_a_human,
+  appointment_offer_slot_b_iso,
+  appointment_offer_slot_b_human,
   sms_timeline_answered,
   sms_budget_answered,
   sms_area_answered,
@@ -420,6 +480,16 @@ export async function POST(req: NextRequest) {
           ai_summary,
           agent_id,
           org_id,
+          appointment_requested_slot_iso,
+          appointment_requested_slot_human,
+          appointment_pending_agent_id,
+          appointment_pending_expires_at,
+          appointment_rotation_attempt,
+          appointment_decline_reason,
+          appointment_offer_slot_a_iso,
+          appointment_offer_slot_a_human,
+          appointment_offer_slot_b_iso,
+          appointment_offer_slot_b_human,
           sms_timeline_answered,
           sms_budget_answered,
           sms_area_answered,
@@ -477,6 +547,7 @@ export async function POST(req: NextRequest) {
         .limit(10)
 
       let availableSlots: string[] = []
+      let slotChoices: SlotChoice[] = []
 
       try {
         if (lead?.org_id) {
@@ -485,12 +556,115 @@ export async function POST(req: NextRequest) {
             lead_id: leadId,
           })
 
-          availableSlots = [slots?.A?.slot_human, slots?.B?.slot_human].filter(
-            Boolean
-          ) as string[]
+          slotChoices = buildSlotChoices(slots)
+          availableSlots = slotChoices.map((s) => s.slot_human)
         }
       } catch (error) {
         console.error('❌ sms calendar slot load error', error)
+      }
+
+      const storedSlotChoices: SlotChoice[] = [
+        lead?.appointment_offer_slot_a_iso && lead?.appointment_offer_slot_a_human
+          ? {
+              slot_iso: lead.appointment_offer_slot_a_iso,
+              slot_human: lead.appointment_offer_slot_a_human,
+            }
+          : null,
+        lead?.appointment_offer_slot_b_iso && lead?.appointment_offer_slot_b_human
+          ? {
+              slot_iso: lead.appointment_offer_slot_b_iso,
+              slot_human: lead.appointment_offer_slot_b_human,
+            }
+          : null,
+      ].filter(Boolean) as SlotChoice[]
+
+      const chosenSlot =
+        lead?.sms_state === 'OFFER_AGENT_CALL'
+          ? detectChosenSlot(body, storedSlotChoices.length ? storedSlotChoices : slotChoices)
+          : null
+
+      if (chosenSlot) {
+        const expiresAt = addHours(now, 0.0833).toISOString()
+
+        const { error: approvalInsertError } = await supabaseAdmin
+          .from('appointment_approvals')
+          .insert({
+            lead_id: leadId,
+            org_id: lead.org_id,
+            requested_by_agent_id: lead.agent_id,
+            current_agent_id: lead.agent_id,
+            slot_iso: chosenSlot.slot_iso,
+            slot_human: chosenSlot.slot_human,
+            status: 'pending',
+            expires_at: expiresAt,
+            rotation_attempt: lead.appointment_rotation_attempt || 0,
+          })
+
+        if (approvalInsertError) {
+          console.error('❌ appointment approval insert error', approvalInsertError)
+        } else {
+          const { error: pendingLeadUpdateError } = await supabaseAdmin
+            .from('leads')
+            .update({
+              appointment_requested: true,
+              appointment_status: 'Pending Agent Approval',
+              agent_status: 'appointment_pending_agent_approval',
+              appointment_requested_slot_iso: chosenSlot.slot_iso,
+              appointment_requested_slot_human: chosenSlot.slot_human,
+              appointment_pending_agent_id: lead.agent_id,
+              appointment_pending_expires_at: expiresAt,
+              appointment_decline_reason: null,
+              appointment_offer_slot_a_iso: null,
+              appointment_offer_slot_a_human: null,
+              appointment_offer_slot_b_iso: null,
+              appointment_offer_slot_b_human: null,
+              appointment_rotation_attempt: lead.appointment_rotation_attempt || 0,
+              sms_state: 'CALLBACK_LATER',
+              sms_current_objective: 'appointment',
+              sms_last_question: 'agent_approval_pending',
+              sms_lpmama_current_step: 'appointment',
+              sms_lpmama_next_step: 'appointment',
+              sms_resume_step: 'appointment',
+              sms_detour_reason: 'pending_agent_approval',
+              preferred_next_step: 'appointment',
+              last_replied_text_at: nowIso,
+              last_meaningful_engagement_at: nowIso,
+              last_contact_attempt_at: nowIso,
+              last_text_attempt_at: nowIso,
+              updated_at: nowIso,
+            })
+            .eq('id', leadId)
+
+          if (pendingLeadUpdateError) {
+            console.error('❌ pending approval lead update error', pendingLeadUpdateError)
+          }
+
+          replyText = `Perfect, ${clean(lead?.first_name) || 'there'} — I’ve sent that time over for confirmation with the agent now. I’ll text you as soon as it’s locked in.`
+
+          const { error: outgoingMessageInsertError } = await supabaseAdmin
+            .from('messages')
+            .insert({
+              lead_id: leadId,
+              lead_phone: from,
+              direction: 'outgoing',
+              body: replyText,
+              status: 'twiml_reply_prepared',
+              twilio_sid: null,
+              created_at: nowIso,
+            })
+
+          if (outgoingMessageInsertError) {
+            console.error('❌ outbound sms message insert error', outgoingMessageInsertError)
+          }
+
+          const twiml = new twilio.twiml.MessagingResponse()
+          twiml.message(replyText)
+
+          return new NextResponse(twiml.toString(), {
+            status: 200,
+            headers: { 'Content-Type': 'text/xml' },
+          })
+        }
       }
 
       const brain = await runRelocationSmsBrain({
@@ -600,6 +774,10 @@ export async function POST(req: NextRequest) {
         best_contact_channel: 'text',
         hot_until:
           brain.temperature === 'hot' ? addHours(now, 48).toISOString() : null,
+                appointment_offer_slot_a_iso: slotChoices[0]?.slot_iso || null,
+        appointment_offer_slot_a_human: slotChoices[0]?.slot_human || null,
+        appointment_offer_slot_b_iso: slotChoices[1]?.slot_iso || null,
+        appointment_offer_slot_b_human: slotChoices[1]?.slot_human || null,
         updated_at: nowIso,
       }
 
