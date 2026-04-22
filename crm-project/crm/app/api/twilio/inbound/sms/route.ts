@@ -60,19 +60,34 @@ function buildSlotChoices(slots?: { A?: any; B?: any } | null): SlotChoice[] {
 function detectChosenSlot(inboundText: string, slotChoices: SlotChoice[]): SlotChoice | null {
   if (!slotChoices.length) return null
 
-  const raw = clean(inboundText)
+  const raw = clean(inboundText).toLowerCase()
   const normalized = normalizeTextForMatch(raw)
 
-  const firstPatterns = ['a', 'optiona', 'slota', 'first', 'thefirstone', '1', 'one']
-  const secondPatterns = ['b', 'optionb', 'slotb', 'second', 'thesecondone', '2', 'two']
+  const picksFirst =
+    /\b(a|1|one|first)\b/i.test(raw) ||
+    /option\s*a/i.test(raw) ||
+    /slot\s*a/i.test(raw) ||
+    /first\s+one/i.test(raw) ||
+    /go\s+with\s+(option\s+)?a/i.test(raw) ||
+    /take\s+(option\s+)?a/i.test(raw)
 
-  if (slotChoices[0] && firstPatterns.includes(normalized)) return slotChoices[0]
-  if (slotChoices[1] && secondPatterns.includes(normalized)) return slotChoices[1]
+  const picksSecond =
+    /\b(b|2|two|second)\b/i.test(raw) ||
+    /option\s*b/i.test(raw) ||
+    /slot\s*b/i.test(raw) ||
+    /second\s+one/i.test(raw) ||
+    /go\s+with\s+(option\s+)?b/i.test(raw) ||
+    /take\s+(option\s+)?b/i.test(raw)
+
+  if (slotChoices[0] && picksFirst && !picksSecond) return slotChoices[0]
+  if (slotChoices[1] && picksSecond && !picksFirst) return slotChoices[1]
 
   for (const slot of slotChoices) {
-    if (normalizeTextForMatch(slot.slot_human) === normalized) {
-      return slot
-    }
+    const slotHumanRaw = String(slot.slot_human || "").toLowerCase()
+    const slotHumanNormalized = normalizeTextForMatch(slot.slot_human)
+
+    if (normalized === slotHumanNormalized) return slot
+    if (raw.includes(slotHumanRaw)) return slot
   }
 
   return null

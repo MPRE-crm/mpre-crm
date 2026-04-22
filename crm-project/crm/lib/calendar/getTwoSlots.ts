@@ -11,14 +11,74 @@ export type TwoCalendarSlots = { A: CalendarSlot; B: CalendarSlot };
 
 const BOISE_TZ = "America/Boise";
 const SLOT_MINUTES = 30;
-
-// Search more realistic times instead of only 10 AM and 2 PM.
-const START_HOUR = 9;
-const END_HOUR = 17; // 5 PM
+const POST_APPOINTMENT_BUFFER_MINUTES = 60;
+const SAME_DAY_MIN_NOTICE_MINUTES = 120;
 const SEARCH_DAYS = 14;
 
-function toBoiseNow(): Date {
-  return new Date(new Date().toLocaleString("en-US", { timeZone: BOISE_TZ }));
+// Appointment offer window
+const START_HOUR = 9;
+const END_HOUR = 17; // last slot can start at 5:00 PM if allowed by rules
+
+// Lunch block
+const LUNCH_START_HOUR = 12;
+const LUNCH_END_HOUR = 13;
+
+function getTzParts(date: Date, timeZone: string) {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  });
+
+  const parts = formatter.formatToParts(date);
+  const map = Object.fromEntries(parts.map((p) => [p.type, p.value]));
+
+  return {
+    year: Number(map.year),
+    month: Number(map.month),
+    day: Number(map.day),
+    hour: Number(map.hour),
+    minute: Number(map.minute),
+    second: Number(map.second),
+    weekday: map.weekday, // Sun, Mon, Tue...
+  };
+}
+
+function getTimeZoneOffsetMinutes(date: Date, timeZone: string): number {
+  const parts = getTzParts(date, timeZone);
+  const utcMs = Date.UTC(
+    parts.year,
+    parts.month - 1,
+    parts.day,
+    parts.hour,
+    parts.minute,
+    parts.second
+  );
+  return (utcMs - date.getTime()) / 60000;
+}
+
+function makeZonedDate(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  timeZone: string
+): Date {
+  const utcGuess = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
+  const offsetMinutes = getTimeZoneOffsetMinutes(utcGuess, timeZone);
+  return new Date(utcGuess.getTime() - offsetMinutes * 60000);
+}
+
+function addDaysInZone(base: Date, dayOffset: number, timeZone: string) {
+  const parts = getTzParts(base, timeZone);
+  return new Date(Date.UTC(parts.year, parts.month - 1, parts.day + dayOffset, 12, 0, 0));
 }
 
 function toHuman(d: Date): string {
@@ -35,19 +95,28 @@ function toHuman(d: Date): string {
     timeZone: BOISE_TZ,
   });
 
-  return `${day} ${time} America/Boise`;
+  return `${day}, ${time} America/Boise`;
 }
 
-function makeCandidate(dayOffset: number, hour: number, minute: number): Date {
-  const d = toBoiseNow();
-  d.setDate(d.getDate() + dayOffset);
-  d.setHours(hour, minute, 0, 0);
-  return d;
+function isSunday(d: Date): boolean {
+  return getTzParts(d, BOISE_TZ).weekday === "Sun";
 }
 
-function isWeekend(d: Date): boolean {
-  const day = d.getDay();
-  return day === 0 || day === 6;
+function isLunchBlocked(d: Date): boolean {
+  const parts = getTzParts(d, BOISE_TZ);
+  return parts.hour >= LUNCH_START_HOUR && parts.hour < LUNCH_END_HOUR;
+}
+
+function hasEnoughNotice(d: Date, now: Date): boolean {
+  return d.getTime() - now.getTime() >= SAME_DAY_MIN_NOTICE_MINUTES * 60 * 1000;
+}
+
+function isWithinOfferWindow(d: Date): boolean {
+  const parts = getTzParts(d, BOISE_TZ);
+  if (parts.hour < START_HOUR) return false;
+  if (parts.hour > END_HOUR) return false;
+  if (parts.hour === END_HOUR && parts.minute > 0) return false;
+  return true;
 }
 
 async function getLeadAgentId(lead_id?: string | null): Promise<string | null> {
@@ -216,6 +285,25 @@ async function isSlotFree(
   return busy.length === 0;
 }
 
+async function isSlotAllowed(
+  calendarId: string,
+  start: Date,
+  oauth2Client: any,
+  now: Date
+): Promise<boolean> {
+  if (isSunday(start)) return false;
+  if (!isWithinOfferWindow(start)) return false;
+  if (isLunchBlocked(start)) return false;
+  if (!hasEnoughNotice(start, now)) return false;
+
+  const appointmentEnd = new Date(start.getTime() + SLOT_MINUTES * 60 * 1000);
+  const bufferedEnd = new Date(
+    appointmentEnd.getTime() + POST_APPOINTMENT_BUFFER_MINUTES * 60 * 1000
+  );
+
+  return isSlotFree(calendarId, start, bufferedEnd, oauth2Client);
+}
+
 export async function getTwoSlots(args: GetTwoSlotsArgs): Promise<TwoCalendarSlots> {
   const agent_id = await getLeadAgentId(args.lead_id);
   const connection = await getAgentGoogleConnection({
@@ -244,21 +332,25 @@ export async function getTwoSlots(args: GetTwoSlotsArgs): Promise<TwoCalendarSlo
   });
 
   const found: CalendarSlot[] = [];
-  const now = toBoiseNow();
+  const now = new Date();
 
-  for (let dayOffset = 1; dayOffset <= SEARCH_DAYS; dayOffset++) {
-    for (let hour = START_HOUR; hour < END_HOUR; hour++) {
+  for (let dayOffset = 0; dayOffset < SEARCH_DAYS; dayOffset++) {
+    const daySeed = addDaysInZone(now, dayOffset, BOISE_TZ);
+    const dayParts = getTzParts(daySeed, BOISE_TZ);
+
+    for (let hour = START_HOUR; hour <= END_HOUR; hour++) {
       for (const minute of [0, 30]) {
-        const start = makeCandidate(dayOffset, hour, minute);
+        const start = makeZonedDate(
+          dayParts.year,
+          dayParts.month,
+          dayParts.day,
+          hour,
+          minute,
+          BOISE_TZ
+        );
 
-        if (isWeekend(start)) continue;
-        if (start <= now) continue;
-
-        const end = new Date(start.getTime() + SLOT_MINUTES * 60 * 1000);
-
-        const free = await isSlotFree(calendarId, start, end, oauth2Client);
-
-        if (!free) continue;
+        const allowed = await isSlotAllowed(calendarId, start, oauth2Client, now);
+        if (!allowed) continue;
 
         found.push({
           slot_iso: start.toISOString(),
