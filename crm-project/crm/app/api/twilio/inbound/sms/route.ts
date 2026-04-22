@@ -93,6 +93,23 @@ function detectChosenSlot(inboundText: string, slotChoices: SlotChoice[]): SlotC
   return null
 }
 
+function wantsDirectLenderIntro(text?: string | null) {
+  const t = clean(text).toLowerCase()
+
+  return (
+    /i would like an introduction/.test(t) ||
+    /i'?d like an introduction/.test(t) ||
+    /introduce me/.test(t) ||
+    /connect me/.test(t) ||
+    /please connect me/.test(t) ||
+    /yes please/.test(t) ||
+    /that would be great/.test(t) ||
+    /that would be helpful/.test(t) ||
+    /set that up/.test(t) ||
+    /please do/.test(t)
+  )
+}
+
 function isRelocationLead(lead: any) {
   const sourceDetail = String(lead?.lead_source_detail || '').toLowerCase()
   const smsCampaign = String(lead?.sms_campaign || '').toLowerCase()
@@ -738,6 +755,85 @@ if (agentUser?.phone && approvalRow?.id) {
 
           if (outgoingMessageInsertError) {
             console.error('❌ outbound sms message insert error', outgoingMessageInsertError)
+          }
+
+          const twiml = new twilio.twiml.MessagingResponse()
+          twiml.message(replyText)
+
+          return new NextResponse(twiml.toString(), {
+            status: 200,
+            headers: { 'Content-Type': 'text/xml' },
+          })
+        }
+      }
+
+      const directLenderIntroRequested =
+        wantsDirectLenderIntro(body) &&
+        (
+          lead?.preferred_next_step === 'lender_connection' ||
+          lead?.sms_current_objective === 'lender' ||
+          lead?.sms_last_question === 'local_lender_status' ||
+          lead?.sms_last_question === 'lender_permission' ||
+          /lender/i.test(String(lead?.sms_last_question || '')) ||
+          /lender/i.test(String(lead?.sms_current_objective || ''))
+        )
+
+      if (directLenderIntroRequested) {
+        const lenderIntroSent = await handlePreferredLenderIntro({
+          leadId,
+          agentId: lead?.agent_id,
+          orgId: lead?.org_id,
+          phone: from,
+        })
+
+        if (lenderIntroSent) {
+          replyText = `Perfect, ${clean(lead?.first_name) || 'there'} — I’ll make that introduction for you. The next best step would probably be a quick strategy call with our team here at MPRE Boise so we can help you put a real game plan together. Want me to give you two good time options?`
+
+          const { error: appointmentPatchError } = await supabaseAdmin
+            .from('leads')
+            .update({
+              lender_intro_permission: true,
+              wants_lender_connection: true,
+              preferred_next_step: 'appointment',
+              sms_state: 'OFFER_AGENT_CALL',
+              sms_current_objective: 'appointment',
+              sms_last_question: 'appointment_offer',
+              sms_lpmama_current_step: 'appointment',
+              sms_lpmama_next_step: 'appointment',
+              sms_resume_step: 'appointment',
+              sms_detour_reason: null,
+              last_replied_text_at: nowIso,
+              last_meaningful_engagement_at: nowIso,
+              last_contact_attempt_at: nowIso,
+              last_text_attempt_at: nowIso,
+              updated_at: nowIso,
+            })
+            .eq('id', leadId)
+
+          if (appointmentPatchError) {
+            console.error(
+              '❌ direct lender intro appointment patch error',
+              appointmentPatchError
+            )
+          }
+
+          const { error: outgoingMessageInsertError } = await supabaseAdmin
+            .from('messages')
+            .insert({
+              lead_id: leadId,
+              lead_phone: from,
+              direction: 'outgoing',
+              body: replyText,
+              status: 'twiml_reply_prepared',
+              twilio_sid: null,
+              created_at: nowIso,
+            })
+
+          if (outgoingMessageInsertError) {
+            console.error(
+              '❌ outbound sms message insert error',
+              outgoingMessageInsertError
+            )
           }
 
           const twiml = new twilio.twiml.MessagingResponse()
