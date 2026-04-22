@@ -82,7 +82,7 @@ export async function GET(req: NextRequest) {
     await supabaseAdmin
       .from("leads")
       .update({
-        appointment_status: "Declined",
+        appointment_status: "Canceled",
         appointment_decline_reason: reason,
         appointment_pending_agent_id: null,
         appointment_pending_expires_at: null,

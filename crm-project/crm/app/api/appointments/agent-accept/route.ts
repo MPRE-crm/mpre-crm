@@ -181,7 +181,7 @@ export async function GET(req: NextRequest) {
       await supabaseAdmin
         .from("leads")
         .update({
-          appointment_status: "Expired",
+          appointment_status: "Canceled",
           appointment_pending_expires_at: null,
           updated_at: now.toISOString(),
         })

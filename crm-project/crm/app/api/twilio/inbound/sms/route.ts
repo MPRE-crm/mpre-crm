@@ -636,12 +636,23 @@ const { data: approvalRow, error: approvalInsertError } = await supabaseAdmin
 
         if (approvalInsertError) {
           console.error('❌ appointment approval insert error', approvalInsertError)
+
+          const twiml = new twilio.twiml.MessagingResponse()
+          twiml.message(
+            `I’m sorry - I hit a snag saving that appointment request. Please try that one more time.`
+          )
+
+          return new NextResponse(twiml.toString(), {
+            status: 200,
+            headers: { 'Content-Type': 'text/xml' },
+          })
         } else {
+
 const { data: pendingLeadRow, error: pendingLeadUpdateError } = await supabaseAdmin
   .from('leads')
   .update({
     appointment_requested: true,
-    appointment_status: 'Pending Agent Approval',
+    appointment_status: 'Pending',
     appointment_requested_slot_iso: chosenSlot.slot_iso,
     appointment_requested_slot_human: chosenSlot.slot_human,
     appointment_pending_agent_id: lead.agent_id,
