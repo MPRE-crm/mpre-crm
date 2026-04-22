@@ -2,6 +2,7 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
+import twilio from "twilio";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 import { getGoogleOAuthClient } from "../../../../lib/googleCalendar";
 
@@ -100,6 +101,18 @@ async function resolveCalendarId(connection: any): Promise<string> {
   }
 
   throw new Error("No default Google calendar id found on connection");
+}
+
+function normalizePhone(raw?: string | null) {
+  const value = String(raw || "").trim();
+  const digits = value.replace(/\D/g, "");
+
+  if (!digits) return "";
+  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+  if (digits.length === 10) return `+1${digits}`;
+  if (value.startsWith("+")) return value;
+
+  return `+${digits}`;
 }
 
 function html(message: string) {
@@ -283,6 +296,39 @@ export async function GET(req: NextRequest) {
         updated_at: nowIso,
       })
       .eq("id", approval.lead_id);
+
+    try {
+      const accountSid = process.env.TWILIO_ACCOUNT_SID;
+      const authToken = process.env.TWILIO_AUTH_TOKEN;
+      const fromNumber = process.env.TWILIO_PHONE_NUMBER;
+
+      if (accountSid && authToken && fromNumber && lead.phone) {
+        const twilioClient = twilio(accountSid, authToken);
+
+        const leadName = lead.first_name || lead.name || "there";
+        const confirmationText =
+          `Perfect, ${leadName} — your strategy call with MPRE Boise is confirmed for ${approval.slot_human}. ` +
+          `If anything changes, just text us here.`;
+
+        await twilioClient.messages.create({
+          from: fromNumber,
+          to: normalizePhone(lead.phone),
+          body: confirmationText,
+        });
+
+        await supabaseAdmin.from("messages").insert({
+          lead_id: lead.id,
+          lead_phone: normalizePhone(lead.phone),
+          direction: "outgoing",
+          body: confirmationText,
+          status: "sent",
+          twilio_sid: null,
+          created_at: nowIso,
+        });
+      }
+    } catch (smsError) {
+      console.error("❌ agent-accept confirmation sms send error", smsError);
+    }
 
     return html(`Appointment accepted and booked for ${approval.slot_human}.`);
   } catch (error: any) {
