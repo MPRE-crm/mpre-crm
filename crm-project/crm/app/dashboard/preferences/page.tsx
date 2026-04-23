@@ -113,7 +113,14 @@ export default function PreferencesPage() {
         cache: "no-store",
       });
 
-      const json = await res.json();
+      const raw = await res.text();
+      let json: any = {};
+
+      try {
+        json = raw ? JSON.parse(raw) : {};
+      } catch {
+        throw new Error(raw || "Calendar preferences returned a non-JSON response");
+      }
 
       if (!res.ok) {
         throw new Error(json?.error || "Failed to load preferences");
@@ -147,19 +154,26 @@ export default function PreferencesPage() {
         return;
       }
 
-      const res = await fetch(
-        `/api/preferences/calendar?profileId=${encodeURIComponent(sessionProfileId)}`,
-        {
-          method: "GET",
-          cache: "no-store",
-        }
-      );
+const res = await fetch(
+  `/api/preferences/calendar?profileId=${encodeURIComponent(sessionProfileId)}`,
+  {
+    method: "GET",
+    cache: "no-store",
+  }
+);
 
-      const json = await res.json();
+const raw = await res.text();
+let json: any = {};
 
-      if (!res.ok) {
-        throw new Error(json?.error || "Failed to load calendar preferences");
-      }
+try {
+  json = raw ? JSON.parse(raw) : {};
+} catch {
+  throw new Error(raw || "Calendar preferences returned a non-JSON response");
+}
+
+if (!res.ok) {
+  throw new Error(json?.error || "Failed to load calendar preferences");
+}
 
       setCalendarProfile(json.profile || null);
       setCalendarConnection(json.connection || null);
@@ -430,7 +444,7 @@ export default function PreferencesPage() {
                 >
                   <option value="google">Google</option>
                   <option value="microsoft">Microsoft</option>
-                  <option value="icloud">iCloud</option>
+                  <option value="apple">iCloud</option>
                 </select>
               </div>
 
