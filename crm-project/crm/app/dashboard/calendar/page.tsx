@@ -34,6 +34,8 @@ type AppointmentRow = {
   id: string;
   appointment_date: string | null;
   appointment_time: string | null;
+  appointment_requested_slot_iso: string | null;
+  appointment_requested_slot_human: string | null;
   appointment_status: string | null;
   appointment_type: string | null;
   notes: string | null;
@@ -60,6 +62,22 @@ function getLeadName(appt: AppointmentRow) {
     appt.email ||
     appt.id
   );
+}
+
+function getAppointmentDayKey(appt: AppointmentRow) {
+  if (appt.appointment_requested_slot_iso) {
+    return dayjs(appt.appointment_requested_slot_iso).format("YYYY-MM-DD");
+  }
+
+  return appt.appointment_date || null;
+}
+
+function getAppointmentTimeLabel(appt: AppointmentRow) {
+  if (appt.appointment_requested_slot_iso) {
+    return dayjs(appt.appointment_requested_slot_iso).format("h:mm A");
+  }
+
+  return appt.appointment_time || null;
 }
 
 function getStatusClasses(status: string | null) {
@@ -204,10 +222,11 @@ export default function CalendarPage() {
       const { data, error } = await supabase
         .from("leads")
         .select(
-          "id, appointment_date, appointment_time, appointment_status, appointment_type, notes, ai_summary, created_at, first_name, last_name, name, email, phone"
+          "id, appointment_date, appointment_time, appointment_requested_slot_iso, appointment_requested_slot_human, appointment_status, appointment_type, notes, ai_summary, created_at, first_name, last_name, name, email, phone"
         )
         .eq("org_id", orgId)
-        .not("appointment_date", "is", null)
+        .or("appointment_date.not.is.null,appointment_requested_slot_iso.not.is.null")
+        .order("appointment_requested_slot_iso", { ascending: true })
         .order("appointment_date", { ascending: true });
 
       if (error) {
@@ -472,21 +491,27 @@ export default function CalendarPage() {
   }
 
   const upcomingAppointments = useMemo(() => {
-    return appointments.filter((a) => !!a.appointment_date);
+    return appointments.filter(
+      (a) => !!a.appointment_date || !!a.appointment_requested_slot_iso
+    );
   }, [appointments]);
 
   const appointmentsByDate = useMemo(() => {
     const map = new Map<string, AppointmentRow[]>();
 
     for (const appt of upcomingAppointments) {
-      if (!appt.appointment_date) continue;
-      const list = map.get(appt.appointment_date) || [];
+      const dayKey = getAppointmentDayKey(appt);
+      if (!dayKey) continue;
+
+      const list = map.get(dayKey) || [];
       list.push(appt);
-      map.set(appt.appointment_date, list);
+      map.set(dayKey, list);
     }
 
     for (const [key, list] of map.entries()) {
-      list.sort((a, b) => (a.appointment_time || "").localeCompare(b.appointment_time || ""));
+      list.sort((a, b) =>
+        (getAppointmentTimeLabel(a) || "").localeCompare(getAppointmentTimeLabel(b) || "")
+      );
       map.set(key, list);
     }
 
@@ -625,9 +650,10 @@ export default function CalendarPage() {
                   type="button"
                   onClick={() => {
                     setSelectedAppointmentId(appt.id);
-                    if (appt.appointment_date) {
-                      setSelectedDate(appt.appointment_date);
-                      setMonthCursor(dayjs(appt.appointment_date).startOf("month"));
+                    const dayKey = getAppointmentDayKey(appt);
+                    if (dayKey) {
+                      setSelectedDate(dayKey);
+                      setMonthCursor(dayjs(dayKey).startOf("month"));
                     }
                   }}
                   className={`min-w-[280px] rounded-lg border p-4 text-left shadow-sm transition hover:shadow ${
@@ -646,8 +672,8 @@ export default function CalendarPage() {
                   </div>
 
                   <div className="mt-2 text-sm text-gray-600">
-                    {appt.appointment_date || "-"}{" "}
-                    {appt.appointment_time ? `• ${appt.appointment_time}` : ""}
+                    {getAppointmentDayKey(appt) || "-"}{" "}
+                    {getAppointmentTimeLabel(appt) ? `• ${getAppointmentTimeLabel(appt)}` : ""}
                   </div>
 
                   <div className="mt-2 text-sm text-gray-700">
@@ -734,7 +760,7 @@ export default function CalendarPage() {
                         appt.appointment_status
                       )}`}
                     >
-                      {appt.appointment_time || "--"} • {getLeadName(appt)}
+                      {getAppointmentTimeLabel(appt) || "--"} • {getLeadName(appt)}
                     </div>
                   ))}
 
@@ -773,7 +799,7 @@ export default function CalendarPage() {
                     <div>
                       <div className="font-medium">{getLeadName(appt)}</div>
                       <div className="text-sm text-gray-600">
-                        {appt.appointment_time || "-"} • {appt.appointment_type || "-"}
+                        {getAppointmentTimeLabel(appt) || "-"} • {appt.appointment_type || "-"}
                       </div>
                     </div>
 
@@ -808,10 +834,10 @@ export default function CalendarPage() {
                 <span className="font-medium">Phone:</span> {selectedAppointment.phone || "-"}
               </div>
               <div>
-                <span className="font-medium">Date:</span> {selectedAppointment.appointment_date || "-"}
+                <span className="font-medium">Date:</span> {getAppointmentDayKey(selectedAppointment) || "-"}
               </div>
               <div>
-                <span className="font-medium">Time:</span> {selectedAppointment.appointment_time || "-"}
+                <span className="font-medium">Time:</span> {getAppointmentTimeLabel(selectedAppointment) || "-"}
               </div>
               <div>
                 <span className="font-medium">Status:</span> {selectedAppointment.appointment_status || "-"}
