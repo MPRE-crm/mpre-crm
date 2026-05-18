@@ -3,6 +3,7 @@ import twilio from 'twilio'
 import { supabaseAdmin } from '../../../../../lib/supabaseAdmin'
 import { runRelocationSmsBrain } from '../../../../../src/lib/sms/relocationSmsBrain'
 import { getTwoSlots } from '../../../../../lib/calendar/getTwoSlots'
+import { getNextAssignee } from '../../../../../lib/rotation/getNextAssignee'
 
 export const runtime = 'nodejs'
 
@@ -122,6 +123,22 @@ function genericReply(firstName?: string | null) {
   return `Hi ${name}, this is Samantha with MPRE Boise. I got your message and will follow up shortly. If you'd like, text me your timeline, price range, and the area you're thinking about.`
 }
 
+async function resolveProfileIdForRotationUser(userId: number, orgId: string) {
+  const { data, error } = await supabaseAdmin
+    .from('users')
+    .select('user_id')
+    .eq('id', userId)
+    .eq('org_id', orgId)
+    .maybeSingle()
+
+  if (error) {
+    console.error('❌ resolve profile id for rotation user error', error)
+    return null
+  }
+
+  return data?.user_id || null
+}
+
 // Placeholder until we wire exact preferred-lender lookup
 async function handlePreferredLenderIntro(args: {
   leadId: string
@@ -158,8 +175,6 @@ async function handlePreferredLenderIntro(args: {
       return false
     }
 
-    // Fallback: some leads store profiles.id in lead.agent_id instead of users.user_id.
-    // If no users row exists, use the lead.agent_id directly for agent_lender_preferences.
     const resolvedAgentUserId = agentUser?.id || agentId
     const resolvedAgentName = agentUser?.name || agentUser?.email || 'Assigned Agent'
 
@@ -616,23 +631,102 @@ export async function POST(req: NextRequest) {
           : null
 
       if (chosenSlot) {
+        const nextRotationAttempt = (lead.appointment_rotation_attempt || 0) + 1
         const expiresAt = addHours(now, 0.0833).toISOString()
 
-const { data: approvalRow, error: approvalInsertError } = await supabaseAdmin
-  .from('appointment_approvals')
-  .insert({
-    lead_id: leadId,
-    org_id: lead.org_id,
-    requested_by_agent_id: lead.agent_id,
-    current_agent_id: lead.agent_id,
-    slot_iso: chosenSlot.slot_iso,
-    slot_human: chosenSlot.slot_human,
-    status: 'pending',
-    expires_at: expiresAt,
-    rotation_attempt: lead.appointment_rotation_attempt || 0,
-  })
-  .select('id, slot_human, expires_at')
-  .single()
+        const assignee = await getNextAssignee(lead.org_id).catch(() => null)
+
+        if (!assignee?.user_id) {
+          const noAgentReply = `I’ve got your requested time, but no agent is currently available to confirm it right this second. I’ll keep working on it and follow up with you as soon as I have the next best option.`
+
+          const { error: noAgentLeadUpdateError } = await supabaseAdmin
+            .from('leads')
+            .update({
+              appointment_requested: true,
+              appointment_status: 'No Agent Available',
+              appointment_requested_slot_iso: chosenSlot.slot_iso,
+              appointment_requested_slot_human: chosenSlot.slot_human,
+              appointment_pending_agent_id: null,
+              appointment_pending_expires_at: null,
+              appointment_decline_reason: 'No available agent in rotation',
+              appointment_rotation_attempt: nextRotationAttempt,
+              sms_state: 'CALLBACK_LATER',
+              sms_current_objective: 'appointment',
+              sms_last_question: 'no_agent_available',
+              sms_lpmama_current_step: 'appointment',
+              sms_lpmama_next_step: 'appointment',
+              sms_resume_step: 'appointment',
+              sms_detour_reason: 'no_available_agent',
+              preferred_next_step: 'appointment',
+              last_replied_text_at: nowIso,
+              last_meaningful_engagement_at: nowIso,
+              last_contact_attempt_at: nowIso,
+              last_text_attempt_at: nowIso,
+              updated_at: nowIso,
+            })
+            .eq('id', leadId)
+
+          if (noAgentLeadUpdateError) {
+            console.error('❌ no available agent lead update error', noAgentLeadUpdateError)
+          }
+
+          const { error: outgoingMessageInsertError } = await supabaseAdmin
+            .from('messages')
+            .insert({
+              lead_id: leadId,
+              lead_phone: from,
+              direction: 'outgoing',
+              body: noAgentReply,
+              status: 'twiml_reply_prepared',
+              twilio_sid: null,
+              created_at: nowIso,
+            })
+
+          if (outgoingMessageInsertError) {
+            console.error('❌ outbound sms message insert error', outgoingMessageInsertError)
+          }
+
+          const twiml = new twilio.twiml.MessagingResponse()
+          twiml.message(noAgentReply)
+
+          return new NextResponse(twiml.toString(), {
+            status: 200,
+            headers: { 'Content-Type': 'text/xml' },
+          })
+        }
+
+        const rotatedAgentProfileId = await resolveProfileIdForRotationUser(
+          assignee.user_id,
+          lead.org_id
+        )
+
+        if (!rotatedAgentProfileId) {
+          const twiml = new twilio.twiml.MessagingResponse()
+          twiml.message(
+            `I’m sorry — I hit a snag finding the right agent for that request. Please try that one more time.`
+          )
+
+          return new NextResponse(twiml.toString(), {
+            status: 200,
+            headers: { 'Content-Type': 'text/xml' },
+          })
+        }
+
+        const { data: approvalRow, error: approvalInsertError } = await supabaseAdmin
+          .from('appointment_approvals')
+          .insert({
+            lead_id: leadId,
+            org_id: lead.org_id,
+            requested_by_agent_id: rotatedAgentProfileId,
+            current_agent_id: rotatedAgentProfileId,
+            slot_iso: chosenSlot.slot_iso,
+            slot_human: chosenSlot.slot_human,
+            status: 'pending',
+            expires_at: expiresAt,
+            rotation_attempt: nextRotationAttempt,
+          })
+          .select('id, slot_human, expires_at')
+          .single()
 
         if (approvalInsertError) {
           console.error('❌ appointment approval insert error', approvalInsertError)
@@ -647,108 +741,108 @@ const { data: approvalRow, error: approvalInsertError } = await supabaseAdmin
             headers: { 'Content-Type': 'text/xml' },
           })
         } else {
+          const { data: pendingLeadRow, error: pendingLeadUpdateError } = await supabaseAdmin
+            .from('leads')
+            .update({
+              agent_id: rotatedAgentProfileId,
+              appointment_requested: true,
+              appointment_status: 'Pending',
+              appointment_requested_slot_iso: chosenSlot.slot_iso,
+              appointment_requested_slot_human: chosenSlot.slot_human,
+              appointment_pending_agent_id: rotatedAgentProfileId,
+              appointment_pending_expires_at: expiresAt,
+              appointment_decline_reason: null,
+              appointment_offer_slot_a_iso: null,
+              appointment_offer_slot_a_human: null,
+              appointment_offer_slot_b_iso: null,
+              appointment_offer_slot_b_human: null,
+              appointment_rotation_attempt: nextRotationAttempt,
+              sms_state: 'CALLBACK_LATER',
+              sms_current_objective: 'appointment',
+              sms_last_question: 'agent_approval_pending',
+              sms_lpmama_current_step: 'appointment',
+              sms_lpmama_next_step: 'appointment',
+              sms_resume_step: 'appointment',
+              sms_detour_reason: 'pending_agent_approval',
+              preferred_next_step: 'appointment',
+              last_replied_text_at: nowIso,
+              last_meaningful_engagement_at: nowIso,
+              last_contact_attempt_at: nowIso,
+              last_text_attempt_at: nowIso,
+              updated_at: nowIso,
+            })
+            .eq('id', leadId)
+            .select(`
+              id,
+              appointment_status,
+              appointment_requested_slot_iso,
+              appointment_requested_slot_human,
+              appointment_pending_agent_id,
+              appointment_pending_expires_at
+            `)
+            .single()
 
-const { data: pendingLeadRow, error: pendingLeadUpdateError } = await supabaseAdmin
-  .from('leads')
-  .update({
-    appointment_requested: true,
-    appointment_status: 'Pending',
-    appointment_requested_slot_iso: chosenSlot.slot_iso,
-    appointment_requested_slot_human: chosenSlot.slot_human,
-    appointment_pending_agent_id: lead.agent_id,
-    appointment_pending_expires_at: expiresAt,
-    appointment_decline_reason: null,
-    appointment_offer_slot_a_iso: null,
-    appointment_offer_slot_a_human: null,
-    appointment_offer_slot_b_iso: null,
-    appointment_offer_slot_b_human: null,
-    appointment_rotation_attempt: lead.appointment_rotation_attempt || 0,
-    sms_state: 'CALLBACK_LATER',
-    sms_current_objective: 'appointment',
-    sms_last_question: 'agent_approval_pending',
-    sms_lpmama_current_step: 'appointment',
-    sms_lpmama_next_step: 'appointment',
-    sms_resume_step: 'appointment',
-    sms_detour_reason: 'pending_agent_approval',
-    preferred_next_step: 'appointment',
-    last_replied_text_at: nowIso,
-    last_meaningful_engagement_at: nowIso,
-    last_contact_attempt_at: nowIso,
-    last_text_attempt_at: nowIso,
-    updated_at: nowIso,
-  })
-  .eq('id', leadId)
-  .select(`
-    id,
-    appointment_status,
-    appointment_requested_slot_iso,
-    appointment_requested_slot_human,
-    appointment_pending_agent_id,
-    appointment_pending_expires_at
-  `)
-  .single()
+          if (pendingLeadUpdateError || !pendingLeadRow) {
+            console.error('❌ pending approval lead update error', pendingLeadUpdateError)
 
-if (pendingLeadUpdateError || !pendingLeadRow) {
-  console.error('❌ pending approval lead update error', pendingLeadUpdateError)
+            const twiml = new twilio.twiml.MessagingResponse()
+            twiml.message(
+              `I’m sorry — I hit a snag saving that appointment request. Please try that one more time.`
+            )
 
-  const twiml = new twilio.twiml.MessagingResponse()
-  twiml.message(
-    `I’m sorry — I hit a snag saving that appointment request. Please try that one more time.`
-  )
+            return new NextResponse(twiml.toString(), {
+              status: 200,
+              headers: { 'Content-Type': 'text/xml' },
+            })
+          }
 
-  return new NextResponse(twiml.toString(), {
-    status: 200,
-    headers: { 'Content-Type': 'text/xml' },
-  })
-}
+          const { data: agentUser, error: agentUserError } = await supabaseAdmin
+            .from('users')
+            .select('id, name, email, phone')
+            .eq('user_id', rotatedAgentProfileId)
+            .eq('org_id', lead.org_id)
+            .maybeSingle()
 
-const { data: agentUser, error: agentUserError } = await supabaseAdmin
-  .from('users')
-  .select('id, name, email, phone')
-  .eq('user_id', lead.agent_id)
-  .eq('org_id', lead.org_id)
-  .maybeSingle()
+          if (agentUserError) {
+            console.error('❌ agent lookup for appointment approval text error', agentUserError)
+          }
 
-if (agentUserError) {
-  console.error('❌ agent lookup for appointment approval text error', agentUserError)
-}
+          if (agentUser?.phone && approvalRow?.id) {
+            try {
+              const accountSid = process.env.TWILIO_ACCOUNT_SID
+              const authToken = process.env.TWILIO_AUTH_TOKEN
+              const fromNumber = process.env.TWILIO_PHONE_NUMBER
 
-if (agentUser?.phone && approvalRow?.id) {
-  try {
-    const accountSid = process.env.TWILIO_ACCOUNT_SID
-    const authToken = process.env.TWILIO_AUTH_TOKEN
-    const fromNumber = process.env.TWILIO_PHONE_NUMBER
+              if (accountSid && authToken && fromNumber) {
+                const twilioClient = twilio(accountSid, authToken)
 
-    if (accountSid && authToken && fromNumber) {
-      const twilioClient = twilio(accountSid, authToken)
+                const appBaseUrl =
+                  process.env.NEXT_PUBLIC_APP_URL || 'https://www.easyrealtor.homes'
 
-      const appBaseUrl =
-        process.env.NEXT_PUBLIC_APP_URL || 'https://www.easyrealtor.homes'
+                const acceptUrl = `${appBaseUrl}/api/appointments/agent-accept?id=${encodeURIComponent(approvalRow.id)}`
+                const declineUrl = `${appBaseUrl}/api/appointments/agent-decline?id=${encodeURIComponent(approvalRow.id)}`
 
-      const acceptUrl = `${appBaseUrl}/api/appointments/agent-accept?id=${encodeURIComponent(approvalRow.id)}`
-      const declineUrl = `${appBaseUrl}/api/appointments/agent-decline?id=${encodeURIComponent(approvalRow.id)}`
+                const leadName =
+                  clean(lead?.first_name) ||
+                  clean(lead?.name) ||
+                  'Lead'
 
-      const leadName =
-        clean(lead?.first_name) ||
-        clean(lead?.name) ||
-        'Lead'
+                const agentText =
+                  `New appointment request from ${leadName}.\n` +
+                  `Requested time: ${chosenSlot.slot_human}\n` +
+                  `Accept: ${acceptUrl}\n` +
+                  `Decline: ${declineUrl}`
 
-      const agentText =
-        `New appointment request from ${leadName}.\n` +
-        `Requested time: ${chosenSlot.slot_human}\n` +
-        `Accept: ${acceptUrl}\n` +
-        `Decline: ${declineUrl}`
-
-      await twilioClient.messages.create({
-        from: fromNumber,
-        to: normalizePhone(agentUser.phone),
-        body: agentText,
-      })
-    }
-  } catch (agentSmsError) {
-    console.error('❌ agent appointment approval text send error', agentSmsError)
-  }
-}
+                await twilioClient.messages.create({
+                  from: fromNumber,
+                  to: normalizePhone(agentUser.phone),
+                  body: agentText,
+                })
+              }
+            } catch (agentSmsError) {
+              console.error('❌ agent appointment approval text send error', agentSmsError)
+            }
+          }
 
           replyText = `Perfect, ${clean(lead?.first_name) || 'there'} — I’ve sent that time over for confirmation with the agent now. I’ll text you as soon as it’s locked in.`
 
@@ -964,7 +1058,7 @@ if (agentUser?.phone && approvalRow?.id) {
         best_contact_channel: 'text',
         hot_until:
           brain.temperature === 'hot' ? addHours(now, 48).toISOString() : null,
-                appointment_offer_slot_a_iso: slotChoices[0]?.slot_iso || null,
+        appointment_offer_slot_a_iso: slotChoices[0]?.slot_iso || null,
         appointment_offer_slot_a_human: slotChoices[0]?.slot_human || null,
         appointment_offer_slot_b_iso: slotChoices[1]?.slot_iso || null,
         appointment_offer_slot_b_human: slotChoices[1]?.slot_human || null,

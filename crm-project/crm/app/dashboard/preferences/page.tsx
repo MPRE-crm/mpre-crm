@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
@@ -48,6 +48,105 @@ type CalendarConnection = {
   updated_at: string;
 };
 
+type AvailabilityBlock = {
+  id: string;
+  agent_id: string;
+  org_id: string;
+  block_type: "one_time" | "recurring_weekly" | "vacation" | "same_day_pause" | "out_of_office";
+  title: string | null;
+  notes: string | null;
+  start_at: string | null;
+  end_at: string | null;
+  weekday: number | null;
+  start_time: string | null;
+  end_time: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+type ScheduleSettings = {
+  agent_id: string;
+  org_id: string;
+  workday_start_hour: number;
+  workday_end_hour: number;
+  saturday_enabled: boolean;
+  sunday_enabled: boolean;
+  travel_buffer_minutes: 15 | 30 | 60;
+  daily_appointment_cap: number;
+  is_active: boolean;
+};
+
+const WEEKDAY_OPTIONS = [
+  { value: 0, label: "Sunday" },
+  { value: 1, label: "Monday" },
+  { value: 2, label: "Tuesday" },
+  { value: 3, label: "Wednesday" },
+  { value: 4, label: "Thursday" },
+  { value: 5, label: "Friday" },
+  { value: 6, label: "Saturday" },
+];
+
+const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => ({
+  value: hour,
+  label:
+    hour === 0
+      ? "12:00 AM"
+      : hour < 12
+      ? `${hour}:00 AM`
+      : hour === 12
+      ? "12:00 PM"
+      : `${hour - 12}:00 PM`,
+}));
+
+const TRAVEL_BUFFER_OPTIONS = [
+  { value: 15, label: "15 minutes" },
+  { value: 30, label: "30 minutes" },
+  { value: 60, label: "60 minutes" },
+];
+
+const DAILY_CAP_OPTIONS = Array.from({ length: 20 }, (_, index) => ({
+  value: index + 1,
+  label: `${index + 1} appointments`,
+}));
+
+function formatBlockType(type: AvailabilityBlock["block_type"]) {
+  if (type === "one_time") return "One-Time Block";
+  if (type === "recurring_weekly") return "Recurring Weekly Block";
+  if (type === "vacation") return "Vacation";
+  if (type === "same_day_pause") return "Same-Day Pause";
+  return "Out of Office";
+}
+
+function localDateTimeToIso(value?: string | null) {
+  if (!value) return null;
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+
+  return date.toISOString();
+}
+
+function formatDateTimeBoise(value?: string | null) {
+  if (!value) return "—";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return date.toLocaleString("en-US", {
+    timeZone: "America/Boise",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function formatDateTime(value?: string | null) {
+  return formatDateTimeBoise(value);
+}
+
 export default function PreferencesPage() {
   const [sessionProfileId, setSessionProfileId] = useState<string | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
@@ -74,6 +173,43 @@ export default function PreferencesPage() {
   const [calendarConnections, setCalendarConnections] = useState<CalendarConnection[]>([]);
   const [calendarProvider, setCalendarProvider] = useState("google");
 
+  const [availabilityLoading, setAvailabilityLoading] = useState(true);
+  const [availabilitySaving, setAvailabilitySaving] = useState(false);
+  const [availabilityMessage, setAvailabilityMessage] = useState("");
+  const [availabilityBlocks, setAvailabilityBlocks] = useState<AvailabilityBlock[]>([]);
+  const [deletingAvailabilityId, setDeletingAvailabilityId] = useState<string | null>(null);
+
+  const [scheduleLoading, setScheduleLoading] = useState(true);
+  const [scheduleSaving, setScheduleSaving] = useState(false);
+  const [scheduleMessage, setScheduleMessage] = useState("");
+  const [scheduleSettings, setScheduleSettings] = useState<ScheduleSettings | null>(null);
+
+  const [oneTimeTitle, setOneTimeTitle] = useState("");
+  const [oneTimeNotes, setOneTimeNotes] = useState("");
+  const [oneTimeStartAt, setOneTimeStartAt] = useState("");
+  const [oneTimeEndAt, setOneTimeEndAt] = useState("");
+
+  const [recurringTitle, setRecurringTitle] = useState("");
+  const [recurringNotes, setRecurringNotes] = useState("");
+  const [recurringWeekday, setRecurringWeekday] = useState("1");
+  const [recurringStartTime, setRecurringStartTime] = useState("09:00");
+  const [recurringEndTime, setRecurringEndTime] = useState("10:00");
+
+  const [vacationTitle, setVacationTitle] = useState("Vacation");
+  const [vacationNotes, setVacationNotes] = useState("");
+  const [vacationStartAt, setVacationStartAt] = useState("");
+  const [vacationEndAt, setVacationEndAt] = useState("");
+
+  const [pauseTitle, setPauseTitle] = useState("Same-Day Pause");
+  const [pauseNotes, setPauseNotes] = useState("");
+  const [pauseStartAt, setPauseStartAt] = useState("");
+  const [pauseEndAt, setPauseEndAt] = useState("");
+
+  const [oooTitle, setOooTitle] = useState("Out of Office");
+  const [oooNotes, setOooNotes] = useState("");
+  const [oooStartAt, setOooStartAt] = useState("");
+  const [oooEndAt, setOooEndAt] = useState("");
+
   useEffect(() => {
     loadData();
     loadSessionProfileId();
@@ -82,6 +218,8 @@ export default function PreferencesPage() {
   useEffect(() => {
     if (sessionLoading) return;
     loadCalendarData();
+    loadAvailabilityData();
+    loadScheduleData();
   }, [sessionLoading, sessionProfileId]);
 
   async function loadSessionProfileId() {
@@ -154,26 +292,26 @@ export default function PreferencesPage() {
         return;
       }
 
-const res = await fetch(
-  `/api/preferences/calendar?profileId=${encodeURIComponent(sessionProfileId)}`,
-  {
-    method: "GET",
-    cache: "no-store",
-  }
-);
+      const res = await fetch(
+        `/api/preferences/calendar?profileId=${encodeURIComponent(sessionProfileId)}`,
+        {
+          method: "GET",
+          cache: "no-store",
+        }
+      );
 
-const raw = await res.text();
-let json: any = {};
+      const raw = await res.text();
+      let json: any = {};
 
-try {
-  json = raw ? JSON.parse(raw) : {};
-} catch {
-  throw new Error(raw || "Calendar preferences returned a non-JSON response");
-}
+      try {
+        json = raw ? JSON.parse(raw) : {};
+      } catch {
+        throw new Error(raw || "Calendar preferences returned a non-JSON response");
+      }
 
-if (!res.ok) {
-  throw new Error(json?.error || "Failed to load calendar preferences");
-}
+      if (!res.ok) {
+        throw new Error(json?.error || "Failed to load calendar preferences");
+      }
 
       setCalendarProfile(json.profile || null);
       setCalendarConnection(json.connection || null);
@@ -186,6 +324,72 @@ if (!res.ok) {
       setCalendarMessage(err.message || "Failed to load calendar preferences");
     } finally {
       setCalendarLoading(false);
+    }
+  }
+
+  async function loadAvailabilityData() {
+    try {
+      setAvailabilityLoading(true);
+      setAvailabilityMessage("");
+
+      if (!sessionProfileId) {
+        setAvailabilityBlocks([]);
+        setAvailabilityMessage("No logged-in profile ID found.");
+        return;
+      }
+
+      const res = await fetch(
+        `/api/preferences/availability?profileId=${encodeURIComponent(sessionProfileId)}`,
+        {
+          method: "GET",
+          cache: "no-store",
+        }
+      );
+
+      const json = await res.json();
+
+      if (!res.ok) {
+        throw new Error(json?.error || "Failed to load availability blocks");
+      }
+
+      setAvailabilityBlocks(json.blocks || []);
+    } catch (err: any) {
+      setAvailabilityMessage(err.message || "Failed to load availability blocks");
+    } finally {
+      setAvailabilityLoading(false);
+    }
+  }
+
+  async function loadScheduleData() {
+    try {
+      setScheduleLoading(true);
+      setScheduleMessage("");
+
+      if (!sessionProfileId) {
+        setScheduleSettings(null);
+        setScheduleMessage("No logged-in profile ID found.");
+        return;
+      }
+
+      const res = await fetch(
+        `/api/preferences/schedule?profileId=${encodeURIComponent(sessionProfileId)}`,
+        {
+          method: "GET",
+          cache: "no-store",
+        }
+      );
+
+      const json = await res.json();
+
+      if (!res.ok) {
+        throw new Error(json?.error || "Failed to load schedule settings");
+      }
+
+      setScheduleSettings(json.settings || null);
+    } catch (err: any) {
+      setScheduleMessage(err.message || "Failed to load schedule settings");
+    } finally {
+      setScheduleLoading(false);
     }
   }
 
@@ -386,6 +590,124 @@ if (!res.ok) {
     }
   }
 
+  async function saveScheduleSettings() {
+    try {
+      setScheduleSaving(true);
+      setScheduleMessage("");
+
+      if (!sessionProfileId) {
+        throw new Error("No logged-in profile ID found.");
+      }
+
+      if (!scheduleSettings) {
+        throw new Error("Schedule settings are not loaded yet.");
+      }
+
+      const res = await fetch("/api/preferences/schedule", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          profileId: sessionProfileId,
+          workday_start_hour: scheduleSettings.workday_start_hour,
+          workday_end_hour: scheduleSettings.workday_end_hour,
+          saturday_enabled: scheduleSettings.saturday_enabled,
+          sunday_enabled: scheduleSettings.sunday_enabled,
+          travel_buffer_minutes: scheduleSettings.travel_buffer_minutes,
+          daily_appointment_cap: scheduleSettings.daily_appointment_cap,
+          is_active: scheduleSettings.is_active,
+        }),
+      });
+
+      const json = await res.json();
+
+      if (!res.ok) {
+        throw new Error(json?.error || "Failed to save schedule settings");
+      }
+
+      setScheduleMessage("Schedule settings saved.");
+      await loadScheduleData();
+    } catch (err: any) {
+      setScheduleMessage(err.message || "Failed to save schedule settings");
+    } finally {
+      setScheduleSaving(false);
+    }
+  }
+
+  async function createAvailabilityBlock(payload: Record<string, any>) {
+    try {
+      setAvailabilitySaving(true);
+      setAvailabilityMessage("");
+
+      if (!sessionProfileId) {
+        throw new Error("No logged-in profile ID found.");
+      }
+
+      const res = await fetch("/api/preferences/availability", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          profileId: sessionProfileId,
+          ...payload,
+        }),
+      });
+
+      const json = await res.json();
+
+      if (!res.ok) {
+        throw new Error(json?.error || "Failed to create availability block");
+      }
+
+      setAvailabilityMessage("Availability block saved.");
+      await loadAvailabilityData();
+    } catch (err: any) {
+      setAvailabilityMessage(err.message || "Failed to create availability block");
+    } finally {
+      setAvailabilitySaving(false);
+    }
+  }
+
+  async function deleteAvailabilityBlock(id: string) {
+    try {
+      setDeletingAvailabilityId(id);
+      setAvailabilityMessage("");
+
+      if (!sessionProfileId) {
+        throw new Error("No logged-in profile ID found.");
+      }
+
+      const ok = window.confirm("Delete this availability block?");
+      if (!ok) return;
+
+      const res = await fetch("/api/preferences/availability", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          id,
+          profileId: sessionProfileId,
+        }),
+      });
+
+      const json = await res.json();
+
+      if (!res.ok) {
+        throw new Error(json?.error || "Failed to delete availability block");
+      }
+
+      setAvailabilityMessage("Availability block deleted.");
+      await loadAvailabilityData();
+    } catch (err: any) {
+      setAvailabilityMessage(err.message || "Failed to delete availability block");
+    } finally {
+      setDeletingAvailabilityId(null);
+    }
+  }
+
   function connectGoogleCalendar() {
     if (!sessionProfileId) {
       setCalendarMessage("Missing logged-in profile ID.");
@@ -405,23 +727,33 @@ if (!res.ok) {
     (lender) => !selectedLenderIds.includes(lender.id)
   );
 
+  const sortedAvailabilityBlocks = useMemo(
+    () =>
+      [...availabilityBlocks].sort((a, b) => {
+        const aTime = new Date(a.created_at).getTime();
+        const bTime = new Date(b.created_at).getTime();
+        return bTime - aTime;
+      }),
+    [availabilityBlocks]
+  );
+
   return (
-    <div className="p-6">
-      <div className="mb-6">
+    <div className="p-6 space-y-6">
+      <div>
         <h1 className="text-2xl font-bold">Preferences</h1>
-        <p className="text-sm text-gray-600 mt-1">
+        <p className="mt-1 text-sm text-gray-600">
           Set your preferred lender order here. Samantha will use this list first,
           then fall back to the organization lender pool if needed.
         </p>
       </div>
 
       {message ? (
-        <div className="mb-4 rounded border px-4 py-3 text-sm">
+        <div className="rounded border px-4 py-3 text-sm">
           {message}
         </div>
       ) : null}
 
-      <div className="mb-6 rounded border p-4">
+      <div className="rounded border p-4">
         <h2 className="mb-4 text-lg font-semibold">Calendar Preferences</h2>
 
         {calendarMessage ? (
@@ -521,7 +853,7 @@ if (!res.ok) {
                       <div className="font-medium">
                         {connection.provider} {connection.is_default ? "• Default" : ""}
                       </div>
-                      <div className="text-sm text-gray-600 mt-1">
+                      <div className="mt-1 text-sm text-gray-600">
                         {connection.account_email || "No account email"} •{" "}
                         {connection.calendar_connected ? "Connected" : "Not connected"}
                       </div>
@@ -537,7 +869,515 @@ if (!res.ok) {
         )}
       </div>
 
-      <div className="mb-6 rounded border p-4">
+      <div className="rounded border p-4">
+        <h2 className="mb-4 text-lg font-semibold">Working Hours & Weekend Settings</h2>
+
+        {scheduleMessage ? (
+          <div className="mb-4 rounded border px-4 py-3 text-sm">
+            {scheduleMessage}
+          </div>
+        ) : null}
+
+        {scheduleLoading || !scheduleSettings ? (
+          <div className="text-sm text-gray-600">Loading schedule settings...</div>
+        ) : (
+          <>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="rounded border p-3">
+                <div className="text-sm text-gray-600">Workday Start</div>
+                <select
+                  value={scheduleSettings.workday_start_hour}
+                  onChange={(e) =>
+                    setScheduleSettings((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            workday_start_hour: Number(e.target.value),
+                          }
+                        : prev
+                    )
+                  }
+                  className="mt-2 w-full rounded border px-3 py-2 text-sm"
+                >
+                  {HOUR_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="rounded border p-3">
+                <div className="text-sm text-gray-600">Workday End</div>
+                <select
+                  value={scheduleSettings.workday_end_hour}
+                  onChange={(e) =>
+                    setScheduleSettings((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            workday_end_hour: Number(e.target.value),
+                          }
+                        : prev
+                    )
+                  }
+                  className="mt-2 w-full rounded border px-3 py-2 text-sm"
+                >
+                  {HOUR_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="rounded border p-3">
+                <div className="text-sm text-gray-600">Travel Buffer</div>
+                <select
+                  value={scheduleSettings.travel_buffer_minutes}
+                  onChange={(e) =>
+                    setScheduleSettings((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            travel_buffer_minutes: Number(e.target.value) as 15 | 30 | 60,
+                          }
+                        : prev
+                    )
+                  }
+                  className="mt-2 w-full rounded border px-3 py-2 text-sm"
+                >
+                  {TRAVEL_BUFFER_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="rounded border p-3">
+                <div className="text-sm text-gray-600">Daily Appointment Cap</div>
+                <select
+                  value={scheduleSettings.daily_appointment_cap}
+                  onChange={(e) =>
+                    setScheduleSettings((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            daily_appointment_cap: Number(e.target.value),
+                          }
+                        : prev
+                    )
+                  }
+                  className="mt-2 w-full rounded border px-3 py-2 text-sm"
+                >
+                  {DAILY_CAP_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <label className="flex items-center gap-3 rounded border p-3">
+                <input
+                  type="checkbox"
+                  checked={scheduleSettings.saturday_enabled}
+                  onChange={(e) =>
+                    setScheduleSettings((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            saturday_enabled: e.target.checked,
+                          }
+                        : prev
+                    )
+                  }
+                />
+                <span className="text-sm">Allow Saturday appointments</span>
+              </label>
+
+              <label className="flex items-center gap-3 rounded border p-3">
+                <input
+                  type="checkbox"
+                  checked={scheduleSettings.sunday_enabled}
+                  onChange={(e) =>
+                    setScheduleSettings((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            sunday_enabled: e.target.checked,
+                          }
+                        : prev
+                    )
+                  }
+                />
+                <span className="text-sm">Allow Sunday appointments</span>
+              </label>
+            </div>
+
+            <div className="mt-4">
+              <button
+                type="button"
+                onClick={saveScheduleSettings}
+                disabled={scheduleSaving}
+                className="rounded bg-black px-4 py-2 text-sm text-white disabled:opacity-60"
+              >
+                {scheduleSaving ? "Saving..." : "Save Working Hours"}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+
+      <div className="rounded border p-4">
+        <h2 className="mb-4 text-lg font-semibold">Availability Controls</h2>
+
+        {availabilityMessage ? (
+          <div className="mb-4 rounded border px-4 py-3 text-sm">
+            {availabilityMessage}
+          </div>
+        ) : null}
+
+        <div className="grid gap-6 lg:grid-cols-2">
+          <div className="rounded border p-4">
+            <h3 className="mb-3 text-base font-semibold">One-Time Block</h3>
+            <div className="space-y-3">
+              <input
+                type="text"
+                value={oneTimeTitle}
+                onChange={(e) => setOneTimeTitle(e.target.value)}
+                placeholder="Showing, personal errand, meeting..."
+                className="w-full rounded border px-3 py-2 text-sm"
+              />
+              <input
+                type="text"
+                value={oneTimeNotes}
+                onChange={(e) => setOneTimeNotes(e.target.value)}
+                placeholder="Notes"
+                className="w-full rounded border px-3 py-2 text-sm"
+              />
+              <input
+                type="datetime-local"
+                value={oneTimeStartAt}
+                onChange={(e) => setOneTimeStartAt(e.target.value)}
+                className="w-full rounded border px-3 py-2 text-sm"
+              />
+              <input
+                type="datetime-local"
+                value={oneTimeEndAt}
+                onChange={(e) => setOneTimeEndAt(e.target.value)}
+                className="w-full rounded border px-3 py-2 text-sm"
+              />
+              <button
+                type="button"
+                disabled={availabilitySaving}
+                onClick={async () => {
+                  await createAvailabilityBlock({
+                    block_type: "one_time",
+                    title: oneTimeTitle || "One-Time Block",
+                    notes: oneTimeNotes || null,
+                    start_at: localDateTimeToIso(oneTimeStartAt),
+                    end_at: localDateTimeToIso(oneTimeEndAt),
+                  });
+                  setOneTimeTitle("");
+                  setOneTimeNotes("");
+                  setOneTimeStartAt("");
+                  setOneTimeEndAt("");
+                }}
+                className="rounded bg-black px-4 py-2 text-sm text-white disabled:opacity-60"
+              >
+                {availabilitySaving ? "Saving..." : "Save One-Time Block"}
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded border p-4">
+            <h3 className="mb-3 text-base font-semibold">Recurring Weekly Block</h3>
+            <div className="space-y-3">
+              <input
+                type="text"
+                value={recurringTitle}
+                onChange={(e) => setRecurringTitle(e.target.value)}
+                placeholder="Weekly team meeting, lunch block..."
+                className="w-full rounded border px-3 py-2 text-sm"
+              />
+              <input
+                type="text"
+                value={recurringNotes}
+                onChange={(e) => setRecurringNotes(e.target.value)}
+                placeholder="Notes"
+                className="w-full rounded border px-3 py-2 text-sm"
+              />
+              <select
+                value={recurringWeekday}
+                onChange={(e) => setRecurringWeekday(e.target.value)}
+                className="w-full rounded border px-3 py-2 text-sm"
+              >
+                {WEEKDAY_OPTIONS.map((day) => (
+                  <option key={day.value} value={day.value}>
+                    {day.label}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="time"
+                value={recurringStartTime}
+                onChange={(e) => setRecurringStartTime(e.target.value)}
+                className="w-full rounded border px-3 py-2 text-sm"
+              />
+              <input
+                type="time"
+                value={recurringEndTime}
+                onChange={(e) => setRecurringEndTime(e.target.value)}
+                className="w-full rounded border px-3 py-2 text-sm"
+              />
+              <button
+                type="button"
+                disabled={availabilitySaving}
+                onClick={async () => {
+                  await createAvailabilityBlock({
+                    block_type: "recurring_weekly",
+                    title: recurringTitle || "Recurring Weekly Block",
+                    notes: recurringNotes || null,
+                    weekday: Number(recurringWeekday),
+                    start_time: recurringStartTime,
+                    end_time: recurringEndTime,
+                  });
+                  setRecurringTitle("");
+                  setRecurringNotes("");
+                  setRecurringWeekday("1");
+                  setRecurringStartTime("09:00");
+                  setRecurringEndTime("10:00");
+                }}
+                className="rounded bg-black px-4 py-2 text-sm text-white disabled:opacity-60"
+              >
+                {availabilitySaving ? "Saving..." : "Save Recurring Block"}
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded border p-4">
+            <h3 className="mb-3 text-base font-semibold">Vacation</h3>
+            <div className="space-y-3">
+              <input
+                type="text"
+                value={vacationTitle}
+                onChange={(e) => setVacationTitle(e.target.value)}
+                placeholder="Vacation"
+                className="w-full rounded border px-3 py-2 text-sm"
+              />
+              <input
+                type="text"
+                value={vacationNotes}
+                onChange={(e) => setVacationNotes(e.target.value)}
+                placeholder="Notes"
+                className="w-full rounded border px-3 py-2 text-sm"
+              />
+              <input
+                type="datetime-local"
+                value={vacationStartAt}
+                onChange={(e) => setVacationStartAt(e.target.value)}
+                className="w-full rounded border px-3 py-2 text-sm"
+              />
+              <input
+                type="datetime-local"
+                value={vacationEndAt}
+                onChange={(e) => setVacationEndAt(e.target.value)}
+                className="w-full rounded border px-3 py-2 text-sm"
+              />
+              <button
+                type="button"
+                disabled={availabilitySaving}
+                onClick={async () => {
+                  await createAvailabilityBlock({
+                    block_type: "vacation",
+                    title: vacationTitle || "Vacation",
+                    notes: vacationNotes || null,
+                    start_at: localDateTimeToIso(vacationStartAt),
+                    end_at: localDateTimeToIso(vacationEndAt),
+                  });
+                  setVacationTitle("Vacation");
+                  setVacationNotes("");
+                  setVacationStartAt("");
+                  setVacationEndAt("");
+                }}
+                className="rounded bg-black px-4 py-2 text-sm text-white disabled:opacity-60"
+              >
+                {availabilitySaving ? "Saving..." : "Save Vacation"}
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded border p-4">
+            <h3 className="mb-3 text-base font-semibold">Same-Day Pause</h3>
+            <div className="space-y-3">
+              <input
+                type="text"
+                value={pauseTitle}
+                onChange={(e) => setPauseTitle(e.target.value)}
+                placeholder="Pause title"
+                className="w-full rounded border px-3 py-2 text-sm"
+              />
+              <input
+                type="text"
+                value={pauseNotes}
+                onChange={(e) => setPauseNotes(e.target.value)}
+                placeholder="Notes"
+                className="w-full rounded border px-3 py-2 text-sm"
+              />
+              <input
+                type="datetime-local"
+                value={pauseStartAt}
+                onChange={(e) => setPauseStartAt(e.target.value)}
+                className="w-full rounded border px-3 py-2 text-sm"
+              />
+              <input
+                type="datetime-local"
+                value={pauseEndAt}
+                onChange={(e) => setPauseEndAt(e.target.value)}
+                className="w-full rounded border px-3 py-2 text-sm"
+              />
+              <button
+                type="button"
+                disabled={availabilitySaving}
+                onClick={async () => {
+                  await createAvailabilityBlock({
+                    block_type: "same_day_pause",
+                    title: pauseTitle || "Same-Day Pause",
+                    notes: pauseNotes || null,
+                    start_at: localDateTimeToIso(pauseStartAt),
+                    end_at: localDateTimeToIso(pauseEndAt),
+                  });
+                  setPauseTitle("Same-Day Pause");
+                  setPauseNotes("");
+                  setPauseStartAt("");
+                  setPauseEndAt("");
+                }}
+                className="rounded bg-black px-4 py-2 text-sm text-white disabled:opacity-60"
+              >
+                {availabilitySaving ? "Saving..." : "Save Same-Day Pause"}
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded border p-4 lg:col-span-2">
+            <h3 className="mb-3 text-base font-semibold">Out of Office</h3>
+            <div className="grid gap-3 md:grid-cols-2">
+              <input
+                type="text"
+                value={oooTitle}
+                onChange={(e) => setOooTitle(e.target.value)}
+                placeholder="Out of Office"
+                className="w-full rounded border px-3 py-2 text-sm"
+              />
+              <input
+                type="text"
+                value={oooNotes}
+                onChange={(e) => setOooNotes(e.target.value)}
+                placeholder="Notes"
+                className="w-full rounded border px-3 py-2 text-sm"
+              />
+              <input
+                type="datetime-local"
+                value={oooStartAt}
+                onChange={(e) => setOooStartAt(e.target.value)}
+                className="w-full rounded border px-3 py-2 text-sm"
+              />
+              <input
+                type="datetime-local"
+                value={oooEndAt}
+                onChange={(e) => setOooEndAt(e.target.value)}
+                className="w-full rounded border px-3 py-2 text-sm"
+              />
+            </div>
+            <div className="mt-3">
+              <button
+                type="button"
+                disabled={availabilitySaving}
+                onClick={async () => {
+                  await createAvailabilityBlock({
+                    block_type: "out_of_office",
+                    title: oooTitle || "Out of Office",
+                    notes: oooNotes || null,
+                    start_at: localDateTimeToIso(oooStartAt),
+                    end_at: localDateTimeToIso(oooEndAt),
+                  });
+                  setOooTitle("Out of Office");
+                  setOooNotes("");
+                  setOooStartAt("");
+                  setOooEndAt("");
+                }}
+                className="rounded bg-black px-4 py-2 text-sm text-white disabled:opacity-60"
+              >
+                {availabilitySaving ? "Saving..." : "Save Out of Office"}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-6 rounded border p-4">
+          <h3 className="mb-3 text-base font-semibold">Saved Availability Blocks</h3>
+
+          {availabilityLoading ? (
+            <div className="text-sm text-gray-600">Loading availability blocks...</div>
+          ) : sortedAvailabilityBlocks.length === 0 ? (
+            <div className="text-sm text-gray-600">No availability blocks saved yet.</div>
+          ) : (
+            <div className="space-y-3">
+              {sortedAvailabilityBlocks.map((block) => (
+                <div key={block.id} className="rounded border p-3">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                    <div>
+                      <div className="font-medium">
+                        {formatBlockType(block.block_type)} {block.is_active ? "" : "• Inactive"}
+                      </div>
+                      <div className="mt-1 text-sm text-gray-600">
+                        Title: {block.title || "N/A"}
+                      </div>
+                      <div className="text-sm text-gray-600">
+                        Notes: {block.notes || "N/A"}
+                      </div>
+
+                      {block.block_type === "recurring_weekly" ? (
+                        <>
+                          <div className="text-sm text-gray-600">
+                            Day:{" "}
+                            {WEEKDAY_OPTIONS.find((d) => d.value === block.weekday)?.label || "N/A"}
+                          </div>
+                          <div className="text-sm text-gray-600">
+                            Time: {block.start_time || "—"} to {block.end_time || "—"}
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="text-sm text-gray-600">
+                            Start: {formatDateTime(block.start_at)}
+                          </div>
+                          <div className="text-sm text-gray-600">
+                            End: {formatDateTime(block.end_at)}
+                          </div>
+                        </>
+                      )}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => deleteAvailabilityBlock(block.id)}
+                      disabled={deletingAvailabilityId === block.id}
+                      className="rounded border px-3 py-2 text-sm"
+                    >
+                      {deletingAvailabilityId === block.id ? "Deleting..." : "Delete"}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="rounded border p-4">
         <h2 className="mb-4 text-lg font-semibold">Add New Lender</h2>
 
         <div className="grid gap-3 md:grid-cols-3">
