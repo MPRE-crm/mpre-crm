@@ -14,8 +14,12 @@ export default function LoginClient() {
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+
   const [err, setErr] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
   const [loading, setLoading] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
 
   useEffect(() => {
     const { data: sub } = supabase.auth.onAuthStateChange(
@@ -27,6 +31,7 @@ export default function LoginClient() {
         });
       }
     );
+
     return () => {
       sub?.subscription?.unsubscribe();
     };
@@ -35,6 +40,7 @@ export default function LoginClient() {
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErr(null);
+    setNotice(null);
     setLoading(true);
 
     const { error } = await supabase.auth.signInWithPassword({
@@ -49,19 +55,58 @@ export default function LoginClient() {
       return;
     }
 
-    // Mark this browser session so middleware will allow access
     document.cookie = `app-session=1; path=/; SameSite=Lax; Secure`;
 
     router.replace(redirect);
   };
 
+  const onForgotPassword = async () => {
+    setErr(null);
+    setNotice(null);
+
+    const cleanEmail = email.trim().toLowerCase();
+
+    if (!cleanEmail) {
+      setErr('Enter your email first, then click Forgot password.');
+      return;
+    }
+
+    setResetLoading(true);
+
+    const resetUrl =
+      typeof window !== 'undefined'
+        ? `${window.location.origin}/reset-password`
+        : undefined;
+
+    const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
+      redirectTo: resetUrl,
+    });
+
+    setResetLoading(false);
+
+    if (error) {
+      setErr(error.message || 'Could not send password reset email.');
+      return;
+    }
+
+    setNotice('Password reset email sent. Check your inbox.');
+  };
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-neutral-50">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-neutral-50 px-4 -translate-y-20">
+      <div className="-mb-40 flex justify-center">
+        <img
+          src="/easyrealtor-logo.png"
+          alt="EasyRealtor"
+          className="h-[24rem] md:h-[30rem] w-auto object-contain"
+        />
+      </div>
+
       <form
         onSubmit={onSubmit}
         className="w-full max-w-sm bg-white p-6 rounded-xl shadow-sm border"
       >
-        <h1 className="text-xl font-semibold mb-4">Sign in</h1>
+        <h1 className="text-xl font-semibold mb-4 text-center">Sign in</h1>
 
         <label className="block text-sm mb-1">Email</label>
         <input
@@ -72,7 +117,7 @@ export default function LoginClient() {
           className="w-full border rounded px-3 py-2 mb-3"
           placeholder="you@example.com"
           autoComplete="username"
-          disabled={loading}
+          disabled={loading || resetLoading}
         />
 
         <label className="block text-sm mb-1">Password</label>
@@ -81,21 +126,35 @@ export default function LoginClient() {
           required
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="w-full border rounded px-3 py-2 mb-4"
+          className="w-full border rounded px-3 py-2 mb-2"
           placeholder="••••••••"
           autoComplete="current-password"
-          disabled={loading}
+          disabled={loading || resetLoading}
         />
 
+        <button
+          type="button"
+          onClick={onForgotPassword}
+          disabled={loading || resetLoading}
+          className="text-sm text-blue-700 hover:underline mb-4 disabled:opacity-60"
+        >
+          {resetLoading ? 'Sending reset email…' : 'Forgot password?'}
+        </button>
+
         {err && <div className="text-red-600 text-sm mb-3">{err}</div>}
+        {notice && <div className="text-green-700 text-sm mb-3">{notice}</div>}
 
         <button
           type="submit"
-          disabled={loading}
+          disabled={loading || resetLoading}
           className="w-full rounded-md border px-3 py-2 disabled:opacity-60 mb-3 bg-blue-600 text-white"
         >
           {loading ? 'Logging in…' : 'Sign in'}
         </button>
+
+        <p className="text-xs text-neutral-500 text-center">
+          Forgot your email? Contact your CRM admin.
+        </p>
       </form>
     </div>
   );

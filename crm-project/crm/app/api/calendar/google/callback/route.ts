@@ -1,4 +1,5 @@
 export const runtime = "nodejs";
+
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 import {
@@ -6,6 +7,80 @@ import {
   fetchGoogleAccountEmail,
   fetchGoogleCalendars,
 } from "../../../../../lib/googleCalendar";
+
+async function getProfile(profileId: string) {
+  const { data, error } = await supabaseAdmin
+    .from("profiles")
+    .select("id, org_id, role, email")
+    .eq("id", profileId)
+    .single();
+
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error("Profile not found");
+
+  return data;
+}
+
+async function resolveCalendarTargetProfile(profile: {
+  id: string;
+  org_id: string;
+  role: string;
+  email: string | null;
+}) {
+  if (profile.role === "agent") return profile;
+
+  if (profile.role === "admin" || profile.role === "platform_admin") {
+    const { data: rotationMember, error: rotationError } = await supabaseAdmin
+      .from("rotation_members")
+      .select("user_id")
+      .eq("org_id", profile.org_id)
+      .eq("is_active", true)
+      .order("last_assigned_at", { ascending: true, nullsFirst: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (rotationError) throw new Error(rotationError.message);
+
+    if (rotationMember?.user_id) {
+      const { data: routedUser, error: routedUserError } = await supabaseAdmin
+        .from("users")
+        .select("user_id, email, org_id")
+        .eq("id", rotationMember.user_id)
+        .eq("org_id", profile.org_id)
+        .maybeSingle();
+
+      if (routedUserError) throw new Error(routedUserError.message);
+
+      if (routedUser?.user_id) {
+        const { data: routedProfile, error: routedProfileError } =
+          await supabaseAdmin
+            .from("profiles")
+            .select("id, org_id, role, email")
+            .eq("id", routedUser.user_id)
+            .eq("org_id", profile.org_id)
+            .maybeSingle();
+
+        if (routedProfileError) throw new Error(routedProfileError.message);
+        if (routedProfile?.id) return routedProfile;
+      }
+    }
+
+    const { data: fallbackAgent, error: fallbackAgentError } =
+      await supabaseAdmin
+        .from("profiles")
+        .select("id, org_id, role, email")
+        .eq("org_id", profile.org_id)
+        .eq("role", "agent")
+        .order("email", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+    if (fallbackAgentError) throw new Error(fallbackAgentError.message);
+    if (fallbackAgent?.id) return fallbackAgent;
+  }
+
+  return profile;
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -25,28 +100,14 @@ export async function GET(req: NextRequest) {
     const profileId = parsedState?.profileId;
 
     if (!profileId) {
-      return NextResponse.json({ error: "Invalid state / missing profileId" }, { status: 400 });
-    }
-
-    const { data: profile, error: profileError } = await supabaseAdmin
-      .from("profiles")
-      .select("id, org_id, email")
-      .eq("id", profileId)
-      .single();
-
-    if (profileError || !profile) {
       return NextResponse.json(
-        { error: "Profile not found", details: profileError?.message },
-        { status: 404 }
+        { error: "Invalid state / missing profileId" },
+        { status: 400 }
       );
     }
 
-        const { data: existingConnection } = await supabaseAdmin
-      .from("calendar_connections")
-      .select("id, refresh_token, account_email")
-      .eq("agent_id", profile.id)
-      .eq("provider", "google")
-      .maybeSingle();
+    const profile = await getProfile(profileId);
+    const targetProfile = await resolveCalendarTargetProfile(profile);
 
     const oauth2Client = getGoogleOAuthClient();
     const { tokens } = await oauth2Client.getToken(code);
@@ -56,16 +117,25 @@ export async function GET(req: NextRequest) {
     const accountEmail = await fetchGoogleAccountEmail(oauth2Client);
     const calendars = await fetchGoogleCalendars(oauth2Client);
 
-    const expiresAt =
-      tokens.expiry_date ? new Date(tokens.expiry_date).toISOString() : null;
+    const { data: existingConnection } = await supabaseAdmin
+      .from("calendar_connections")
+      .select("id, refresh_token, account_email")
+      .eq("agent_id", targetProfile.id)
+      .eq("provider", "google")
+      .eq("account_email", accountEmail || targetProfile.email || profile.email || "")
+      .maybeSingle();
+
+    const expiresAt = tokens.expiry_date
+      ? new Date(tokens.expiry_date).toISOString()
+      : null;
 
     const primaryCalendar = calendars.find((c) => c.is_primary) || calendars[0] || null;
 
     const upsertPayload = {
-      agent_id: profile.id,
-      organization_id: profile.org_id,
+      agent_id: targetProfile.id,
+      organization_id: targetProfile.org_id,
       provider: "google",
-      account_email: accountEmail || profile.email || null,
+      account_email: accountEmail || targetProfile.email || profile.email || null,
       access_token: tokens.access_token || null,
       refresh_token: tokens.refresh_token || existingConnection?.refresh_token || null,
       token_expires_at: expiresAt,
@@ -86,10 +156,23 @@ export async function GET(req: NextRequest) {
 
     if (connectionError || !connection) {
       return NextResponse.json(
-        { error: "Failed to save calendar connection", details: connectionError?.message },
+        {
+          error: "Failed to save calendar connection",
+          details: connectionError?.message,
+        },
         { status: 500 }
       );
     }
+
+    await supabaseAdmin
+      .from("calendar_connections")
+      .update({
+        is_default: false,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("agent_id", targetProfile.id)
+      .eq("provider", "google")
+      .neq("id", connection.id);
 
     if (calendars.length > 0) {
       const rows = calendars.map((cal) => ({
@@ -109,7 +192,10 @@ export async function GET(req: NextRequest) {
 
       if (calendarsError) {
         return NextResponse.json(
-          { error: "Connection saved, but calendar sync failed", details: calendarsError.message },
+          {
+            error: "Connection saved, but calendar sync failed",
+            details: calendarsError.message,
+          },
           { status: 500 }
         );
       }

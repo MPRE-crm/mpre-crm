@@ -39,7 +39,23 @@ type AgentScheduleSettings = {
   saturday_enabled: boolean;
   sunday_enabled: boolean;
   travel_buffer_minutes: 15 | 30 | 60;
+  daily_appointment_cap: number;
+  allow_after_hours_appointments: boolean;
+  after_hours_start_hour: number | null;
+  after_hours_end_hour: number | null;
   is_active: boolean;
+};
+
+type AgentWeeklyHour = {
+  id?: string;
+  agent_id: string;
+  org_id: string;
+  weekday: number;
+  is_enabled: boolean;
+  start_hour: number;
+  end_hour: number;
+  created_at?: string;
+  updated_at?: string;
 };
 
 const BOISE_TZ = "America/Boise";
@@ -47,14 +63,90 @@ const SLOT_MINUTES = 30;
 const SAME_DAY_MIN_NOTICE_MINUTES = 120;
 const SEARCH_DAYS = 14;
 
-// Org fallback defaults
 const DEFAULT_START_HOUR = 9;
 const DEFAULT_END_HOUR = 18;
 const DEFAULT_TRAVEL_BUFFER_MINUTES = 30;
 
-// Lunch block
 const LUNCH_START_HOUR = 12;
 const LUNCH_END_HOUR = 13;
+const PREFERRED_REGULAR_APPOINTMENT_HOURS = [10, 14];
+
+function buildPreferredAppointmentHours(
+  settings: AgentScheduleSettings | null
+): number[] {
+  const hours = [...PREFERRED_REGULAR_APPOINTMENT_HOURS];
+
+  if (
+    settings?.allow_after_hours_appointments &&
+    typeof settings.after_hours_start_hour === "number" &&
+    typeof settings.after_hours_end_hour === "number" &&
+    settings.after_hours_end_hour > settings.after_hours_start_hour
+  ) {
+    hours.push(settings.after_hours_start_hour);
+  }
+
+  return Array.from(new Set(hours)).filter((hour) => hour >= 0 && hour <= 23);
+}
+
+function buildFallbackAppointmentHours(): number[] {
+  return Array.from({ length: 24 }, (_, hour) => hour);
+}
+
+function getBoiseDateKey(date: Date): string {
+  const parts = getTzParts(date, BOISE_TZ);
+  return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(
+    parts.day
+  ).padStart(2, "0")}`;
+}
+
+async function getDailyAppointmentCounts(args: {
+  org_id: string;
+  agent_id?: string | null;
+  now: Date;
+}): Promise<Record<string, number>> {
+  const { org_id, agent_id, now } = args;
+
+  if (!agent_id) return {};
+
+  const searchEnd = new Date(now.getTime() + SEARCH_DAYS * 24 * 60 * 60 * 1000);
+
+  const { data, error } = await supabaseAdmin
+    .from("appointment_approvals")
+    .select("slot_iso, status")
+    .eq("org_id", org_id)
+    .eq("current_agent_id", agent_id)
+    .in("status", ["pending", "accepted"])
+    .gte("slot_iso", now.toISOString())
+    .lte("slot_iso", searchEnd.toISOString());
+
+  if (error) {
+    console.error("❌ getTwoSlots daily appointment cap lookup error", error);
+    return {};
+  }
+
+  const counts: Record<string, number> = {};
+
+  for (const row of data || []) {
+    if (!row.slot_iso) continue;
+
+    const key = getBoiseDateKey(new Date(row.slot_iso));
+    counts[key] = (counts[key] || 0) + 1;
+  }
+
+  return counts;
+}
+
+function isDayAtAppointmentCap(
+  start: Date,
+  settings: AgentScheduleSettings | null,
+  dailyAppointmentCounts: Record<string, number>
+): boolean {
+  const cap = settings?.daily_appointment_cap ?? 6;
+  const key = getBoiseDateKey(start);
+  const count = dailyAppointmentCounts[key] || 0;
+
+  return count >= cap;
+}
 
 function getTzParts(date: Date, timeZone: string) {
   const formatter = new Intl.DateTimeFormat("en-CA", {
@@ -169,58 +261,137 @@ function getWeekdayNumberInBoise(date: Date): number {
   return 6;
 }
 
-function isAllowedWeekday(
+function getWeeklyHourForDate(
   date: Date,
-  settings: AgentScheduleSettings | null
-): boolean {
+  weeklyHours: AgentWeeklyHour[]
+): AgentWeeklyHour | null {
+  const weekday = getWeekdayNumberInBoise(date);
+  return weeklyHours.find((row) => row.weekday === weekday) || null;
+}
+
+function getDailyWindow(
+  date: Date,
+  settings: AgentScheduleSettings | null,
+  weeklyHours: AgentWeeklyHour[]
+): {
+  isEnabled: boolean;
+  startHour: number;
+  endHour: number;
+} {
+  const weeklyHour = getWeeklyHourForDate(date, weeklyHours);
+
+  if (weeklyHour) {
+    return {
+      isEnabled: Boolean(weeklyHour.is_enabled),
+      startHour: weeklyHour.start_hour,
+      endHour: weeklyHour.end_hour,
+    };
+  }
+
   const weekday = getWeekdayNumberInBoise(date);
 
   if (weekday === 0) {
-    return settings?.sunday_enabled ?? false;
+    return {
+      isEnabled: settings?.sunday_enabled ?? false,
+      startHour: settings?.workday_start_hour ?? DEFAULT_START_HOUR,
+      endHour: settings?.workday_end_hour ?? DEFAULT_END_HOUR,
+    };
   }
 
   if (weekday === 6) {
-    return settings?.saturday_enabled ?? true;
+    return {
+      isEnabled: settings?.saturday_enabled ?? true,
+      startHour: settings?.workday_start_hour ?? DEFAULT_START_HOUR,
+      endHour: settings?.workday_end_hour ?? DEFAULT_END_HOUR,
+    };
   }
 
-  return true;
+  return {
+    isEnabled: true,
+    startHour: settings?.workday_start_hour ?? DEFAULT_START_HOUR,
+    endHour: settings?.workday_end_hour ?? DEFAULT_END_HOUR,
+  };
 }
 
 function isWithinOfferWindow(
   date: Date,
-  settings: AgentScheduleSettings | null
+  settings: AgentScheduleSettings | null,
+  weeklyHours: AgentWeeklyHour[]
 ): boolean {
   const parts = getTzParts(date, BOISE_TZ);
-  const startHour = settings?.workday_start_hour ?? DEFAULT_START_HOUR;
-  const endHour = settings?.workday_end_hour ?? DEFAULT_END_HOUR;
+  const dailyWindow = getDailyWindow(date, settings, weeklyHours);
 
-  if (parts.hour < startHour) return false;
-  if (parts.hour > endHour) return false;
-  if (parts.hour === endHour && parts.minute > 0) return false;
+  if (!dailyWindow.isEnabled) return false;
 
-  return true;
+  const startMinutes = parts.hour * 60 + parts.minute;
+
+  const regularStartMinutes = dailyWindow.startHour * 60;
+  const regularEndMinutes = dailyWindow.endHour * 60;
+
+  const insideRegularWindow =
+    startMinutes >= regularStartMinutes && startMinutes <= regularEndMinutes;
+
+  if (insideRegularWindow) return true;
+
+  const afterHoursEnabled = Boolean(settings?.allow_after_hours_appointments);
+  const afterStart = settings?.after_hours_start_hour;
+  const afterEnd = settings?.after_hours_end_hour;
+
+  if (
+    afterHoursEnabled &&
+    typeof afterStart === "number" &&
+    typeof afterEnd === "number" &&
+    afterEnd > afterStart
+  ) {
+    const afterStartMinutes = afterStart * 60;
+    const afterEndMinutes = afterEnd * 60;
+
+    return startMinutes >= afterStartMinutes && startMinutes <= afterEndMinutes;
+  }
+
+  return false;
 }
-
+ 
 function fitsInsideWorkHours(
   start: Date,
   end: Date,
-  settings: AgentScheduleSettings | null
+  settings: AgentScheduleSettings | null,
+  weeklyHours: AgentWeeklyHour[]
 ): boolean {
   const startParts = getTzParts(start, BOISE_TZ);
   const endParts = getTzParts(end, BOISE_TZ);
+  const dailyWindow = getDailyWindow(start, settings, weeklyHours);
 
-  const startHour = settings?.workday_start_hour ?? DEFAULT_START_HOUR;
-  const endHour = settings?.workday_end_hour ?? DEFAULT_END_HOUR;
+  if (!dailyWindow.isEnabled) return false;
 
   const startMinutes = startParts.hour * 60 + startParts.minute;
   const endMinutes = endParts.hour * 60 + endParts.minute;
-  const allowedStartMinutes = startHour * 60;
-  const allowedEndMinutes = endHour * 60;
 
-  if (startMinutes < allowedStartMinutes) return false;
-  if (endMinutes > allowedEndMinutes) return false;
+  const regularStartMinutes = dailyWindow.startHour * 60;
+  const regularEndMinutes = dailyWindow.endHour * 60;
 
-  return true;
+  const fitsRegularWindow =
+    startMinutes >= regularStartMinutes && endMinutes <= regularEndMinutes;
+
+  if (fitsRegularWindow) return true;
+
+  const afterHoursEnabled = Boolean(settings?.allow_after_hours_appointments);
+  const afterStart = settings?.after_hours_start_hour;
+  const afterEnd = settings?.after_hours_end_hour;
+
+  if (
+    afterHoursEnabled &&
+    typeof afterStart === "number" &&
+    typeof afterEnd === "number" &&
+    afterEnd > afterStart
+  ) {
+    const afterStartMinutes = afterStart * 60;
+    const afterEndMinutes = afterEnd * 60;
+
+    return startMinutes >= afterStartMinutes && endMinutes <= afterEndMinutes;
+  }
+
+  return false;
 }
 
 async function getLeadAgentId(lead_id?: string | null): Promise<string | null> {
@@ -286,6 +457,29 @@ async function getAgentScheduleSettings(args: {
   }
 
   return (data as AgentScheduleSettings | null) || null;
+}
+
+async function getAgentWeeklyHours(args: {
+  org_id: string;
+  agent_id?: string | null;
+}): Promise<AgentWeeklyHour[]> {
+  const { org_id, agent_id } = args;
+
+  if (!agent_id) return [];
+
+  const { data, error } = await supabaseAdmin
+    .from("agent_weekly_hours")
+    .select("*")
+    .eq("org_id", org_id)
+    .eq("agent_id", agent_id)
+    .order("weekday", { ascending: true });
+
+  if (error) {
+    console.error("❌ getTwoSlots weekly hours lookup error", error);
+    return [];
+  }
+
+  return (data || []) as AgentWeeklyHour[];
 }
 
 async function getAgentGoogleConnection(args: {
@@ -491,10 +685,14 @@ async function isSlotAllowed(
   oauth2Client: any,
   now: Date,
   blocks: AvailabilityBlock[],
-  scheduleSettings: AgentScheduleSettings | null
+  scheduleSettings: AgentScheduleSettings | null,
+  weeklyHours: AgentWeeklyHour[],
+  dailyAppointmentCounts: Record<string, number>
 ): Promise<boolean> {
-  if (!isAllowedWeekday(start, scheduleSettings)) return false;
-  if (!isWithinOfferWindow(start, scheduleSettings)) return false;
+  if (isDayAtAppointmentCap(start, scheduleSettings, dailyAppointmentCounts)) {
+    return false;
+  }
+  if (!isWithinOfferWindow(start, scheduleSettings, weeklyHours)) return false;
   if (isLunchBlocked(start)) return false;
   if (!hasEnoughNotice(start, now)) return false;
 
@@ -505,7 +703,10 @@ async function isSlotAllowed(
     appointmentEnd.getTime() + travelBufferMinutes * 60 * 1000
   );
 
-  if (!fitsInsideWorkHours(start, bufferedEnd, scheduleSettings)) return false;
+  if (!fitsInsideWorkHours(start, bufferedEnd, scheduleSettings, weeklyHours)) {
+    return false;
+  }
+
   if (isBlockedByAvailability(start, bufferedEnd, blocks)) return false;
 
   return isSlotFree(calendarId, start, bufferedEnd, oauth2Client);
@@ -515,20 +716,25 @@ export async function getTwoSlots(
   args: GetTwoSlotsArgs
 ): Promise<TwoCalendarSlots> {
   const agent_id = await getLeadAgentId(args.lead_id);
-  const [connection, availabilityBlocks, scheduleSettings] = await Promise.all([
-    getAgentGoogleConnection({
-      org_id: args.org_id,
-      agent_id,
-    }),
-    getAgentAvailabilityBlocks({
-      org_id: args.org_id,
-      agent_id,
-    }),
-    getAgentScheduleSettings({
-      org_id: args.org_id,
-      agent_id,
-    }),
-  ]);
+  const [connection, availabilityBlocks, scheduleSettings, weeklyHours] =
+    await Promise.all([
+      getAgentGoogleConnection({
+        org_id: args.org_id,
+        agent_id,
+      }),
+      getAgentAvailabilityBlocks({
+        org_id: args.org_id,
+        agent_id,
+      }),
+      getAgentScheduleSettings({
+        org_id: args.org_id,
+        agent_id,
+      }),
+      getAgentWeeklyHours({
+        org_id: args.org_id,
+        agent_id,
+      }),
+    ]);
 
   const oauth2Client = getGoogleOAuthClient();
   oauth2Client.setCredentials({
@@ -549,6 +755,7 @@ export async function getTwoSlots(
     calendarId,
     account_email: connection.account_email,
     availability_blocks: availabilityBlocks.length,
+    weekly_hours: weeklyHours.length,
     workday_start_hour: scheduleSettings?.workday_start_hour ?? DEFAULT_START_HOUR,
     workday_end_hour: scheduleSettings?.workday_end_hour ?? DEFAULT_END_HOUR,
     saturday_enabled: scheduleSettings?.saturday_enabled ?? true,
@@ -560,49 +767,78 @@ export async function getTwoSlots(
   const found: CalendarSlot[] = [];
   const now = new Date();
 
-  for (let dayOffset = 0; dayOffset < SEARCH_DAYS; dayOffset++) {
-    const daySeed = addDaysInZone(now, dayOffset, BOISE_TZ);
-    const dayParts = getTzParts(daySeed, BOISE_TZ);
-    const startHour = scheduleSettings?.workday_start_hour ?? DEFAULT_START_HOUR;
-    const endHour = scheduleSettings?.workday_end_hour ?? DEFAULT_END_HOUR;
+  const dailyAppointmentCounts = await getDailyAppointmentCounts({
+    org_id: args.org_id,
+    agent_id,
+    now,
+  });
 
-    for (let hour = startHour; hour <= endHour; hour++) {
-      for (const minute of [0, 30]) {
-        const start = makeZonedDate(
-          dayParts.year,
-          dayParts.month,
-          dayParts.day,
-          hour,
-          minute,
-          BOISE_TZ
-        );
+  const preferredHours = buildPreferredAppointmentHours(scheduleSettings);
+  const fallbackHours = buildFallbackAppointmentHours();
+  const hourPasses = [preferredHours, fallbackHours];
 
-        const allowed = await isSlotAllowed(
-          calendarId,
-          start,
-          oauth2Client,
-          now,
-          availabilityBlocks,
-          scheduleSettings
-        );
+  const checkedStarts = new Set<string>();
 
-        if (!allowed) continue;
+  for (const candidateHours of hourPasses) {
+    for (let dayOffset = 0; dayOffset < SEARCH_DAYS; dayOffset++) {
+      const daySeed = addDaysInZone(now, dayOffset, BOISE_TZ);
+      const dayParts = getTzParts(daySeed, BOISE_TZ);
+      const dailyWindow = getDailyWindow(daySeed, scheduleSettings, weeklyHours);
 
-        found.push({
-          slot_iso: start.toISOString(),
-          slot_human: toHuman(start),
-        });
+      if (!dailyWindow.isEnabled) {
+        continue;
+      }
 
-        if (found.length === 2) {
-          console.log("✅ getTwoSlots found two slots", {
-            A: found[0],
-            B: found[1],
+for (const hour of candidateHours) {
+  const minutesToCheck = candidateHours === preferredHours ? [0] : [0, 30];
+
+  for (const minute of minutesToCheck) {
+          const start = makeZonedDate(
+            dayParts.year,
+            dayParts.month,
+            dayParts.day,
+            hour,
+            minute,
+            BOISE_TZ
+          );
+
+          const startKey = start.toISOString();
+
+          if (checkedStarts.has(startKey)) {
+            continue;
+          }
+
+          checkedStarts.add(startKey);
+
+          const allowed = await isSlotAllowed(
+            calendarId,
+            start,
+            oauth2Client,
+            now,
+            availabilityBlocks,
+            scheduleSettings,
+            weeklyHours,
+            dailyAppointmentCounts
+          );
+
+          if (!allowed) continue;
+
+          found.push({
+            slot_iso: start.toISOString(),
+            slot_human: toHuman(start),
           });
 
-          return {
-            A: found[0],
-            B: found[1],
-          };
+          if (found.length === 2) {
+            console.log("✅ getTwoSlots found two slots", {
+              A: found[0],
+              B: found[1],
+            });
+
+            return {
+              A: found[0],
+              B: found[1],
+            };
+          }
         }
       }
     }

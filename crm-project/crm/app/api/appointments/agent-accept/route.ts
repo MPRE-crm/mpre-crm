@@ -179,6 +179,7 @@ export async function GET(req: NextRequest) {
     }
 
     const now = new Date();
+    const nowIso = now.toISOString();
     const expiresAt = approval.expires_at ? new Date(approval.expires_at) : null;
 
     if (expiresAt && expiresAt.getTime() < now.getTime()) {
@@ -186,17 +187,18 @@ export async function GET(req: NextRequest) {
         .from("appointment_approvals")
         .update({
           status: "expired",
-          expired_at: now.toISOString(),
-          updated_at: now.toISOString(),
+          expired_at: nowIso,
+          updated_at: nowIso,
         })
         .eq("id", approval.id);
 
       await supabaseAdmin
         .from("leads")
         .update({
-          appointment_status: "Canceled",
+          appointment_status: "Pending",
+          appointment_pending_agent_id: null,
           appointment_pending_expires_at: null,
-          updated_at: now.toISOString(),
+          updated_at: nowIso,
         })
         .eq("id", approval.lead_id);
 
@@ -205,7 +207,17 @@ export async function GET(req: NextRequest) {
 
     const { data: lead, error: leadError } = await supabaseAdmin
       .from("leads")
-      .select("id, first_name, name, email, phone, org_id, agent_id, notes")
+      .select(`
+        id,
+        first_name,
+        name,
+        email,
+        phone,
+        org_id,
+        agent_id,
+        notes,
+        appointment_rotation_attempt
+      `)
       .eq("id", approval.lead_id)
       .maybeSingle();
 
@@ -261,9 +273,8 @@ export async function GET(req: NextRequest) {
 
     const eventId = createdEvent.data.id || null;
     const eventLink = createdEvent.data.htmlLink || null;
-    const nowIso = now.toISOString();
 
-    await supabaseAdmin
+    const { error: approvalUpdateError } = await supabaseAdmin
       .from("appointment_approvals")
       .update({
         status: "accepted",
@@ -272,12 +283,22 @@ export async function GET(req: NextRequest) {
       })
       .eq("id", approval.id);
 
-    const notesPrefix = lead.notes ? `${lead.notes}\n\n` : "";
-    const updatedNotes =
-      `${notesPrefix}Google Calendar Event ID: ${eventId || "N/A"}\n` +
-      `Google Calendar Link: ${eventLink || "N/A"}`;
+    if (approvalUpdateError) {
+      return html(`Failed to update approval row: ${approvalUpdateError.message}`);
+    }
 
-    await supabaseAdmin
+    const existingNotes = typeof lead.notes === "string" ? lead.notes.trim() : "";
+    const acceptedLogLine = `[${nowIso}] Appointment accepted by agent for ${approval.slot_human || approval.slot_iso || "scheduled slot"}.`;
+    const notesParts = [
+      existingNotes,
+      acceptedLogLine,
+      `Google Calendar Event ID: ${eventId || "N/A"}`,
+      `Google Calendar Link: ${eventLink || "N/A"}`,
+    ].filter(Boolean);
+
+    const updatedNotes = notesParts.join("\n\n");
+
+    const { error: leadUpdateError } = await supabaseAdmin
       .from("leads")
       .update({
         appointment_requested: true,
@@ -291,11 +312,16 @@ export async function GET(req: NextRequest) {
         appointment_offer_slot_a_human: null,
         appointment_offer_slot_b_iso: null,
         appointment_offer_slot_b_human: null,
+        appointment_rotation_attempt: lead.appointment_rotation_attempt ?? approval.rotation_attempt ?? 0,
         preferred_next_step: "appointment",
         notes: updatedNotes,
         updated_at: nowIso,
       })
       .eq("id", approval.lead_id);
+
+    if (leadUpdateError) {
+      return html(`Approval was accepted, but the lead could not be updated: ${leadUpdateError.message}`);
+    }
 
     try {
       const accountSid = process.env.TWILIO_ACCOUNT_SID;

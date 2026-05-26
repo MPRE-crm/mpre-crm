@@ -84,7 +84,7 @@ function detectChosenSlot(inboundText: string, slotChoices: SlotChoice[]): SlotC
   if (slotChoices[1] && picksSecond && !picksFirst) return slotChoices[1]
 
   for (const slot of slotChoices) {
-    const slotHumanRaw = String(slot.slot_human || "").toLowerCase()
+    const slotHumanRaw = String(slot.slot_human || '').toLowerCase()
     const slotHumanNormalized = normalizeTextForMatch(slot.slot_human)
 
     if (normalized === slotHumanNormalized) return slot
@@ -633,6 +633,39 @@ export async function POST(req: NextRequest) {
       if (chosenSlot) {
         const nextRotationAttempt = (lead.appointment_rotation_attempt || 0) + 1
         const expiresAt = addHours(now, 0.0833).toISOString()
+
+        const { data: existingPendingApproval, error: existingPendingApprovalError } = await supabaseAdmin
+          .from('appointment_approvals')
+          .select('id, slot_human, expires_at')
+          .eq('lead_id', leadId)
+          .eq('status', 'pending')
+          .maybeSingle()
+
+        if (existingPendingApprovalError) {
+          console.error('❌ existing pending appointment approval lookup error', existingPendingApprovalError)
+
+          const twiml = new twilio.twiml.MessagingResponse()
+          twiml.message(
+            `I’m sorry — I hit a snag checking that appointment request. Please try that one more time.`
+          )
+
+          return new NextResponse(twiml.toString(), {
+            status: 200,
+            headers: { 'Content-Type': 'text/xml' },
+          })
+        }
+
+        if (existingPendingApproval?.id) {
+          const twiml = new twilio.twiml.MessagingResponse()
+          twiml.message(
+            `I already have that appointment request pending with the agent. I’ll keep watching it and follow up as soon as they respond.`
+          )
+
+          return new NextResponse(twiml.toString(), {
+            status: 200,
+            headers: { 'Content-Type': 'text/xml' },
+          })
+        }
 
         const assignee = await getNextAssignee(lead.org_id).catch(() => null)
 

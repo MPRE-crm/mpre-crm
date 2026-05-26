@@ -6,6 +6,7 @@ import { createServerClient } from '@supabase/ssr';
 // Public routes (no auth required)
 const PUBLIC_PATHS = [
   '/login',
+  '/reset-password',
   '/auth/callback',
   '/api',                 // <-- allow ALL /api/*
   '/favicon.ico',

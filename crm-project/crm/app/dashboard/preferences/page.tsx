@@ -74,7 +74,19 @@ type ScheduleSettings = {
   sunday_enabled: boolean;
   travel_buffer_minutes: 15 | 30 | 60;
   daily_appointment_cap: number;
+  allow_after_hours_appointments: boolean;
+  after_hours_start_hour: number | null;
+  after_hours_end_hour: number | null;
   is_active: boolean;
+};
+
+type WeeklyHour = {
+  agent_id?: string;
+  org_id?: string;
+  weekday: number;
+  is_enabled: boolean;
+  start_hour: number;
+  end_hour: number;
 };
 
 const WEEKDAY_OPTIONS = [
@@ -108,6 +120,13 @@ const TRAVEL_BUFFER_OPTIONS = [
 const DAILY_CAP_OPTIONS = Array.from({ length: 20 }, (_, index) => ({
   value: index + 1,
   label: `${index + 1} appointments`,
+}));
+
+const DEFAULT_WEEKLY_HOURS: WeeklyHour[] = WEEKDAY_OPTIONS.map((day) => ({
+  weekday: day.value,
+  is_enabled: day.value === 0 ? false : true,
+  start_hour: 9,
+  end_hour: 18,
 }));
 
 function formatBlockType(type: AvailabilityBlock["block_type"]) {
@@ -183,6 +202,7 @@ export default function PreferencesPage() {
   const [scheduleSaving, setScheduleSaving] = useState(false);
   const [scheduleMessage, setScheduleMessage] = useState("");
   const [scheduleSettings, setScheduleSettings] = useState<ScheduleSettings | null>(null);
+  const [weeklyHours, setWeeklyHours] = useState<WeeklyHour[]>(DEFAULT_WEEKLY_HOURS);
 
   const [oneTimeTitle, setOneTimeTitle] = useState("");
   const [oneTimeNotes, setOneTimeNotes] = useState("");
@@ -191,6 +211,7 @@ export default function PreferencesPage() {
 
   const [recurringTitle, setRecurringTitle] = useState("");
   const [recurringNotes, setRecurringNotes] = useState("");
+  const [recurringBlockScope, setRecurringBlockScope] = useState<"personal" | "team">("team");
   const [recurringWeekday, setRecurringWeekday] = useState("1");
   const [recurringStartTime, setRecurringStartTime] = useState("09:00");
   const [recurringEndTime, setRecurringEndTime] = useState("10:00");
@@ -386,6 +407,18 @@ export default function PreferencesPage() {
       }
 
       setScheduleSettings(json.settings || null);
+setWeeklyHours(
+  Array.isArray(json.weekly_hours) && json.weekly_hours.length === 7
+    ? json.weekly_hours
+        .map((row: WeeklyHour) => ({
+          weekday: Number(row.weekday),
+          is_enabled: Boolean(row.is_enabled),
+          start_hour: Number(row.start_hour),
+          end_hour: Number(row.end_hour),
+        }))
+        .sort((a: WeeklyHour, b: WeeklyHour) => a.weekday - b.weekday)
+    : DEFAULT_WEEKLY_HOURS
+);
     } catch (err: any) {
       setScheduleMessage(err.message || "Failed to load schedule settings");
     } finally {
@@ -616,7 +649,20 @@ export default function PreferencesPage() {
           sunday_enabled: scheduleSettings.sunday_enabled,
           travel_buffer_minutes: scheduleSettings.travel_buffer_minutes,
           daily_appointment_cap: scheduleSettings.daily_appointment_cap,
+          allow_after_hours_appointments: scheduleSettings.allow_after_hours_appointments,
+          after_hours_start_hour: scheduleSettings.allow_after_hours_appointments
+            ? scheduleSettings.after_hours_start_hour
+            : null,
+          after_hours_end_hour: scheduleSettings.allow_after_hours_appointments
+            ? scheduleSettings.after_hours_end_hour
+            : null,
           is_active: scheduleSettings.is_active,
+          weekly_hours: weeklyHours.map((row) => ({
+            weekday: row.weekday,
+            is_enabled: row.is_enabled,
+            start_hour: row.start_hour,
+            end_hour: row.end_hour,
+          })),
         }),
       });
 
@@ -727,17 +773,35 @@ export default function PreferencesPage() {
     (lender) => !selectedLenderIds.includes(lender.id)
   );
 
-  const sortedAvailabilityBlocks = useMemo(
-    () =>
-      [...availabilityBlocks].sort((a, b) => {
-        const aTime = new Date(a.created_at).getTime();
-        const bTime = new Date(b.created_at).getTime();
-        return bTime - aTime;
-      }),
-    [availabilityBlocks]
-  );
+const sortedAvailabilityBlocks = useMemo(
+  () =>
+    [...availabilityBlocks].sort((a, b) => {
+      const aTime = new Date(a.created_at).getTime();
+      const bTime = new Date(b.created_at).getTime();
+      return bTime - aTime;
+    }),
+  [availabilityBlocks]
+);
 
-  return (
+function updateWeeklyHour(
+  weekday: number,
+  patch: Partial<Pick<WeeklyHour, "is_enabled" | "start_hour" | "end_hour">>
+) {
+  setWeeklyHours((prev) =>
+    prev
+      .map((row) =>
+        row.weekday === weekday
+          ? {
+              ...row,
+              ...patch,
+            }
+          : row
+      )
+      .sort((a, b) => a.weekday - b.weekday)
+  );
+}
+
+return (
     <div className="p-6 space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Preferences</h1>
@@ -1016,16 +1080,186 @@ export default function PreferencesPage() {
               </label>
             </div>
 
-            <div className="mt-4">
-              <button
-                type="button"
-                onClick={saveScheduleSettings}
-                disabled={scheduleSaving}
-                className="rounded bg-black px-4 py-2 text-sm text-white disabled:opacity-60"
-              >
-                {scheduleSaving ? "Saving..." : "Save Working Hours"}
-              </button>
+            <div className="mt-6 rounded border p-4">
+              <div className="mb-3">
+                <h3 className="text-base font-semibold">After-Hours Appointments</h3>
+                <p className="mt-1 text-sm text-gray-600">
+                  Only offer evening appointment slots when this is turned on.
+                </p>
+              </div>
+
+              <label className="mb-3 flex items-center gap-3 rounded border p-3">
+                <input
+                  type="checkbox"
+                  checked={scheduleSettings.allow_after_hours_appointments}
+                  onChange={(e) =>
+                    setScheduleSettings((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            allow_after_hours_appointments: e.target.checked,
+                            after_hours_start_hour: e.target.checked
+                              ? prev.after_hours_start_hour ?? 18
+                              : null,
+                            after_hours_end_hour: e.target.checked
+                              ? prev.after_hours_end_hour ?? 20
+                              : null,
+                          }
+                        : prev
+                    )
+                  }
+                />
+                <span className="text-sm">Allow after-hours appointments</span>
+              </label>
+
+              {scheduleSettings.allow_after_hours_appointments ? (
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <div className="text-sm text-gray-600">After-Hours Start</div>
+                    <select
+                      value={scheduleSettings.after_hours_start_hour ?? 18}
+                      onChange={(e) =>
+                        setScheduleSettings((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                after_hours_start_hour: Number(e.target.value),
+                              }
+                            : prev
+                        )
+                      }
+                      className="mt-2 w-full rounded border px-3 py-2 text-sm"
+                    >
+                      {HOUR_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <div className="text-sm text-gray-600">After-Hours End</div>
+                    <select
+                      value={scheduleSettings.after_hours_end_hour ?? 20}
+                      onChange={(e) =>
+                        setScheduleSettings((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                after_hours_end_hour: Number(e.target.value),
+                              }
+                            : prev
+                        )
+                      }
+                      className="mt-2 w-full rounded border px-3 py-2 text-sm"
+                    >
+                      {HOUR_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              ) : null}
             </div>
+
+<div className="mt-6 rounded border p-4">
+  <div className="mb-3">
+    <h3 className="text-base font-semibold">Specific Day Hours</h3>
+    <p className="mt-1 text-sm text-gray-600">
+      Set different working hours for each day. Disabled days will not be offered for appointments.
+    </p>
+  </div>
+
+  <div className="space-y-3">
+    {weeklyHours.map((row) => {
+      const dayLabel =
+        WEEKDAY_OPTIONS.find((day) => day.value === row.weekday)?.label ||
+        `Day ${row.weekday}`;
+
+      return (
+        <div
+          key={row.weekday}
+          className="grid gap-3 rounded border p-3 md:grid-cols-[1fr_1fr_1fr_1fr]"
+        >
+          <label className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              checked={row.is_enabled}
+              onChange={(e) =>
+                updateWeeklyHour(row.weekday, {
+                  is_enabled: e.target.checked,
+                })
+              }
+            />
+            <span className="text-sm font-medium">{dayLabel}</span>
+          </label>
+
+          <div>
+            <div className="text-xs text-gray-600">Start</div>
+            <select
+              value={row.start_hour}
+              onChange={(e) =>
+                updateWeeklyHour(row.weekday, {
+                  start_hour: Number(e.target.value),
+                })
+              }
+              disabled={!row.is_enabled}
+              className="mt-1 w-full rounded border px-3 py-2 text-sm disabled:opacity-60"
+            >
+              {HOUR_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <div className="text-xs text-gray-600">End</div>
+            <select
+              value={row.end_hour}
+              onChange={(e) =>
+                updateWeeklyHour(row.weekday, {
+                  end_hour: Number(e.target.value),
+                })
+              }
+              disabled={!row.is_enabled}
+              className="mt-1 w-full rounded border px-3 py-2 text-sm disabled:opacity-60"
+            >
+              {HOUR_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-end text-sm text-gray-600">
+            {row.is_enabled
+              ? `${HOUR_OPTIONS.find((option) => option.value === row.start_hour)?.label} to ${
+                  HOUR_OPTIONS.find((option) => option.value === row.end_hour)?.label
+                }`
+              : "Unavailable"}
+          </div>
+        </div>
+      );
+    })}
+  </div>
+</div>
+
+<div className="mt-4">
+  <button
+    type="button"
+    onClick={saveScheduleSettings}
+    disabled={scheduleSaving}
+    className="rounded bg-black px-4 py-2 text-sm text-white disabled:opacity-60"
+  >
+    {scheduleSaving ? "Saving..." : "Save Working Hours"}
+  </button>
+</div>
           </>
         )}
       </div>
@@ -1093,8 +1327,8 @@ export default function PreferencesPage() {
           </div>
 
           <div className="rounded border p-4">
-            <h3 className="mb-3 text-base font-semibold">Recurring Weekly Block</h3>
-            <div className="space-y-3">
+            <h3 className="mb-3 text-base font-semibold">Team Meeting / Weekly Block</h3>
+              <div className="space-y-3">
               <input
                 type="text"
                 value={recurringTitle}
@@ -1109,6 +1343,14 @@ export default function PreferencesPage() {
                 placeholder="Notes"
                 className="w-full rounded border px-3 py-2 text-sm"
               />
+              <select
+                value={recurringBlockScope}
+                onChange={(e) => setRecurringBlockScope(e.target.value as "personal" | "team")}
+                className="w-full rounded border px-3 py-2 text-sm"
+              >
+              <option value="team">Team / Org Block</option>
+              <option value="personal">Personal Agent Block</option>
+            </select>
               <select
                 value={recurringWeekday}
                 onChange={(e) => setRecurringWeekday(e.target.value)}
@@ -1136,16 +1378,20 @@ export default function PreferencesPage() {
                 type="button"
                 disabled={availabilitySaving}
                 onClick={async () => {
-                  await createAvailabilityBlock({
-                    block_type: "recurring_weekly",
-                    title: recurringTitle || "Recurring Weekly Block",
-                    notes: recurringNotes || null,
-                    weekday: Number(recurringWeekday),
-                    start_time: recurringStartTime,
-                    end_time: recurringEndTime,
-                  });
+                await createAvailabilityBlock({
+                  block_type: "recurring_weekly",
+                  block_scope: recurringBlockScope,
+                  title:
+                    recurringTitle ||
+                    (recurringBlockScope === "team" ? "Team Meeting" : "Recurring Weekly Block"),
+                  notes: recurringNotes || null,
+                  weekday: Number(recurringWeekday),
+                  start_time: recurringStartTime,
+                  end_time: recurringEndTime,
+                });
                   setRecurringTitle("");
                   setRecurringNotes("");
+                  setRecurringBlockScope("team");
                   setRecurringWeekday("1");
                   setRecurringStartTime("09:00");
                   setRecurringEndTime("10:00");

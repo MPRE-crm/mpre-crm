@@ -1,4 +1,5 @@
 export const runtime = "nodejs";
+
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
@@ -39,6 +40,19 @@ function formatTimeParts(slotIso: string) {
     minute,
     ampm,
   };
+}
+
+function cleanAppointmentNotes(notes: string | null) {
+  if (!notes) return "";
+
+  return notes
+    .replace(/Google Calendar Event ID:\s*[^\n\r]+/gi, "")
+    .replace(/Google Calendar Link:\s*[^\n\r]+/gi, "")
+    .replace(/Appointment canceled:\s*[^\n\r]+/gi, "")
+    .replace(/Appointment rescheduled:\s*[^\n\r]+/gi, "")
+    .replace(/Appointment booked:\s*[^\n\r]+/gi, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 async function getAgentGoogleConnection(args: {
@@ -124,7 +138,9 @@ async function getAgentGoogleConnection(args: {
   }
 
   throw new Error(
-    `No active Google calendar connection found for org ${org_id} agent ${agent_id || "unknown"}`
+    `No active Google calendar connection found for org ${org_id} agent ${
+      agent_id || "unknown"
+    }`
   );
 }
 
@@ -197,6 +213,7 @@ export async function POST(req: NextRequest) {
     });
 
     const oauth2Client = getGoogleOAuthClient();
+
     oauth2Client.setCredentials({
       access_token: connection.access_token,
       refresh_token: connection.refresh_token,
@@ -235,7 +252,11 @@ export async function POST(req: NextRequest) {
 
     const descriptionLines = [
       `Lead ID: ${lead.id}`,
-      `Name: ${lead.name || [lead.first_name, lead.last_name].filter(Boolean).join(" ") || "N/A"}`,
+      `Name: ${
+        lead.name ||
+        [lead.first_name, lead.last_name].filter(Boolean).join(" ") ||
+        "N/A"
+      }`,
       `Email: ${lead.email || "N/A"}`,
       `Phone: ${lead.phone || "N/A"}`,
       `Timeline: ${lead.move_timeline || "N/A"}`,
@@ -268,12 +289,18 @@ export async function POST(req: NextRequest) {
       slot.slot_iso
     );
 
-    const notesPrefix = lead.notes ? `${lead.notes}\n\n` : "";
-    const notesWithEvent =
-      `${notesPrefix}Google Calendar Event ID: ${createdEvent.id || "N/A"}\n` +
-      `Google Calendar Link: ${createdEvent.htmlLink || "N/A"}`;
-
     const nowIso = new Date().toISOString();
+    const cleanedNotes = cleanAppointmentNotes(lead.notes);
+
+    const notesWithEvent = [
+      cleanedNotes,
+      `Appointment booked: ${nowIso}`,
+      `Google Calendar Event ID: ${createdEvent.id || "N/A"}`,
+      `Google Calendar Link: ${createdEvent.htmlLink || "N/A"}`,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
     const hotUntilIso = new Date(
       Date.now() + 48 * 60 * 60 * 1000
     ).toISOString();
@@ -286,6 +313,8 @@ export async function POST(req: NextRequest) {
         appointment_hour: hour,
         appointment_minute: minute,
         appointment_ampm: ampm,
+        appointment_requested_slot_iso: slot.slot_iso,
+        appointment_requested_slot_human: slot.slot_human,
         appointment_requested: true,
         appointment_status: "Confirmed",
         agent_status: "appointment_booked",

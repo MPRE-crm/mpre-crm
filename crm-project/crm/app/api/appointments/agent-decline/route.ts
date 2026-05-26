@@ -236,6 +236,32 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    if (rotatedAgentProfileId === approval.current_agent_id) {
+      const { error: leadUpdateError } = await supabaseAdmin
+        .from("leads")
+        .update({
+          appointment_status: "No Agent Available",
+          appointment_requested: true,
+          appointment_pending_agent_id: null,
+          appointment_pending_expires_at: null,
+          appointment_decline_reason: reason,
+          appointment_rotation_attempt: nextRotationAttempt,
+          notes: `${nextNotes}\n\n[${nowIso}] No different agent was available after decline.`,
+          updated_at: nowIso,
+        })
+        .eq("id", approval.lead_id);
+
+      if (leadUpdateError) {
+        return html(
+          `Approval was declined, but fallback lead update failed: ${leadUpdateError.message}`
+        );
+      }
+
+      return html(
+        "Appointment was declined. No different agent was available, so the lead was moved to a no-agent-available state."
+      );
+    }
+
     const nextExpiresAt = addMinutes(now, 5).toISOString();
 
     const { data: nextApproval, error: nextApprovalError } = await supabaseAdmin

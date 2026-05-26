@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 async function getProfile(profileId: string) {
   const { data, error } = await supabaseAdmin
     .from("profiles")
-    .select("id, org_id, email")
+    .select("id, org_id, role, email")
     .eq("id", profileId)
     .single();
 
@@ -14,6 +14,67 @@ async function getProfile(profileId: string) {
   if (!data) throw new Error("Profile not found");
 
   return data;
+}
+
+async function resolveCalendarTargetProfile(profile: {
+  id: string;
+  org_id: string;
+  role: string;
+  email: string | null;
+}) {
+  if (profile.role === "agent") return profile;
+
+  if (profile.role === "admin" || profile.role === "platform_admin") {
+    const { data: rotationMember, error: rotationError } = await supabaseAdmin
+      .from("rotation_members")
+      .select("user_id")
+      .eq("org_id", profile.org_id)
+      .eq("is_active", true)
+      .order("last_assigned_at", { ascending: true, nullsFirst: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (rotationError) throw new Error(rotationError.message);
+
+    if (rotationMember?.user_id) {
+      const { data: routedUser, error: routedUserError } = await supabaseAdmin
+        .from("users")
+        .select("user_id, email, org_id")
+        .eq("id", rotationMember.user_id)
+        .eq("org_id", profile.org_id)
+        .maybeSingle();
+
+      if (routedUserError) throw new Error(routedUserError.message);
+
+      if (routedUser?.user_id) {
+        const { data: routedProfile, error: routedProfileError } =
+          await supabaseAdmin
+            .from("profiles")
+            .select("id, org_id, role, email")
+            .eq("id", routedUser.user_id)
+            .eq("org_id", profile.org_id)
+            .maybeSingle();
+
+        if (routedProfileError) throw new Error(routedProfileError.message);
+        if (routedProfile?.id) return routedProfile;
+      }
+    }
+
+    const { data: fallbackAgent, error: fallbackAgentError } =
+      await supabaseAdmin
+        .from("profiles")
+        .select("id, org_id, role, email")
+        .eq("org_id", profile.org_id)
+        .eq("role", "agent")
+        .order("email", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+    if (fallbackAgentError) throw new Error(fallbackAgentError.message);
+    if (fallbackAgent?.id) return fallbackAgent;
+  }
+
+  return profile;
 }
 
 export async function GET(req: NextRequest) {
@@ -25,11 +86,12 @@ export async function GET(req: NextRequest) {
     }
 
     const profile = await getProfile(profileId);
+    const targetProfile = await resolveCalendarTargetProfile(profile);
 
     const { data, error } = await supabaseAdmin
       .from("calendar_connections")
       .select("*")
-      .eq("agent_id", profileId)
+      .eq("agent_id", targetProfile.id)
       .order("updated_at", { ascending: false });
 
     if (error) throw new Error(error.message);
@@ -48,7 +110,14 @@ export async function GET(req: NextRequest) {
       profile: {
         id: profile.id,
         org_id: profile.org_id,
+        role: profile.role,
         email: profile.email,
+      },
+      targetProfile: {
+        id: targetProfile.id,
+        org_id: targetProfile.org_id,
+        role: targetProfile.role,
+        email: targetProfile.email,
       },
       connection: active,
       connections,
@@ -76,18 +145,16 @@ export async function PATCH(req: NextRequest) {
     const normalizedProvider = String(provider).toLowerCase();
 
     if (!["google", "microsoft", "apple"].includes(normalizedProvider)) {
-      return NextResponse.json(
-        { error: "Invalid provider" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Invalid provider" }, { status: 400 });
     }
 
     const profile = await getProfile(profileId);
+    const targetProfile = await resolveCalendarTargetProfile(profile);
 
     const { data: existing, error: existingError } = await supabaseAdmin
       .from("calendar_connections")
       .select("*")
-      .eq("agent_id", profileId)
+      .eq("agent_id", targetProfile.id)
       .eq("provider", normalizedProvider)
       .maybeSingle();
 
@@ -97,7 +164,7 @@ export async function PATCH(req: NextRequest) {
       const { data, error } = await supabaseAdmin
         .from("calendar_connections")
         .update({
-          organization_id: profile.org_id,
+          organization_id: targetProfile.org_id,
           provider: normalizedProvider,
           updated_at: new Date().toISOString(),
         })
@@ -107,14 +174,19 @@ export async function PATCH(req: NextRequest) {
 
       if (error) throw new Error(error.message);
 
-      return NextResponse.json({ ok: true, connection: data });
+      return NextResponse.json({
+        ok: true,
+        connection: data,
+        profile,
+        targetProfile,
+      });
     }
 
     const { data, error } = await supabaseAdmin
       .from("calendar_connections")
       .insert({
-        agent_id: profileId,
-        organization_id: profile.org_id,
+        agent_id: targetProfile.id,
+        organization_id: targetProfile.org_id,
         provider: normalizedProvider,
         account_email: null,
         access_token: null,
@@ -131,7 +203,12 @@ export async function PATCH(req: NextRequest) {
 
     if (error) throw new Error(error.message);
 
-    return NextResponse.json({ ok: true, connection: data });
+    return NextResponse.json({
+      ok: true,
+      connection: data,
+      profile,
+      targetProfile,
+    });
   } catch (err: any) {
     return NextResponse.json(
       { error: err.message || "Failed to save provider" },

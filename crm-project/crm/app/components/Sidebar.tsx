@@ -3,31 +3,51 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import {
+  BarChart3,
+  CalendarClock,
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  Home,
+  MessageSquare,
+  Phone,
+  Settings,
+  ShieldAlert,
+  Sparkles,
+  UserPlus,
+  Users,
+  ClipboardList,
+  PhoneMissed,
+  LogOut,
+} from 'lucide-react'
 import { getSupabaseBrowser } from '../../lib/supabase-browser'
 
-type NavItem = { label: string; href: string }
+type NavItem = { label: string; href: string; icon: React.ReactNode }
 type Role = 'agent' | 'admin' | 'platform_admin'
 
 const supabase = getSupabaseBrowser()
 
 const AGENT_NAV: NavItem[] = [
-  { label: 'Home', href: '/dashboard/home' },
-  { label: 'Leads', href: '/dashboard/leads' },
-  { label: 'Conversations', href: '/dashboard/conversations' },
-  { label: 'Call Logs', href: '/dashboard/call-logs' },
-  { label: 'Calendar', href: '/dashboard/calendar' },
-  { label: 'Analytics', href: '/dashboard/analytics' },
+  { label: 'Home', href: '/dashboard/home', icon: <Home className="h-4 w-4" /> },
+  { label: 'Leads', href: '/dashboard/leads', icon: <ClipboardList className="h-4 w-4" /> },
+  { label: 'Appointments', href: '/dashboard/appointments', icon: <CalendarClock className="h-4 w-4" /> },
+  { label: 'Conversations', href: '/dashboard/conversations', icon: <MessageSquare className="h-4 w-4" /> },
+  { label: 'Call Logs', href: '/dashboard/call-logs', icon: <Phone className="h-4 w-4" /> },
+  { label: 'Calendar', href: '/dashboard/calendar', icon: <CalendarDays className="h-4 w-4" /> },
+  { label: 'Analytics', href: '/dashboard/analytics', icon: <BarChart3 className="h-4 w-4" /> },
 ]
 
 const ADMIN_NAV: NavItem[] = [
   ...AGENT_NAV,
-  { label: 'Samantha Actions', href: '/dashboard/samantha-actions' },
-  { label: 'Escalations', href: '/dashboard/escalations' },
-  { label: 'Follow-Up Queue', href: '/dashboard/follow-up-queue' },
-  { label: 'Missed Call Queue', href: '/dashboard/missed-call-queue' },
-  { label: 'Agents', href: '/dashboard/agents' },
-  { label: 'Add User', href: '/dashboard/add-user' },
-  { label: 'Preferences', href: '/dashboard/preferences' },
+  { label: 'Samantha Actions', href: '/dashboard/samantha-actions', icon: <Sparkles className="h-4 w-4" /> },
+  { label: 'Escalations', href: '/dashboard/escalations', icon: <ShieldAlert className="h-4 w-4" /> },
+  { label: 'Follow-Up Queue', href: '/dashboard/follow-up-queue', icon: <ClipboardList className="h-4 w-4" /> },
+  { label: 'Missed Call Queue', href: '/dashboard/missed-call-queue', icon: <PhoneMissed className="h-4 w-4" /> },
+  { label: 'Agents', href: '/dashboard/agents', icon: <Users className="h-4 w-4" /> },
+  { label: 'Add User', href: '/dashboard/add-user', icon: <UserPlus className="h-4 w-4" /> },
+  { label: 'Security', href: '/dashboard/security', icon: <ShieldAlert className="h-4 w-4" /> },
+  { label: 'Preferences', href: '/dashboard/preferences', icon: <Settings className="h-4 w-4" /> },
 ]
 
 const PLATFORM_ADMIN_NAV: NavItem[] = [...ADMIN_NAV]
@@ -38,6 +58,7 @@ export default function Sidebar() {
   const [role, setRole] = useState<Role>('agent')
   const [loadingRole, setLoadingRole] = useState(true)
   const [loggingOut, setLoggingOut] = useState(false)
+  const [collapsed, setCollapsed] = useState(false)
 
   useEffect(() => {
     let mounted = true
@@ -117,15 +138,41 @@ export default function Sidebar() {
   }
 
   return (
-    <aside className="w-60 min-h-screen bg-gray-100 p-4 shadow flex flex-col">
-      <div className="mb-6">
-        <h2 className="text-xl font-bold">CRM</h2>
-        <div className="mt-1 text-xs uppercase tracking-wide text-gray-500">
-          {loadingRole ? 'Loading role...' : role.replace('_', ' ')}
-        </div>
+    <aside
+      className={`min-h-screen border-r border-slate-200 bg-gradient-to-b from-slate-100 via-white to-slate-100 p-4 shadow-sm transition-all duration-200 ${
+        collapsed ? 'w-20' : 'w-64'
+      } flex flex-col`}
+    >
+      <div className={`mb-6 flex items-start ${collapsed ? 'justify-center' : 'justify-between'} gap-2`}>
+        {!collapsed ? (
+          <div>
+            <h2 className="text-xl font-bold text-slate-900">CRM</h2>
+            <div className="mt-1 text-xs uppercase tracking-wide text-slate-500">
+              {loadingRole ? 'Loading role...' : role.replace('_', ' ')}
+            </div>
+          </div>
+        ) : null}
+
+        <button
+          type="button"
+          onClick={() => setCollapsed((prev) => !prev)}
+          className="rounded-xl border border-slate-200 bg-white p-2 text-slate-600 shadow-sm transition hover:bg-slate-50"
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
+          {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+        </button>
       </div>
 
-      <nav className="flex flex-col space-y-2 flex-1">
+      {collapsed && (
+        <div className="mb-6 text-center">
+          <div className="text-xs uppercase tracking-wide text-slate-500">
+            {loadingRole ? '...' : role.replace('_', ' ')}
+          </div>
+        </div>
+      )}
+
+      <nav className="flex flex-1 flex-col space-y-2">
         {navItems.map((item) => {
           const active = isActive(item.href)
 
@@ -133,13 +180,21 @@ export default function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
-              className={`rounded-lg px-3 py-2 text-sm transition ${
+              title={item.label}
+              className={`group flex items-center rounded-xl px-3 py-2.5 text-sm font-medium transition ${
                 active
-                  ? 'bg-gray-900 text-white'
-                  : 'text-gray-700 hover:bg-gray-200'
-              }`}
+                  ? 'border border-blue-200 bg-blue-50 text-blue-700 shadow-sm'
+                  : 'text-slate-700 hover:bg-orange-50 hover:text-orange-700'
+              } ${collapsed ? 'justify-center' : 'gap-3'}`}
             >
-              {item.label}
+              <span
+                className={`shrink-0 ${
+                  active ? 'text-blue-700' : 'text-slate-500 group-hover:text-orange-700'
+                }`}
+              >
+                {item.icon}
+              </span>
+              {!collapsed ? <span className="truncate">{item.label}</span> : null}
             </Link>
           )
         })}
@@ -149,9 +204,13 @@ export default function Sidebar() {
         type="button"
         onClick={handleLogout}
         disabled={loggingOut}
-        className="mt-6 rounded-lg border border-red-300 px-3 py-2 text-sm text-red-700 transition hover:bg-red-50 disabled:opacity-60"
+        title="Logout"
+        className={`mt-6 flex items-center rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:opacity-60 ${
+          collapsed ? 'justify-center' : 'gap-3'
+        }`}
       >
-        {loggingOut ? 'Logging out...' : 'Logout'}
+        <LogOut className="h-4 w-4 shrink-0" />
+        {!collapsed ? <span>{loggingOut ? 'Logging out...' : 'Logout'}</span> : null}
       </button>
     </aside>
   )

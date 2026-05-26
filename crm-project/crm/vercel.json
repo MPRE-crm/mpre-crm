@@ -11,6 +11,26 @@
     {
       "path": "/api/internal/missed-calls/process",
       "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/internal/appointments/schedule-reminders",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/internal/appointments/process-reminders",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/internal/appointments/process-pending-approvals",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/internal/appointments/schedule-missed-followups",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/internal/appointments/process-missed-followups",
+      "schedule": "*/10 * * * *"
     }
   ]
 }

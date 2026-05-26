@@ -1,7 +1,8 @@
-// crm-project/crm/app/api/twilio/outbound/outbound-call/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import twilio from "twilio";
+import { evaluateLeadContactState } from "../../../../../src/lib/samantha/contactGovernor";
+import { applyGovernorDecision } from "../../../../../src/lib/samantha/applyGovernorDecision";
 
 export const runtime = "nodejs";
 
@@ -15,7 +16,7 @@ const twilioClient = twilio(
   process.env.TWILIO_AUTH_TOKEN!
 );
 
-const TWILIO_PHONE_NUMBER = "+12082856773"; // Your Twilio phone number
+const TWILIO_PHONE_NUMBER = "+12082856773";
 const BASE_URL =
   (process.env.PUBLIC_URL && process.env.PUBLIC_URL.replace(/\/$/, "")) ||
   "https://easyrealtor.homes";
@@ -28,16 +29,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing id" }, { status: 400 });
     }
 
-    // --- Lead lookup
     const { data: lead, error: leadErr } = await supabase
       .from("leads")
-      .select("id, name, phone, org_id, agent_id")
+      .select("*")
       .eq("id", id)
       .single();
 
     if (leadErr || !lead) {
       return NextResponse.json({ error: "Lead not found" }, { status: 404 });
     }
+
     if (!lead.phone) {
       return NextResponse.json(
         { error: "Lead missing phone number" },
@@ -45,13 +46,39 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // --- Optional org + agent lookups
+    const now = new Date();
+    const decision = evaluateLeadContactState(lead, { now });
+
+    await applyGovernorDecision({
+      db: supabase,
+      leadId: lead.id,
+      decision,
+      now,
+      orgId: lead.org_id ?? null,
+      statusAtEscalation: lead.status ?? null,
+    });
+
+    if (decision.action !== "call_now") {
+      return NextResponse.json(
+        {
+          success: true,
+          placed: false,
+          action: decision.action,
+          heat_status: decision.heat_status,
+          next_contact_at: decision.next_contact_at,
+          reason_codes: decision.reason_codes,
+          escalate_to_agent: decision.escalate_to_agent,
+        },
+        { status: 200 }
+      );
+    }
+
     let orgName = "";
     let agentName = "";
 
     if (lead.org_id) {
       const { data: org } = await supabase
-        .from("organizations") // adjust if needed
+        .from("organizations")
         .select("name")
         .eq("id", lead.org_id)
         .single();
@@ -67,7 +94,6 @@ export async function POST(req: NextRequest) {
       agentName = agent?.name || "";
     }
 
-    // --- Build AI stream URL
     const aiStreamUrl = new URL(`${BASE_URL}/api/twilio/ai-stream`);
     aiStreamUrl.searchParams.set("id", String(lead.id));
     aiStreamUrl.searchParams.set("direction", "outbound");
@@ -77,13 +103,11 @@ export async function POST(req: NextRequest) {
     if (orgName) aiStreamUrl.searchParams.set("org_name", orgName);
     if (agentName) aiStreamUrl.searchParams.set("agent_name", agentName);
 
-    // --- Status callback URL
     const statusCbUrl = new URL(`${BASE_URL}/api/twilio/call-status`);
     statusCbUrl.searchParams.set("id", String(lead.id));
     if (lead.org_id) statusCbUrl.searchParams.set("org_id", String(lead.org_id));
     if (lead.agent_id) statusCbUrl.searchParams.set("agent_id", String(lead.agent_id));
 
-    // --- Create the outbound call
     const call = await twilioClient.calls.create({
       to: lead.phone,
       from: TWILIO_PHONE_NUMBER,
@@ -93,11 +117,25 @@ export async function POST(req: NextRequest) {
       statusCallbackEvent: ["initiated", "ringing", "answered", "completed"],
     });
 
+    await supabase.from("follow_ups").insert({
+      lead_id: lead.id,
+      call_sid: call.sid,
+      method: "call",
+      created_at: now.toISOString(),
+      sent_at: now.toISOString(),
+    });
+
     return NextResponse.json({
       success: true,
+      placed: true,
       callSid: call.sid,
       to: lead.phone,
       from: TWILIO_PHONE_NUMBER,
+      action: decision.action,
+      heat_status: decision.heat_status,
+      next_contact_at: decision.next_contact_at,
+      reason_codes: decision.reason_codes,
+      escalate_to_agent: decision.escalate_to_agent,
     });
   } catch (err: any) {
     console.error("❌ Error creating outbound call:", err);
@@ -108,5 +146,4 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// ✅ ensure both methods exported so Next.js treats as module
 export const GET = POST;
