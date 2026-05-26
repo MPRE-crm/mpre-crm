@@ -393,16 +393,19 @@ export default function RelocationPage() {
               </div>
             )}
 
-            {success && (
-              <div className="mt-4 rounded-xl bg-green-100 p-3 text-sm leading-6 text-green-800">
-                Verification started. Check your phone and email for the verification links.
-                {leadId && (
-                  <span className="mt-1 block text-[11px] text-green-700">
-                    Lead saved. Next step: verification screen.
-                  </span>
-                )}
-              </div>
-            )}
+{success && (
+  <div className="mt-4 rounded-xl bg-green-100 p-3 text-sm leading-6 text-green-800">
+    Verification started. Check your phone and email for the verification links.
+    If you do not see the email within a minute, please check your spam, junk,
+    or promotions folder.
+    {leadId && (
+      <span className="mt-1 block text-[11px] text-green-700">
+        After both links are verified, we&apos;ll email your 2026 Boise Idaho
+        Area Relocation Guide.
+      </span>
+    )}
+  </div>
+)}
 
             <button
               type="submit"
@@ -413,9 +416,9 @@ export default function RelocationPage() {
               {loading ? "Sending Verification..." : "Start Verification & Get The Guide"}
             </button>
 
-            <p className="mt-3 text-center text-[11px] leading-5 text-slate-500">
-              Step 2: tap both verification links. Step 3: receive the full guide.
-            </p>
+<p className="mt-3 text-center text-[11px] leading-5 text-slate-500">
+  Step 2: tap both verification links. Step 3: we&apos;ll email the full guide.
+</p>
           </form>
         </div>
 
@@ -542,10 +545,12 @@ export default function RelocationPage() {
             Verify your phone and email, then we&apos;ll send it over.
           </h2>
 
-          <p className="mx-auto mt-4 max-w-2xl text-sm leading-7 text-slate-200">
-            You&apos;ll get the relocation guide first, then Samantha can help
-            narrow down areas, timing, home search options, and next steps.
-          </p>
+<p className="mx-auto mt-4 max-w-2xl text-sm leading-7 text-slate-200">
+  After both verification links are confirmed, we&apos;ll email your relocation
+  guide. If it does not show up right away, check your spam, junk, or promotions
+  folder. Then Samantha can help narrow down areas, timing, home search options,
+  and next steps.
+</p>
 
           <button
             type="button"

@@ -38,6 +38,7 @@ export default async function VerifyPage({ searchParams }: VerifyPageProps) {
             alt="MPRE Boise"
             className="h-12 w-auto rounded-md"
           />
+
           <img
             src="/HomesofIdahocrm.png"
             alt="Homes of Idaho"
@@ -52,20 +53,22 @@ export default async function VerifyPage({ searchParams }: VerifyPageProps) {
             </p>
 
             <h1 className="text-3xl font-bold">
-              {type === "phone"
-                ? "Phone Verified"
-                : "Email Verified"}
+              {type === "phone" ? "Phone Verified" : "Email Verified"}
             </h1>
 
             {complete ? (
               <p className="mt-4 leading-7 text-slate-700">
-                Perfect. Your phone and email are both verified. The next step
-                is sending your 2026 Boise Idaho Area Relocation Guide.
+                Perfect. Your phone and email are both verified. We&apos;ll email
+                your 2026 Boise Idaho Area Relocation Guide shortly. Please
+                check your inbox, promotions folder, and spam or junk folder
+                just in case.
               </p>
             ) : (
               <p className="mt-4 leading-7 text-slate-700">
-                Nice. Now verify the other link we sent you. Once both your
-                phone and email are verified, we will send the relocation guide.
+                Nice. Now tap the other verification link we sent you. Once both
+                your phone and email are verified, we&apos;ll email your 2026
+                Boise Idaho Area Relocation Guide. If you do not see the email,
+                please check your spam or junk folder.
               </p>
             )}
           </>
@@ -78,13 +81,13 @@ export default async function VerifyPage({ searchParams }: VerifyPageProps) {
             <h1 className="text-3xl font-bold">Verification Failed</h1>
 
             <p className="mt-4 leading-7 text-slate-700">
-              This verification link is missing, expired, or invalid.
+              This verification link is missing, expired, or invalid. Please go
+              back to the relocation guide page and request a new verification
+              link.
             </p>
 
             {message && (
-              <p className="mt-3 text-xs text-slate-500">
-                Error: {message}
-              </p>
+              <p className="mt-3 text-xs text-slate-500">Error: {message}</p>
             )}
           </>
         )}
