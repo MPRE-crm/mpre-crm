@@ -16,43 +16,47 @@ export async function POST(req: Request) {
     }
 
     if (!leadId) {
-      return NextResponse.json(
-        { error: "Missing lead_id." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Missing lead_id." }, { status: 400 });
     }
 
-    const { data: lead, error: leadError } = await supabaseAdmin
+    const nowIso = new Date().toISOString();
+
+    // CLAIM THE LEAD FIRST SO THE GUIDE CANNOT SEND TWICE
+    const { data: claimedLead, error: claimError } = await supabaseAdmin
       .from("leads")
+      .update({
+        guide_delivery_status: "sending_guide",
+        updated_at: nowIso,
+      })
+      .eq("id", leadId)
+      .eq("phone_verified", true)
+      .eq("email_verified", true)
+      .eq("guide_delivery_status", "verified_ready_to_send")
       .select(
         "id, first_name, last_name, email, phone_verified, email_verified, guide_delivery_status, guide_send_count"
       )
-      .eq("id", leadId)
       .single();
 
-    if (leadError || !lead) {
-      return NextResponse.json(
-        { error: "Lead not found." },
-        { status: 404 }
-      );
-    }
+    if (claimError || !claimedLead) {
+      const { data: existingLead } = await supabaseAdmin
+        .from("leads")
+        .select("id, guide_delivery_status, guide_send_count")
+        .eq("id", leadId)
+        .single();
 
-    if (!lead.phone_verified || !lead.email_verified) {
-      return NextResponse.json(
-        { error: "Phone and email must both be verified before sending guide." },
-        { status: 400 }
-      );
-    }
-
-    if (lead.guide_delivery_status === "sent_by_email") {
       return NextResponse.json({
         success: true,
-        already_sent: true,
-        message: "Guide was already sent.",
+        already_handled: true,
+        message:
+          existingLead?.guide_delivery_status === "sent_by_email"
+            ? "Guide was already sent."
+            : "Guide is not ready to send or is already being sent.",
+        guide_delivery_status: existingLead?.guide_delivery_status || null,
+        guide_send_count: existingLead?.guide_send_count || 0,
       });
     }
 
-    const firstName = lead.first_name || "there";
+    const firstName = claimedLead.first_name || "there";
 
     const resendResponse = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -62,7 +66,7 @@ export async function POST(req: Request) {
       },
       body: JSON.stringify({
         from: "EasyRealtor <noreply@easyrealtor.homes>",
-        to: lead.email,
+        to: claimedLead.email,
         subject: "Your 2026 Boise Idaho Area Relocation Guide",
         html: `
           <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #111827; max-width: 640px; margin: 0 auto;">
@@ -137,19 +141,19 @@ Equal Housing Opportunity
       );
     }
 
-    const nowIso = new Date().toISOString();
-    const currentCount = Number(lead.guide_send_count || 0);
+    const sentAtIso = new Date().toISOString();
+    const currentCount = Number(claimedLead.guide_send_count || 0);
 
     const { error: updateError } = await supabaseAdmin
       .from("leads")
       .update({
         guide_delivery_status: "sent_by_email",
-        guide_sent_at: nowIso,
-        guide_last_sent_at: nowIso,
+        guide_sent_at: sentAtIso,
+        guide_last_sent_at: sentAtIso,
         guide_send_count: currentCount + 1,
         call_status: "guide_sent",
         status: "Guide Sent",
-        updated_at: nowIso,
+        updated_at: sentAtIso,
       })
       .eq("id", leadId);
 
