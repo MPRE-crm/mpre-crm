@@ -25,13 +25,32 @@ const EXECUTION_MODE: "mock" | "live" =
     ? "live"
     : "mock";
 
-function buildIdxFollowUpText(lead: any) {
-  const firstName =
+function getFirstName(lead: any) {
+  return (
     String(lead?.first_name || lead?.name || "")
       .trim()
-      .split(" ")[0] || "there";
+      .split(" ")[0] || "there"
+  );
+}
+
+function buildIdxFollowUpText(lead: any) {
+  const firstName = getFirstName(lead);
 
   return `Hi ${firstName}, this is Samantha with MPRE Boise. I saw you were looking at homes and wanted to see if you'd like help narrowing down the best options or setting up a quick home search.`;
+}
+
+function buildRelocationGuideCheckText(lead: any) {
+  const firstName = getFirstName(lead);
+
+  return `Hi ${firstName}, this is Samantha with MPRE Boise. Just checking — did you receive the Boise relocation guide okay?`;
+}
+
+function isRelocationGuideCheckDue(lead: any) {
+  return (
+    lead?.status === "Guide Sent" &&
+    lead?.guide_delivery_status === "sent_by_email" &&
+    !!lead?.guide_sent_at
+  );
 }
 
 export async function processDueFollowUps(limit = 25) {
@@ -53,6 +72,96 @@ export async function processDueFollowUps(limit = 25) {
   const results: Array<Record<string, any>> = [];
 
   for (const lead of leads || []) {
+    if (isRelocationGuideCheckDue(lead)) {
+      const message = buildRelocationGuideCheckText(lead);
+
+      if (EXECUTION_MODE === "mock") {
+        await logSamanthaAction({
+          db: supabase,
+          leadId: lead.id,
+          orgId: lead.org_id ?? null,
+          source: "follow_up_due",
+          triggerType: "relocation_guide_check",
+          plannedAction: "text_now",
+          executedAction: "text_now",
+          executionMode: "mock",
+          status: "executed",
+          reasonCodes: ["RELOCATION_GUIDE_CHECK_DUE"],
+          details: {
+            mock: true,
+            to: lead.phone ?? null,
+            message,
+          },
+        });
+
+        await supabase
+          .from("leads")
+          .update({
+            next_contact_at: null,
+            updated_at: nowIso,
+          })
+          .eq("id", lead.id);
+
+        results.push({
+          lead_id: lead.id,
+          action: "relocation_guide_check",
+          executed: "text_now",
+          success: true,
+          details: {
+            mock: true,
+            to: lead.phone ?? null,
+            message,
+          },
+        });
+
+        continue;
+      }
+
+      const smsResult = await sendText({
+        to: lead.phone,
+        message,
+        leadId: lead.id,
+        bypassGovernor: true,
+      });
+
+      await logSamanthaAction({
+        db: supabase,
+        leadId: lead.id,
+        orgId: lead.org_id ?? null,
+        source: "follow_up_due",
+        triggerType: "relocation_guide_check",
+        plannedAction: "text_now",
+        executedAction: "text_now",
+        executionMode: "live",
+        status: smsResult.success ? "executed" : "failed",
+        reasonCodes: ["RELOCATION_GUIDE_CHECK_DUE"],
+        details: smsResult,
+      });
+
+      if (smsResult.success) {
+        await supabase
+          .from("leads")
+          .update({
+            next_contact_at: null,
+            last_text_attempt_at: nowIso,
+            last_contact_attempt_at: nowIso,
+            call_status: "guide_check_text_sent",
+            updated_at: nowIso,
+          })
+          .eq("id", lead.id);
+      }
+
+      results.push({
+        lead_id: lead.id,
+        action: "relocation_guide_check",
+        executed: "text_now",
+        success: smsResult.success,
+        details: smsResult,
+      });
+
+      continue;
+    }
+
     const leadForDecision = {
       ...lead,
       last_meaningful_engagement_at: null,

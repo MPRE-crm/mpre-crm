@@ -5,6 +5,7 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
     const leadId = String(body.lead_id || "").trim();
+    const forceResend = Boolean(body.force_resend);
 
     const guideUrl = process.env.RELOCATION_GUIDE_URL;
 
@@ -21,17 +22,20 @@ export async function POST(req: Request) {
 
     const nowIso = new Date().toISOString();
 
-    // CLAIM THE LEAD FIRST SO THE GUIDE CANNOT SEND TWICE
+    const readyStatuses = forceResend
+      ? ["sent_by_email", "resent_by_email", "verified_ready_to_send"]
+      : ["verified_ready_to_send"];
+
     const { data: claimedLead, error: claimError } = await supabaseAdmin
       .from("leads")
       .update({
-        guide_delivery_status: "sending_guide",
+        guide_delivery_status: forceResend ? "resending_guide" : "sending_guide",
         updated_at: nowIso,
       })
       .eq("id", leadId)
       .eq("phone_verified", true)
       .eq("email_verified", true)
-      .eq("guide_delivery_status", "verified_ready_to_send")
+      .in("guide_delivery_status", readyStatuses)
       .select(
         "id, first_name, last_name, email, phone_verified, email_verified, guide_delivery_status, guide_send_count"
       )
@@ -48,7 +52,8 @@ export async function POST(req: Request) {
         success: true,
         already_handled: true,
         message:
-          existingLead?.guide_delivery_status === "sent_by_email"
+          existingLead?.guide_delivery_status === "sent_by_email" ||
+          existingLead?.guide_delivery_status === "resent_by_email"
             ? "Guide was already sent."
             : "Guide is not ready to send or is already being sent.",
         guide_delivery_status: existingLead?.guide_delivery_status || null,
@@ -67,14 +72,20 @@ export async function POST(req: Request) {
       body: JSON.stringify({
         from: "EasyRealtor <noreply@easyrealtor.homes>",
         to: claimedLead.email,
-        subject: "Your 2026 Boise Idaho Area Relocation Guide",
+        subject: forceResend
+          ? "Resending your Boise Idaho Relocation Guide"
+          : "Your 2026 Boise Idaho Area Relocation Guide",
         html: `
           <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #111827; max-width: 640px; margin: 0 auto;">
-            <h2>Your 2026 Boise Idaho Area Relocation Guide</h2>
+            <h2>${forceResend ? "Here is your relocation guide again" : "Your 2026 Boise Idaho Area Relocation Guide"}</h2>
 
             <p>Hi ${firstName},</p>
 
-            <p>Thanks for verifying your phone and email. You can download your 2026 Boise Idaho Area Relocation Guide using the button below.</p>
+            <p>${
+              forceResend
+                ? "No problem — here is the Boise Idaho Area Relocation Guide again."
+                : "Thanks for verifying your phone and email. You can download your 2026 Boise Idaho Area Relocation Guide using the button below."
+            }</p>
 
             <p>
               <a href="${guideUrl}" style="display:inline-block;background:#f97316;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:bold;">
@@ -107,7 +118,11 @@ export async function POST(req: Request) {
         text: `
 Hi ${firstName},
 
-Thanks for verifying your phone and email.
+${
+  forceResend
+    ? "No problem — here is the Boise Idaho Area Relocation Guide again."
+    : "Thanks for verifying your phone and email."
+}
 
 Download your 2026 Boise Idaho Area Relocation Guide here:
 ${guideUrl}
@@ -130,7 +145,7 @@ Equal Housing Opportunity
       await supabaseAdmin
         .from("leads")
         .update({
-          guide_delivery_status: "send_failed",
+          guide_delivery_status: forceResend ? "resend_failed" : "send_failed",
           updated_at: new Date().toISOString(),
         })
         .eq("id", leadId);
@@ -142,19 +157,28 @@ Equal Housing Opportunity
     }
 
     const sentAtIso = new Date().toISOString();
+    const sixMinutesFromNow = new Date(Date.now() + 6 * 60 * 1000).toISOString();
     const currentCount = Number(claimedLead.guide_send_count || 0);
+
+    const leadUpdate: Record<string, any> = {
+      guide_delivery_status: forceResend ? "resent_by_email" : "sent_by_email",
+      guide_last_sent_at: sentAtIso,
+      guide_send_count: currentCount + 1,
+      call_status: forceResend ? "guide_resent" : "guide_sent",
+      status: forceResend ? "Guide Resent" : "Guide Sent",
+      updated_at: sentAtIso,
+    };
+
+    if (forceResend) {
+      leadUpdate.next_contact_at = null;
+    } else {
+      leadUpdate.guide_sent_at = sentAtIso;
+      leadUpdate.next_contact_at = sixMinutesFromNow;
+    }
 
     const { error: updateError } = await supabaseAdmin
       .from("leads")
-      .update({
-        guide_delivery_status: "sent_by_email",
-        guide_sent_at: sentAtIso,
-        guide_last_sent_at: sentAtIso,
-        guide_send_count: currentCount + 1,
-        call_status: "guide_sent",
-        status: "Guide Sent",
-        updated_at: sentAtIso,
-      })
+      .update(leadUpdate)
       .eq("id", leadId);
 
     if (updateError) {
@@ -168,7 +192,10 @@ Equal Housing Opportunity
 
     return NextResponse.json({
       success: true,
-      message: "Guide sent successfully.",
+      resent: forceResend,
+      message: forceResend
+        ? "Guide resent successfully."
+        : "Guide sent successfully.",
     });
   } catch (error: any) {
     console.error("Send guide error:", error);
