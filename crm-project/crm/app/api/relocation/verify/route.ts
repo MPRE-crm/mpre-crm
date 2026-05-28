@@ -28,7 +28,7 @@ export async function GET(req: Request) {
   const { data: lead, error: leadError } = await supabaseAdmin
     .from("leads")
     .select(
-      "id, phone_verified, email_verified, phone_verification_code, email_verification_code, verification_code_expires_at"
+      "id, phone_verified, email_verified, phone_verification_code, email_verification_code, verification_code_expires_at, guide_delivery_status"
     )
     .eq("id", leadId)
     .single();
@@ -54,11 +54,11 @@ export async function GET(req: Request) {
       ? lead.phone_verification_code
       : lead.email_verification_code;
 
-if (token !== expectedToken) {
-  return NextResponse.redirect(
-    `${siteUrl}/relocation/verify?status=error&message=invalid`
-  );
-}
+  if (token !== expectedToken) {
+    return NextResponse.redirect(
+      `${siteUrl}/relocation/verify?status=error&message=invalid`
+    );
+  }
 
   const nowIso = new Date().toISOString();
 
@@ -78,8 +78,9 @@ if (token !== expectedToken) {
 
   const phoneWillBeVerified = type === "phone" ? true : lead.phone_verified;
   const emailWillBeVerified = type === "email" ? true : lead.email_verified;
+  const bothVerified = phoneWillBeVerified && emailWillBeVerified;
 
-  if (phoneWillBeVerified && emailWillBeVerified) {
+  if (bothVerified) {
     updateData.status = "Verified Lead";
     updateData.call_status = "verified_pending_guide";
     updateData.guide_delivery_status = "verified_ready_to_send";
@@ -97,9 +98,38 @@ if (token !== expectedToken) {
     );
   }
 
+  if (bothVerified && lead.guide_delivery_status !== "sent_by_email") {
+    try {
+      const sendGuideResponse = await fetch(`${siteUrl}/api/relocation/send-guide`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          lead_id: leadId,
+        }),
+      });
+
+      if (!sendGuideResponse.ok) {
+        const sendGuideError = await sendGuideResponse.text();
+        console.error("Send guide failed:", sendGuideError);
+
+        return NextResponse.redirect(
+          `${siteUrl}/relocation/verify?status=success&type=${type}&complete=true&guide=failed`
+        );
+      }
+    } catch (error) {
+      console.error("Send guide request error:", error);
+
+      return NextResponse.redirect(
+        `${siteUrl}/relocation/verify?status=success&type=${type}&complete=true&guide=failed`
+      );
+    }
+  }
+
   return NextResponse.redirect(
     `${siteUrl}/relocation/verify?status=success&type=${type}&complete=${
-      phoneWillBeVerified && emailWillBeVerified ? "true" : "false"
+      bothVerified ? "true" : "false"
     }`
   );
 }
