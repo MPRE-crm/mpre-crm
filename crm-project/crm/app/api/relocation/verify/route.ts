@@ -62,25 +62,28 @@ export async function GET(req: Request) {
 
   const nowIso = new Date().toISOString();
 
-  const updateData: any = {
-    updated_at: nowIso,
-  };
-
-  if (type === "phone") {
-    updateData.phone_verified = true;
-    updateData.phone_verified_at = nowIso;
-  }
-
-  if (type === "email") {
-    updateData.email_verified = true;
-    updateData.email_verified_at = nowIso;
-  }
-
   const phoneWillBeVerified = type === "phone" ? true : lead.phone_verified;
   const emailWillBeVerified = type === "email" ? true : lead.email_verified;
   const bothVerified = phoneWillBeVerified && emailWillBeVerified;
 
-  if (bothVerified) {
+  const alreadySent = lead.guide_delivery_status === "sent_by_email";
+  const alreadySending = lead.guide_delivery_status === "sending_guide";
+
+  const updateData: any = {
+    updated_at: nowIso,
+  };
+
+  if (type === "phone" && !lead.phone_verified) {
+    updateData.phone_verified = true;
+    updateData.phone_verified_at = nowIso;
+  }
+
+  if (type === "email" && !lead.email_verified) {
+    updateData.email_verified = true;
+    updateData.email_verified_at = nowIso;
+  }
+
+  if (bothVerified && !alreadySent && !alreadySending) {
     updateData.status = "Verified Lead";
     updateData.call_status = "verified_pending_guide";
     updateData.guide_delivery_status = "verified_ready_to_send";
@@ -98,17 +101,20 @@ export async function GET(req: Request) {
     );
   }
 
-  if (bothVerified && lead.guide_delivery_status !== "sent_by_email") {
+  if (bothVerified && !alreadySent && !alreadySending) {
     try {
-      const sendGuideResponse = await fetch(`${siteUrl}/api/relocation/send-guide`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          lead_id: leadId,
-        }),
-      });
+      const sendGuideResponse = await fetch(
+        `${siteUrl}/api/relocation/send-guide`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            lead_id: leadId,
+          }),
+        }
+      );
 
       if (!sendGuideResponse.ok) {
         const sendGuideError = await sendGuideResponse.text();
