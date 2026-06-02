@@ -394,7 +394,7 @@ function extractAgentStatus(text: string) {
   }
 
   if (
-    /no agent|not working with an agent|dont have an agent|don't have an agent|need an agent|need someone|need help from mpre|need someone from mpre|assign me someone|you can assign me someone|someone from mpre|mpre boise to assist|want help from your team|would like assistance from your team/i.test(t)
+    /no agent|not working with an agent|dont have an agent|don't have an agent|need an agent|need someone|need help|need assistance|assistance please|help please|need help from mpre|need someone from mpre|assign me someone|you can assign me someone|someone from mpre|mpre boise please|mpre boise to assist|mpre please|want help from your team|would like assistance from your team|assistance from your team|your team please/i.test(t)
   ) {
     return 'no_agent'
   }
