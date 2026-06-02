@@ -111,6 +111,45 @@ function wantsDirectLenderIntro(text?: string | null) {
   )
 }
 
+function isYesToGuide(text?: string | null) {
+  const t = clean(text).toLowerCase()
+
+  return (
+    /\byes\b/.test(t) ||
+    /\byep\b/.test(t) ||
+    /\byeah\b/.test(t) ||
+    /i did/.test(t) ||
+    /got it/.test(t) ||
+    /received it/.test(t) ||
+    /downloaded/.test(t)
+  )
+}
+
+function isNoToGuide(text?: string | null) {
+  const t = clean(text).toLowerCase()
+
+  return (
+    /\bno\b/.test(t) ||
+    /did not/.test(t) ||
+    /didn'?t/.test(t) ||
+    /never got/.test(t) ||
+    /do not see/.test(t) ||
+    /don'?t see/.test(t) ||
+    /resend/.test(t) ||
+    /send it again/.test(t)
+  )
+}
+
+function isGuideCheckLead(lead: any) {
+  return (
+    lead?.call_status === 'guide_check_text_sent' &&
+    (
+      lead?.guide_delivery_status === 'sent_by_email' ||
+      lead?.guide_delivery_status === 'resent_by_email'
+    )
+  )
+}
+
 function isRelocationLead(lead: any) {
   const sourceDetail = String(lead?.lead_source_detail || '').toLowerCase()
   const smsCampaign = String(lead?.sms_campaign || '').toLowerCase()
@@ -364,12 +403,18 @@ export async function POST(req: NextRequest) {
 
     const leadSelect = `
   id,
+  created_at,
   first_name,
   last_name,
   name,
   email,
   phone,
   status,
+  call_status,
+  guide_delivery_status,
+  guide_sent_at,
+  guide_last_sent_at,
+  guide_send_count,
   lead_heat,
   lead_source_detail,
   sms_state,
@@ -424,25 +469,25 @@ export async function POST(req: NextRequest) {
     let existingLead: any = null
     let leadError: any = null
 
-    const exactLeadResult = await supabaseAdmin
+    const phoneMatches = Array.from(
+      new Set([from, from10, `1${from10}`].filter(Boolean))
+    )
+
+    const leadLookupResult = await supabaseAdmin
       .from('leads')
       .select(leadSelect)
-      .eq('phone', from)
-      .maybeSingle()
+      .in('phone', phoneMatches)
+      .order('created_at', { ascending: false })
+      .limit(10)
 
-    existingLead = exactLeadResult.data
-    leadError = exactLeadResult.error
+    leadError = leadLookupResult.error
 
-    if (!existingLead && !leadError && from10) {
-      const altLeadResult = await supabaseAdmin
-        .from('leads')
-        .select(leadSelect)
-        .in('phone', [from10, `1${from10}`])
-        .maybeSingle()
+    const matchedLeads = leadLookupResult.data || []
 
-      existingLead = altLeadResult.data
-      leadError = altLeadResult.error
-    }
+    existingLead =
+      matchedLeads.find((row: any) => isGuideCheckLead(row)) ||
+      matchedLeads[0] ||
+      null
 
     let lead = existingLead
     let leadId: string | null = lead?.id ?? null
@@ -972,6 +1017,132 @@ export async function POST(req: NextRequest) {
               '❌ outbound sms message insert error',
               outgoingMessageInsertError
             )
+          }
+
+          const twiml = new twilio.twiml.MessagingResponse()
+          twiml.message(replyText)
+
+          return new NextResponse(twiml.toString(), {
+            status: 200,
+            headers: { 'Content-Type': 'text/xml' },
+          })
+        }
+      }
+
+            if (isGuideCheckLead(lead)) {
+        if (isYesToGuide(body)) {
+          replyText = `Perfect, ${clean(lead?.first_name) || 'there'} — glad you got it. Are you mostly looking at Boise itself, or are you also considering Meridian, Eagle, Nampa, Kuna, Star, or Caldwell?`
+
+          const { error: guideYesUpdateError } = await supabaseAdmin
+            .from('leads')
+            .update({
+              call_status: 'guide_received_confirmed',
+              sms_campaign: 'relocation',
+              sms_state: 'GUIDE_RECEIVED_AREA_QUESTION',
+              sms_current_objective: 'area_preference',
+              sms_last_question: 'area_preference',
+              sms_lpmama_current_step: 'location',
+              sms_lpmama_next_step: 'location',
+              sms_resume_step: 'location',
+              sms_detour_reason: null,
+              last_replied_text_at: nowIso,
+              last_meaningful_engagement_at: nowIso,
+              last_contact_attempt_at: nowIso,
+              last_text_attempt_at: nowIso,
+              updated_at: nowIso,
+            })
+            .eq('id', leadId)
+
+          if (guideYesUpdateError) {
+            console.error('❌ guide yes lead update error', guideYesUpdateError)
+          }
+
+          const { error: outgoingMessageInsertError } = await supabaseAdmin
+            .from('messages')
+            .insert({
+              lead_id: leadId,
+              lead_phone: from,
+              direction: 'outgoing',
+              body: replyText,
+              status: 'twiml_reply_prepared',
+              twilio_sid: null,
+              created_at: nowIso,
+            })
+
+          if (outgoingMessageInsertError) {
+            console.error('❌ outbound sms message insert error', outgoingMessageInsertError)
+          }
+
+          const twiml = new twilio.twiml.MessagingResponse()
+          twiml.message(replyText)
+
+          return new NextResponse(twiml.toString(), {
+            status: 200,
+            headers: { 'Content-Type': 'text/xml' },
+          })
+        }
+
+        if (isNoToGuide(body)) {
+          try {
+            const appBaseUrl =
+              process.env.NEXT_PUBLIC_SITE_URL ||
+              process.env.NEXT_PUBLIC_APP_URL ||
+              'https://www.easyrealtor.homes'
+
+            await fetch(`${appBaseUrl}/api/relocation/send-guide`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                lead_id: leadId,
+                force_resend: true,
+              }),
+            })
+          } catch (resendError) {
+            console.error('❌ guide resend request error', resendError)
+          }
+
+          replyText = `No problem, ${clean(lead?.first_name) || 'there'} — I just resent it to your email. Please check your inbox, spam, junk, or promotions folder. Once you have it, are you mostly looking at Boise itself, or also considering Meridian, Eagle, Nampa, Kuna, Star, or Caldwell?`
+
+          const { error: guideNoUpdateError } = await supabaseAdmin
+            .from('leads')
+            .update({
+              call_status: 'guide_resent_after_sms',
+              sms_campaign: 'relocation',
+              sms_state: 'GUIDE_RESENT_AREA_QUESTION',
+              sms_current_objective: 'area_preference',
+              sms_last_question: 'area_preference',
+              sms_lpmama_current_step: 'location',
+              sms_lpmama_next_step: 'location',
+              sms_resume_step: 'location',
+              sms_detour_reason: 'guide_not_received',
+              last_replied_text_at: nowIso,
+              last_meaningful_engagement_at: nowIso,
+              last_contact_attempt_at: nowIso,
+              last_text_attempt_at: nowIso,
+              updated_at: nowIso,
+            })
+            .eq('id', leadId)
+
+          if (guideNoUpdateError) {
+            console.error('❌ guide no lead update error', guideNoUpdateError)
+          }
+
+          const { error: outgoingMessageInsertError } = await supabaseAdmin
+            .from('messages')
+            .insert({
+              lead_id: leadId,
+              lead_phone: from,
+              direction: 'outgoing',
+              body: replyText,
+              status: 'twiml_reply_prepared',
+              twilio_sid: null,
+              created_at: nowIso,
+            })
+
+          if (outgoingMessageInsertError) {
+            console.error('❌ outbound sms message insert error', outgoingMessageInsertError)
           }
 
           const twiml = new twilio.twiml.MessagingResponse()
