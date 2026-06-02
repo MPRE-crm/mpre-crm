@@ -658,32 +658,99 @@ export async function POST(req: NextRequest) {
       let slotChoices: SlotChoice[] = []
 
       function makeFallbackSmsSlots(): SlotChoice[] {
-        const now = new Date()
-        const fallback: SlotChoice[] = []
+        const BOISE_TZ = 'America/Boise'
 
-        for (let dayOffset = 1; dayOffset <= 7; dayOffset++) {
-          const d = new Date(now)
-          d.setDate(d.getDate() + dayOffset)
+        function getBoiseParts(date: Date) {
+          const formatter = new Intl.DateTimeFormat('en-US', {
+            timeZone: BOISE_TZ,
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            weekday: 'short',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hourCycle: 'h23',
+          })
 
-          const weekday = d.getDay()
-          if (weekday === 0 || weekday === 6) continue
+          const parts = formatter.formatToParts(date)
+          const map = Object.fromEntries(parts.map((p) => [p.type, p.value]))
 
-          for (const hour of [10, 14]) {
-            const slot = new Date(d)
-            slot.setHours(hour, 0, 0, 0)
+          return {
+            year: Number(map.year),
+            month: Number(map.month),
+            day: Number(map.day),
+            hour: Number(map.hour),
+            minute: Number(map.minute),
+            second: Number(map.second),
+            weekday: map.weekday,
+          }
+        }
 
-            const slotHuman = slot.toLocaleString('en-US', {
+        function getBoiseOffsetMinutes(date: Date) {
+          const parts = getBoiseParts(date)
+
+          const utcMs = Date.UTC(
+            parts.year,
+            parts.month - 1,
+            parts.day,
+            parts.hour,
+            parts.minute,
+            parts.second
+          )
+
+          return (utcMs - date.getTime()) / 60000
+        }
+
+        function makeBoiseDate(
+          year: number,
+          month: number,
+          day: number,
+          hour: number,
+          minute: number
+        ) {
+          const utcGuess = new Date(Date.UTC(year, month - 1, day, hour, minute, 0))
+          const offsetMinutes = getBoiseOffsetMinutes(utcGuess)
+
+          return new Date(utcGuess.getTime() - offsetMinutes * 60000)
+        }
+
+        function formatBoiseSlot(date: Date) {
+          return (
+            date.toLocaleString('en-US', {
               weekday: 'short',
               month: 'short',
               day: 'numeric',
               hour: 'numeric',
               minute: '2-digit',
-              timeZone: 'America/Boise',
+              timeZone: BOISE_TZ,
             }) + ' America/Boise'
+          )
+        }
+
+        const now = new Date()
+        const fallback: SlotChoice[] = []
+
+        for (let dayOffset = 1; dayOffset <= 7; dayOffset++) {
+          const seed = new Date(now)
+          seed.setUTCDate(seed.getUTCDate() + dayOffset)
+
+          const parts = getBoiseParts(seed)
+
+          if (parts.weekday === 'Sat' || parts.weekday === 'Sun') continue
+
+          for (const hour of [10, 14]) {
+            const slot = makeBoiseDate(
+              parts.year,
+              parts.month,
+              parts.day,
+              hour,
+              0
+            )
 
             fallback.push({
               slot_iso: slot.toISOString(),
-              slot_human: slotHuman,
+              slot_human: formatBoiseSlot(slot),
             })
 
             if (fallback.length === 2) return fallback
