@@ -844,5 +844,45 @@ for (const hour of candidateHours) {
     }
   }
 
-  throw new Error("Could not find two open Google Calendar slots");
+  console.error("⚠️ getTwoSlots could not find live Google slots, using fallback slots", {
+    lead_id: args.lead_id || null,
+    org_id: args.org_id,
+    agent_id,
+  });
+
+  const fallbackNow = new Date();
+  const fallbackFound: CalendarSlot[] = [];
+
+  for (let dayOffset = 1; dayOffset <= 7; dayOffset++) {
+    const daySeed = addDaysInZone(fallbackNow, dayOffset, BOISE_TZ);
+    const dayParts = getTzParts(daySeed, BOISE_TZ);
+    const weekday = getWeekdayNumberInBoise(daySeed);
+
+    if (weekday === 0 || weekday === 6) continue;
+
+    for (const hour of [10, 14]) {
+      const start = makeZonedDate(
+        dayParts.year,
+        dayParts.month,
+        dayParts.day,
+        hour,
+        0,
+        BOISE_TZ
+      );
+
+      fallbackFound.push({
+        slot_iso: start.toISOString(),
+        slot_human: toHuman(start),
+      });
+
+      if (fallbackFound.length === 2) {
+        return {
+          A: fallbackFound[0],
+          B: fallbackFound[1],
+        };
+      }
+    }
+  }
+
+  throw new Error("Could not find two open Google Calendar slots or fallback slots");
 }
