@@ -101,6 +101,8 @@ export async function GET(req: Request) {
     );
   }
 
+  let guideStatus = "not_ready";
+
   if (bothVerified && !alreadySent && !alreadySending) {
     try {
       const sendGuideResponse = await fetch(
@@ -119,23 +121,25 @@ export async function GET(req: Request) {
       if (!sendGuideResponse.ok) {
         const sendGuideError = await sendGuideResponse.text();
         console.error("Send guide failed:", sendGuideError);
-
-        return NextResponse.redirect(
-          `${siteUrl}/relocation/verify?status=success&type=${type}&complete=true&guide=failed`
-        );
+        guideStatus = "failed";
+      } else {
+        guideStatus = "sent";
       }
     } catch (error) {
       console.error("Send guide request error:", error);
-
-      return NextResponse.redirect(
-        `${siteUrl}/relocation/verify?status=success&type=${type}&complete=true&guide=failed`
-      );
+      guideStatus = "failed";
     }
+  } else if (alreadySent) {
+    guideStatus = "already_sent";
+  } else if (alreadySending) {
+    guideStatus = "sending";
   }
 
   return NextResponse.redirect(
     `${siteUrl}/relocation/verify?status=success&type=${type}&complete=${
       bothVerified ? "true" : "false"
-    }`
+    }&phone=${phoneWillBeVerified ? "true" : "false"}&email=${
+      emailWillBeVerified ? "true" : "false"
+    }&guide=${guideStatus}`
   );
 }
