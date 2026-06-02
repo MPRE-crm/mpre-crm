@@ -370,21 +370,35 @@ function extractMotivation(text: string) {
 
 function extractAgentStatus(text: string) {
   const t = text.toLowerCase()
+
   if (/signed buyer agreement|under contract with an agent|signed with an agent/.test(t)) {
     return 'signed_agent'
   }
-  if (/working with your team|working with mpre|local agent|boise agent|agent in boise|working with a boise-area agent|local realtor/i.test(t)) {
+
+  if (
+    /working with your team|working with mpre|mpre is helping me|already working with mpre|your team is helping/i.test(t)
+  ) {
     return 'local_agent'
   }
-  if (/out of state agent|agent from california|agent from out of state|not local|not in boise/.test(t)) {
+
+  if (
+    /out of state agent|agent from california|agent from out of state|not local|not in boise/.test(t)
+  ) {
     return 'out_of_area_agent'
   }
-  if (/have an agent|working with an agent|already have a realtor|already have an agent/.test(t)) {
+
+  if (
+    /have an agent|working with an agent|already have a realtor|already have an agent/.test(t)
+  ) {
     return 'has_agent_unspecified'
   }
-  if (/no agent|not working with an agent|dont have an agent|don't have an agent/.test(t)) {
+
+  if (
+    /no agent|not working with an agent|dont have an agent|don't have an agent|need an agent|need someone|need help from mpre|need someone from mpre|assign me someone|you can assign me someone|someone from mpre|mpre boise to assist|want help from your team|would like assistance from your team/i.test(t)
+  ) {
     return 'no_agent'
   }
+
   return null
 }
 
@@ -1285,6 +1299,42 @@ ${inboundText}
 
     const localLenderStatus = extractLocalLenderStatus(inboundText)
     const lenderPermission = extractLenderPermission(inboundText)
+
+        if (
+      (
+        lead.sms_state === 'WAITING_FOR_AGENT_STATUS' ||
+        lead.sms_current_objective === 'agent_status' ||
+        lead.sms_lpmama_current_step === 'agent_status'
+      ) &&
+      agentStatus === 'no_agent'
+    ) {
+      return {
+        replyText: `Perfect, ${firstNameOf(lead)}. One other thing I like to clarify so we know the best path forward — are you thinking this will be a cash purchase, or will you probably want financing?`,
+        nextState: 'WAITING_FOR_MORTGAGE_OR_CASH',
+        nextPriority: 'mortgage_or_cash',
+        temperature: 'hot',
+        bestNextStep: 'none',
+        confidence: 'high',
+        currentObjective: 'mortgage_or_cash',
+        appointmentReadiness: 4,
+        conversationTone: 'warm',
+        sentiment: sanitizeSentiment(parsed.sentiment),
+        shouldEscalate: false,
+        debugReason: 'state_override_agent_status_needs_mpre_help',
+        lastQuestion: 'mortgage_or_cash',
+        lpmamaCurrentStep: 'mortgage_or_cash',
+        lpmamaNextStep: 'appointment',
+        resumeStep: 'mortgage_or_cash',
+        detourReason: null,
+        extractedFields: {
+          agent_status: 'no_agent',
+          agent_status_answered: true,
+          preferred_next_step: 'appointment',
+          notes_append: inboundText,
+        },
+        aiSummary: 'Lead wants help from MPRE team, moved to mortgage/cash step',
+      }
+    }
 
         if (lead.sms_state === 'WAITING_FOR_MORTGAGE_OR_CASH') {
       if (mortgageOrCash === 'cash') {
