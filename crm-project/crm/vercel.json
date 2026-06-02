@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/internal/follow-up/schedule",
-      "schedule": "*/10 * * * *"
+      "schedule": "* * * * *"
     },
     {
       "path": "/api/internal/missed-calls/process",
