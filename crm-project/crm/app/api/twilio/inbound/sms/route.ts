@@ -153,8 +153,16 @@ function isGuideCheckLead(lead: any) {
 function isRelocationLead(lead: any) {
   const sourceDetail = String(lead?.lead_source_detail || '').toLowerCase()
   const smsCampaign = String(lead?.sms_campaign || '').toLowerCase()
+  const guideStatus = String(lead?.guide_delivery_status || '').toLowerCase()
+  const callStatus = String(lead?.call_status || '').toLowerCase()
 
-  return smsCampaign === 'relocation' || sourceDetail.includes('relocation')
+  return (
+    smsCampaign === 'relocation' ||
+    sourceDetail.includes('relocation') ||
+    guideStatus === 'sent_by_email' ||
+    guideStatus === 'resent_by_email' ||
+    callStatus === 'guide_check_text_sent'
+  )
 }
 
 function genericReply(firstName?: string | null) {
