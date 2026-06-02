@@ -493,6 +493,14 @@ export async function POST(req: NextRequest) {
     const matchedLeads = leadLookupResult.data || []
 
     existingLead =
+      matchedLeads.find(
+        (row: any) =>
+          isRelocationLead(row) &&
+          (
+            row?.guide_delivery_status === 'sent_by_email' ||
+            row?.guide_delivery_status === 'resent_by_email'
+          )
+      ) ||
       matchedLeads.find((row: any) => isGuideCheckLead(row)) ||
       matchedLeads[0] ||
       null
