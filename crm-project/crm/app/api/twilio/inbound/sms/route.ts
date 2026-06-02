@@ -657,6 +657,42 @@ export async function POST(req: NextRequest) {
       let availableSlots: string[] = []
       let slotChoices: SlotChoice[] = []
 
+      function makeFallbackSmsSlots(): SlotChoice[] {
+        const now = new Date()
+        const fallback: SlotChoice[] = []
+
+        for (let dayOffset = 1; dayOffset <= 7; dayOffset++) {
+          const d = new Date(now)
+          d.setDate(d.getDate() + dayOffset)
+
+          const weekday = d.getDay()
+          if (weekday === 0 || weekday === 6) continue
+
+          for (const hour of [10, 14]) {
+            const slot = new Date(d)
+            slot.setHours(hour, 0, 0, 0)
+
+            const slotHuman = slot.toLocaleString('en-US', {
+              weekday: 'short',
+              month: 'short',
+              day: 'numeric',
+              hour: 'numeric',
+              minute: '2-digit',
+              timeZone: 'America/Boise',
+            }) + ' America/Boise'
+
+            fallback.push({
+              slot_iso: slot.toISOString(),
+              slot_human: slotHuman,
+            })
+
+            if (fallback.length === 2) return fallback
+          }
+        }
+
+        return fallback
+      }
+
       try {
         if (lead?.org_id) {
           const slots = await getTwoSlots({
@@ -668,7 +704,15 @@ export async function POST(req: NextRequest) {
           availableSlots = slotChoices.map((s) => s.slot_human)
         }
       } catch (error) {
-        console.error('❌ sms calendar slot load error', error)
+        console.error('❌ sms calendar slot load error, using SMS fallback slots', error)
+
+        slotChoices = makeFallbackSmsSlots()
+        availableSlots = slotChoices.map((s) => s.slot_human)
+      }
+
+      if (!availableSlots.length) {
+        slotChoices = makeFallbackSmsSlots()
+        availableSlots = slotChoices.map((s) => s.slot_human)
       }
 
       const storedSlotChoices: SlotChoice[] = [
