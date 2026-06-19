@@ -195,6 +195,23 @@ function isNoToGuide(text?: string | null) {
   )
 }
 
+function isMortgageOrCashAnswer(text?: string | null) {
+  const t = clean(text).toLowerCase()
+
+  return (
+    /\bcash\b/.test(t) ||
+    /paying cash/.test(t) ||
+    /cash purchase/.test(t) ||
+    /\bmortgage\b/.test(t) ||
+    /\bfinance\b/.test(t) ||
+    /\bfinancing\b/.test(t) ||
+    /\bloan\b/.test(t) ||
+    /\blender\b/.test(t) ||
+    /pre.?approved/.test(t) ||
+    /pre.?approval/.test(t)
+  )
+}
+
 function isGuideCheckLead(lead: any) {
   return (
     lead?.call_status === 'guide_check_text_sent' &&
@@ -799,12 +816,36 @@ export async function POST(req: NextRequest) {
         return fallback
       }
 
-            const shouldLoadAppointmentSlots =
+      const lastOutgoingSms =
+        [...((recentMessages || []) as Array<{ direction: string; body: string }>)]
+          .reverse()
+          .find((message) => message.direction === 'outgoing')?.body || ''
+
+      const inboundLooksLikeMortgageOrCashAnswer = isMortgageOrCashAnswer(body)
+
+      const lastOutgoingAskedMortgageOrCash =
+        /cash|mortgage|financ|loan|lender|paying/i.test(lastOutgoingSms)
+
+      const lastOutgoingWasAssistancePath =
+        /assist|assistance|our team|mpre boise/i.test(lastOutgoingSms)
+
+      const shouldPreloadSlotsForAppointmentOffer =
+        inboundLooksLikeMortgageOrCashAnswer &&
+        lastOutgoingAskedMortgageOrCash &&
+        (
+          lastOutgoingWasAssistancePath ||
+          lead?.sms_agent_status_answered === true ||
+          /assist|assistance|mpre|our team|help/i.test(String(lead?.agent_status || '')) ||
+          /assist|assistance|mpre|our team|help/i.test(String(lead?.notes || ''))
+        )
+
+      const shouldLoadAppointmentSlots =
         lead?.sms_state === 'OFFER_AGENT_CALL' ||
         lead?.sms_current_objective === 'appointment' ||
         lead?.preferred_next_step === 'appointment' ||
         lead?.sms_last_question === 'appointment_offer' ||
-        lead?.sms_lpmama_current_step === 'appointment'
+        lead?.sms_lpmama_current_step === 'appointment' ||
+        shouldPreloadSlotsForAppointmentOffer
 
       if (shouldLoadAppointmentSlots) {
         try {
