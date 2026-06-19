@@ -747,8 +747,16 @@ export async function POST(req: NextRequest) {
         return fallback
       }
 
-      try {
-        if (lead?.org_id) {
+            const shouldLoadAppointmentSlots =
+        lead?.sms_state === 'OFFER_AGENT_CALL' ||
+        lead?.sms_current_objective === 'appointment' ||
+        lead?.preferred_next_step === 'appointment' ||
+        lead?.sms_last_question === 'appointment_offer' ||
+        lead?.sms_lpmama_current_step === 'appointment'
+
+      if (shouldLoadAppointmentSlots) {
+        try {
+          if (lead?.org_id) {
           const slots = await getTwoSlots({
             org_id: lead.org_id,
             lead_id: leadId,
@@ -773,6 +781,7 @@ export async function POST(req: NextRequest) {
           agent_id: lead?.agent_id || null,
         }))
         availableSlots = slotChoices.map((s) => s.slot_human)
+      }
       }
 
       const storedSlotAgentId =
