@@ -94,6 +94,58 @@ function detectChosenSlot(inboundText: string, slotChoices: SlotChoice[]): SlotC
     if (raw.includes(slotHumanRaw)) return slot
   }
 
+  function getBoiseHour(slot: SlotChoice) {
+    if (!slot.slot_iso) return null
+
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Boise',
+      hour: 'numeric',
+      hourCycle: 'h23',
+    }).formatToParts(new Date(slot.slot_iso))
+
+    const hour = Number(parts.find((p) => p.type === 'hour')?.value)
+
+    return Number.isFinite(hour) ? hour : null
+  }
+
+  const candidateHours: number[] = []
+
+  for (const match of raw.matchAll(/\b(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?|am|pm)\b/g)) {
+    let hour = Number(match[1])
+    const meridiem = String(match[3] || '').toLowerCase()
+
+    if (!Number.isFinite(hour)) continue
+
+    if (meridiem.includes('p') && hour < 12) hour += 12
+    if (meridiem.includes('a') && hour === 12) hour = 0
+
+    candidateHours.push(hour)
+  }
+
+  for (const match of raw.matchAll(/\b(?:at|around|about)\s+(\d{1,2})(?::(\d{2}))?\b/g)) {
+    const hour = Number(match[1])
+
+    if (!Number.isFinite(hour)) continue
+
+    candidateHours.push(hour)
+    if (hour >= 1 && hour <= 11) candidateHours.push(hour + 12)
+  }
+
+  if (/^\s*\d{1,2}\s*$/.test(raw)) {
+    const hour = Number(raw.trim())
+
+    if (Number.isFinite(hour)) {
+      candidateHours.push(hour)
+      if (hour >= 1 && hour <= 11) candidateHours.push(hour + 12)
+    }
+  }
+
+  for (const candidateHour of candidateHours) {
+    const match = slotChoices.find((slot) => getBoiseHour(slot) === candidateHour)
+
+    if (match) return match
+  }
+
   return null
 }
 
@@ -810,6 +862,65 @@ export async function POST(req: NextRequest) {
         lead?.sms_state === 'OFFER_AGENT_CALL'
           ? detectChosenSlot(body, storedSlotChoices.length ? storedSlotChoices : slotChoices)
           : null
+
+      if (
+        lead?.sms_state === 'OFFER_AGENT_CALL' &&
+        storedSlotChoices.length > 0 &&
+        !chosenSlot
+      ) {
+        const optionA = storedSlotChoices[0]
+        const optionB = storedSlotChoices[1]
+
+        const clarifyReply =
+          optionA && optionB
+            ? `Almost there — please reply A for ${optionA.slot_human}, or B for ${optionB.slot_human}, and I’ll send the request to the agent for confirmation.`
+            : `Almost there — please reply A or B for the appointment option you prefer, and I’ll send the request to the agent for confirmation.`
+
+        const { error: clarifyLeadUpdateError } = await supabaseAdmin
+          .from('leads')
+          .update({
+            sms_state: 'OFFER_AGENT_CALL',
+            sms_current_objective: 'appointment',
+            sms_last_question: 'appointment_choice_clarify',
+            sms_lpmama_current_step: 'appointment',
+            sms_lpmama_next_step: 'appointment',
+            sms_resume_step: 'appointment',
+            preferred_next_step: 'appointment',
+            last_replied_text_at: nowIso,
+            last_contact_attempt_at: nowIso,
+            last_text_attempt_at: nowIso,
+            updated_at: nowIso,
+          })
+          .eq('id', leadId)
+
+        if (clarifyLeadUpdateError) {
+          console.error('❌ appointment choice clarify lead update error', clarifyLeadUpdateError)
+        }
+
+        const { error: outgoingMessageInsertError } = await supabaseAdmin
+          .from('messages')
+          .insert({
+            lead_id: leadId,
+            lead_phone: from,
+            direction: 'outgoing',
+            body: clarifyReply,
+            status: 'twiml_reply_prepared',
+            twilio_sid: null,
+            created_at: nowIso,
+          })
+
+        if (outgoingMessageInsertError) {
+          console.error('❌ outbound sms message insert error', outgoingMessageInsertError)
+        }
+
+        const twiml = new twilio.twiml.MessagingResponse()
+        twiml.message(clarifyReply)
+
+        return new NextResponse(twiml.toString(), {
+          status: 200,
+          headers: { 'Content-Type': 'text/xml' },
+        })
+      }
 
       if (chosenSlot) {
         const nextRotationAttempt = (lead.appointment_rotation_attempt || 0) + 1
