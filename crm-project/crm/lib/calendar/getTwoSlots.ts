@@ -7,7 +7,11 @@ import { getGoogleOAuthClient } from "../googleCalendar";
 type GetTwoSlotsArgs = { org_id: string; lead_id?: string | null };
 
 export type CalendarSlot = { slot_iso: string; slot_human: string };
-export type TwoCalendarSlots = { A: CalendarSlot; B: CalendarSlot };
+export type TwoCalendarSlots = {
+  A: CalendarSlot;
+  B: CalendarSlot;
+  agent_id?: string | null;
+};
 
 type AvailabilityBlock = {
   id: string;
@@ -411,6 +415,99 @@ async function getLeadAgentId(lead_id?: string | null): Promise<string | null> {
   return data?.agent_id || null;
 }
 
+type RotationAgentCandidate = {
+  agent_id: string;
+  user_table_id: number | null;
+  source: "lead" | "rotation" | "active_agent";
+};
+
+async function getRotationAgentCandidates(
+  args: GetTwoSlotsArgs
+): Promise<RotationAgentCandidate[]> {
+  const candidates: RotationAgentCandidate[] = [];
+  const seenAgentIds = new Set<string>();
+
+  function addCandidate(
+    agent_id?: string | null,
+    user_table_id?: number | null,
+    source: RotationAgentCandidate["source"] = "rotation"
+  ) {
+    if (!agent_id) return;
+    if (seenAgentIds.has(agent_id)) return;
+
+    seenAgentIds.add(agent_id);
+    candidates.push({
+      agent_id,
+      user_table_id: user_table_id ?? null,
+      source,
+    });
+  }
+
+  const leadAgentId = await getLeadAgentId(args.lead_id);
+  addCandidate(leadAgentId, null, "lead");
+
+  const { data: rotationRows, error: rotationError } = await supabaseAdmin
+    .from("rotation_members")
+    .select("user_id, last_assigned_at")
+    .eq("org_id", args.org_id)
+    .eq("is_active", true)
+    .order("last_assigned_at", { ascending: true, nullsFirst: true });
+
+  if (rotationError) {
+    console.error("❌ getTwoSlots rotation lookup error", rotationError);
+  }
+
+  const rotationUserIds = Array.from(
+    new Set(
+      (rotationRows || [])
+        .map((row: any) => row.user_id)
+        .filter((id: any): id is number => typeof id === "number")
+    )
+  );
+
+  if (rotationUserIds.length > 0) {
+    const { data: users, error: usersError } = await supabaseAdmin
+      .from("users")
+      .select("id, user_id, name, email, role, is_active")
+      .eq("org_id", args.org_id)
+      .in("id", rotationUserIds)
+      .eq("role", "agent")
+      .eq("is_active", true);
+
+    if (usersError) {
+      console.error("❌ getTwoSlots rotation users lookup error", usersError);
+    }
+
+    const usersById = new Map<number, any>(
+      (users || []).map((user: any) => [user.id, user])
+    );
+
+    for (const row of rotationRows || []) {
+      const user = usersById.get(row.user_id);
+      addCandidate(user?.user_id, row.user_id, "rotation");
+    }
+  }
+
+  if (candidates.length === 0) {
+    const { data: activeAgents, error: activeAgentsError } = await supabaseAdmin
+      .from("users")
+      .select("id, user_id, name, email, role, is_active")
+      .eq("org_id", args.org_id)
+      .eq("role", "agent")
+      .eq("is_active", true);
+
+    if (activeAgentsError) {
+      console.error("❌ getTwoSlots active agents lookup error", activeAgentsError);
+    }
+
+    for (const agent of activeAgents || []) {
+      addCandidate(agent.user_id, agent.id, "active_agent");
+    }
+  }
+
+  return candidates;
+}
+
 async function getAgentAvailabilityBlocks(args: {
   org_id: string;
   agent_id?: string | null;
@@ -715,143 +812,234 @@ async function isSlotAllowed(
 export async function getTwoSlots(
   args: GetTwoSlotsArgs
 ): Promise<TwoCalendarSlots> {
-  const agent_id = await getLeadAgentId(args.lead_id);
-  const [connection, availabilityBlocks, scheduleSettings, weeklyHours] =
-    await Promise.all([
-      getAgentGoogleConnection({
-        org_id: args.org_id,
-        agent_id,
-      }),
-      getAgentAvailabilityBlocks({
-        org_id: args.org_id,
-        agent_id,
-      }),
-      getAgentScheduleSettings({
-        org_id: args.org_id,
-        agent_id,
-      }),
-      getAgentWeeklyHours({
-        org_id: args.org_id,
-        agent_id,
-      }),
-    ]);
+  const candidates = await getRotationAgentCandidates(args);
 
-  const oauth2Client = getGoogleOAuthClient();
-  oauth2Client.setCredentials({
-    access_token: connection.access_token,
-    refresh_token: connection.refresh_token,
-    expiry_date: connection.token_expires_at
-      ? new Date(connection.token_expires_at).getTime()
-      : undefined,
-  });
-
-  const calendarId = await resolveCalendarId(connection);
-
-  console.log("📅 getTwoSlots calendar resolution", {
+  console.log("📅 getTwoSlots rotation candidates", {
     lead_id: args.lead_id || null,
     org_id: args.org_id,
-    agent_id,
-    connection_id: connection.id,
-    calendarId,
-    account_email: connection.account_email,
-    availability_blocks: availabilityBlocks.length,
-    weekly_hours: weeklyHours.length,
-    workday_start_hour: scheduleSettings?.workday_start_hour ?? DEFAULT_START_HOUR,
-    workday_end_hour: scheduleSettings?.workday_end_hour ?? DEFAULT_END_HOUR,
-    saturday_enabled: scheduleSettings?.saturday_enabled ?? true,
-    sunday_enabled: scheduleSettings?.sunday_enabled ?? false,
-    travel_buffer_minutes:
-      scheduleSettings?.travel_buffer_minutes ?? DEFAULT_TRAVEL_BUFFER_MINUTES,
+    candidates,
   });
 
-  const found: CalendarSlot[] = [];
-  const now = new Date();
+  async function findSlotsForAgent(
+    candidate: RotationAgentCandidate
+  ): Promise<TwoCalendarSlots | null> {
+    const agent_id = candidate.agent_id;
 
-  const dailyAppointmentCounts = await getDailyAppointmentCounts({
-    org_id: args.org_id,
-    agent_id,
-    now,
-  });
+    let connection: any;
+    let availabilityBlocks: AvailabilityBlock[] = [];
+    let scheduleSettings: AgentScheduleSettings | null = null;
+    let weeklyHours: AgentWeeklyHour[] = [];
 
-  const preferredHours = buildPreferredAppointmentHours(scheduleSettings);
-  const fallbackHours = buildFallbackAppointmentHours();
-  const hourPasses = [preferredHours, fallbackHours];
+    try {
+      [connection, availabilityBlocks, scheduleSettings, weeklyHours] =
+        await Promise.all([
+          getAgentGoogleConnection({
+            org_id: args.org_id,
+            agent_id,
+          }),
+          getAgentAvailabilityBlocks({
+            org_id: args.org_id,
+            agent_id,
+          }),
+          getAgentScheduleSettings({
+            org_id: args.org_id,
+            agent_id,
+          }),
+          getAgentWeeklyHours({
+            org_id: args.org_id,
+            agent_id,
+          }),
+        ]);
+    } catch (error) {
+      console.error("❌ getTwoSlots candidate setup failed", {
+        lead_id: args.lead_id || null,
+        org_id: args.org_id,
+        agent_id,
+        source: candidate.source,
+        error,
+      });
 
-  const checkedStarts = new Set<string>();
+      return null;
+    }
 
-  for (const candidateHours of hourPasses) {
-    for (let dayOffset = 0; dayOffset < SEARCH_DAYS; dayOffset++) {
-      const daySeed = addDaysInZone(now, dayOffset, BOISE_TZ);
-      const dayParts = getTzParts(daySeed, BOISE_TZ);
-      const dailyWindow = getDailyWindow(daySeed, scheduleSettings, weeklyHours);
+    const oauth2Client = getGoogleOAuthClient();
+    oauth2Client.setCredentials({
+      access_token: connection.access_token,
+      refresh_token: connection.refresh_token,
+      expiry_date: connection.token_expires_at
+        ? new Date(connection.token_expires_at).getTime()
+        : undefined,
+    });
 
-      if (!dailyWindow.isEnabled) {
-        continue;
-      }
+    let calendarId: string;
 
-for (const hour of candidateHours) {
-  const minutesToCheck = candidateHours === preferredHours ? [0] : [0, 30];
+    try {
+      calendarId = await resolveCalendarId(connection);
+    } catch (error) {
+      console.error("❌ getTwoSlots calendar id resolution failed", {
+        lead_id: args.lead_id || null,
+        org_id: args.org_id,
+        agent_id,
+        source: candidate.source,
+        connection_id: connection?.id,
+        error,
+      });
 
-  for (const minute of minutesToCheck) {
-          const start = makeZonedDate(
-            dayParts.year,
-            dayParts.month,
-            dayParts.day,
-            hour,
-            minute,
-            BOISE_TZ
-          );
+      return null;
+    }
 
-          const startKey = start.toISOString();
+    console.log("📅 getTwoSlots checking candidate calendar", {
+      lead_id: args.lead_id || null,
+      org_id: args.org_id,
+      agent_id,
+      source: candidate.source,
+      connection_id: connection.id,
+      calendarId,
+      account_email: connection.account_email,
+      availability_blocks: availabilityBlocks.length,
+      weekly_hours: weeklyHours.length,
+      workday_start_hour:
+        scheduleSettings?.workday_start_hour ?? DEFAULT_START_HOUR,
+      workday_end_hour:
+        scheduleSettings?.workday_end_hour ?? DEFAULT_END_HOUR,
+      saturday_enabled: scheduleSettings?.saturday_enabled ?? true,
+      sunday_enabled: scheduleSettings?.sunday_enabled ?? false,
+      travel_buffer_minutes:
+        scheduleSettings?.travel_buffer_minutes ??
+        DEFAULT_TRAVEL_BUFFER_MINUTES,
+    });
 
-          if (checkedStarts.has(startKey)) {
-            continue;
-          }
+    const found: CalendarSlot[] = [];
+    const now = new Date();
 
-          checkedStarts.add(startKey);
+    const dailyAppointmentCounts = await getDailyAppointmentCounts({
+      org_id: args.org_id,
+      agent_id,
+      now,
+    });
 
-          const allowed = await isSlotAllowed(
-            calendarId,
-            start,
-            oauth2Client,
-            now,
-            availabilityBlocks,
-            scheduleSettings,
-            weeklyHours,
-            dailyAppointmentCounts
-          );
+    const preferredHours = buildPreferredAppointmentHours(scheduleSettings);
+    const fallbackHours = buildFallbackAppointmentHours();
+    const hourPasses = [preferredHours, fallbackHours];
 
-          if (!allowed) continue;
+    const checkedStarts = new Set<string>();
 
-          found.push({
-            slot_iso: start.toISOString(),
-            slot_human: toHuman(start),
-          });
+    for (const candidateHours of hourPasses) {
+      for (let dayOffset = 0; dayOffset < SEARCH_DAYS; dayOffset++) {
+        const daySeed = addDaysInZone(now, dayOffset, BOISE_TZ);
+        const dayParts = getTzParts(daySeed, BOISE_TZ);
+        const dailyWindow = getDailyWindow(
+          daySeed,
+          scheduleSettings,
+          weeklyHours
+        );
 
-          if (found.length === 2) {
-            console.log("✅ getTwoSlots found two slots", {
-              A: found[0],
-              B: found[1],
+        if (!dailyWindow.isEnabled) {
+          continue;
+        }
+
+        for (const hour of candidateHours) {
+          const minutesToCheck =
+            candidateHours === preferredHours ? [0] : [0, 30];
+
+          for (const minute of minutesToCheck) {
+            const start = makeZonedDate(
+              dayParts.year,
+              dayParts.month,
+              dayParts.day,
+              hour,
+              minute,
+              BOISE_TZ
+            );
+
+            const startKey = start.toISOString();
+
+            if (checkedStarts.has(startKey)) {
+              continue;
+            }
+
+            checkedStarts.add(startKey);
+
+            const allowed = await isSlotAllowed(
+              calendarId,
+              start,
+              oauth2Client,
+              now,
+              availabilityBlocks,
+              scheduleSettings,
+              weeklyHours,
+              dailyAppointmentCounts
+            ).catch((error) => {
+              console.error("❌ getTwoSlots slot check failed", {
+                lead_id: args.lead_id || null,
+                org_id: args.org_id,
+                agent_id,
+                source: candidate.source,
+                start: start.toISOString(),
+                error,
+              });
+
+              return false;
             });
 
-            return {
-              A: found[0],
-              B: found[1],
-            };
+            if (!allowed) continue;
+
+            found.push({
+              slot_iso: start.toISOString(),
+              slot_human: toHuman(start),
+            });
+
+            if (found.length === 2) {
+              console.log("✅ getTwoSlots found two slots for candidate", {
+                lead_id: args.lead_id || null,
+                org_id: args.org_id,
+                agent_id,
+                source: candidate.source,
+                A: found[0],
+                B: found[1],
+              });
+
+              return {
+                A: found[0],
+                B: found[1],
+                agent_id,
+              };
+            }
           }
         }
       }
     }
+
+    console.warn("⚠️ getTwoSlots found no live slots for candidate", {
+      lead_id: args.lead_id || null,
+      org_id: args.org_id,
+      agent_id,
+      source: candidate.source,
+    });
+
+    return null;
   }
 
-  console.error("⚠️ getTwoSlots could not find live Google slots, using fallback slots", {
-    lead_id: args.lead_id || null,
-    org_id: args.org_id,
-    agent_id,
-  });
+  for (const candidate of candidates) {
+    const result = await findSlotsForAgent(candidate);
+
+    if (result) {
+      return result;
+    }
+  }
+
+  console.error(
+    "⚠️ getTwoSlots could not find live Google slots for any rotation candidate, using fallback slots",
+    {
+      lead_id: args.lead_id || null,
+      org_id: args.org_id,
+      candidates,
+    }
+  );
 
   const fallbackNow = new Date();
   const fallbackFound: CalendarSlot[] = [];
+  const fallbackAgentId = candidates[0]?.agent_id || null;
 
   for (let dayOffset = 1; dayOffset <= 7; dayOffset++) {
     const daySeed = addDaysInZone(fallbackNow, dayOffset, BOISE_TZ);
@@ -879,6 +1067,7 @@ for (const hour of candidateHours) {
         return {
           A: fallbackFound[0],
           B: fallbackFound[1],
+          agent_id: fallbackAgentId,
         };
       }
     }

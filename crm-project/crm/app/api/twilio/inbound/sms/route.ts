@@ -3,7 +3,6 @@ import twilio from 'twilio'
 import { supabaseAdmin } from '../../../../../lib/supabaseAdmin'
 import { runRelocationSmsBrain } from '../../../../../src/lib/sms/relocationSmsBrain'
 import { getTwoSlots } from '../../../../../lib/calendar/getTwoSlots'
-import { getNextAssignee } from '../../../../../lib/rotation/getNextAssignee'
 
 export const runtime = 'nodejs'
 
@@ -25,6 +24,10 @@ function normalizePhone(raw?: string | null) {
   return `+${digits}`
 }
 
+function normalizeTextForMatch(value?: string | null) {
+  return clean(value).toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
 function addHours(date: Date, hours: number) {
   return new Date(date.getTime() + hours * 60 * 60 * 1000)
 }
@@ -32,19 +35,18 @@ function addHours(date: Date, hours: number) {
 type SlotChoice = {
   slot_iso: string
   slot_human: string
+  agent_id?: string | null
 }
 
-function normalizeTextForMatch(value?: string | null) {
-  return clean(value).toLowerCase().replace(/[^a-z0-9]/g, '')
-}
-
-function buildSlotChoices(slots?: { A?: any; B?: any } | null): SlotChoice[] {
+function buildSlotChoices(slots?: { A?: any; B?: any; agent_id?: string | null } | null): SlotChoice[] {
   const out: SlotChoice[] = []
+  const agentId = slots?.agent_id || null
 
   if (slots?.A?.slot_iso && slots?.A?.slot_human) {
     out.push({
       slot_iso: slots.A.slot_iso,
       slot_human: slots.A.slot_human,
+      agent_id: slots.A.agent_id || agentId,
     })
   }
 
@@ -52,6 +54,7 @@ function buildSlotChoices(slots?: { A?: any; B?: any } | null): SlotChoice[] {
     out.push({
       slot_iso: slots.B.slot_iso,
       slot_human: slots.B.slot_human,
+      agent_id: slots.B.agent_id || agentId,
     })
   }
 
@@ -168,22 +171,6 @@ function isRelocationLead(lead: any) {
 function genericReply(firstName?: string | null) {
   const name = clean(firstName) || 'there'
   return `Hi ${name}, this is Samantha with MPRE Boise. I got your message and will follow up shortly. If you'd like, text me your timeline, price range, and the area you're thinking about.`
-}
-
-async function resolveProfileIdForRotationUser(userId: number, orgId: string) {
-  const { data, error } = await supabaseAdmin
-    .from('users')
-    .select('user_id')
-    .eq('id', userId)
-    .eq('org_id', orgId)
-    .maybeSingle()
-
-  if (error) {
-    console.error('❌ resolve profile id for rotation user error', error)
-    return null
-  }
-
-  return data?.user_id || null
 }
 
 // Placeholder until we wire exact preferred-lender lookup
@@ -773,26 +760,39 @@ export async function POST(req: NextRequest) {
       } catch (error) {
         console.error('❌ sms calendar slot load error, using SMS fallback slots', error)
 
-        slotChoices = makeFallbackSmsSlots()
+        slotChoices = makeFallbackSmsSlots().map((slot) => ({
+          ...slot,
+          agent_id: lead?.agent_id || null,
+        }))
         availableSlots = slotChoices.map((s) => s.slot_human)
       }
 
       if (!availableSlots.length) {
-        slotChoices = makeFallbackSmsSlots()
+        slotChoices = makeFallbackSmsSlots().map((slot) => ({
+          ...slot,
+          agent_id: lead?.agent_id || null,
+        }))
         availableSlots = slotChoices.map((s) => s.slot_human)
       }
+
+      const storedSlotAgentId =
+        lead?.appointment_pending_agent_id ||
+        lead?.agent_id ||
+        null
 
       const storedSlotChoices: SlotChoice[] = [
         lead?.appointment_offer_slot_a_iso && lead?.appointment_offer_slot_a_human
           ? {
               slot_iso: lead.appointment_offer_slot_a_iso,
               slot_human: lead.appointment_offer_slot_a_human,
+              agent_id: storedSlotAgentId,
             }
           : null,
         lead?.appointment_offer_slot_b_iso && lead?.appointment_offer_slot_b_human
           ? {
               slot_iso: lead.appointment_offer_slot_b_iso,
               slot_human: lead.appointment_offer_slot_b_human,
+              agent_id: storedSlotAgentId,
             }
           : null,
       ].filter(Boolean) as SlotChoice[]
@@ -839,9 +839,13 @@ export async function POST(req: NextRequest) {
           })
         }
 
-        const assignee = await getNextAssignee(lead.org_id).catch(() => null)
+        const rotatedAgentProfileId =
+          chosenSlot.agent_id ||
+          lead.appointment_pending_agent_id ||
+          lead.agent_id ||
+          null
 
-        if (!assignee?.user_id) {
+        if (!rotatedAgentProfileId) {
           const noAgentReply = `I’ve got your requested time, but no agent is currently available to confirm it right this second. I’ll keep working on it and follow up with you as soon as I have the next best option.`
 
           const { error: noAgentLeadUpdateError } = await supabaseAdmin
@@ -853,7 +857,7 @@ export async function POST(req: NextRequest) {
               appointment_requested_slot_human: chosenSlot.slot_human,
               appointment_pending_agent_id: null,
               appointment_pending_expires_at: null,
-              appointment_decline_reason: 'No available agent in rotation',
+              appointment_decline_reason: 'No available agent for selected slot',
               appointment_rotation_attempt: nextRotationAttempt,
               sms_state: 'CALLBACK_LATER',
               sms_current_objective: 'appointment',
@@ -893,23 +897,6 @@ export async function POST(req: NextRequest) {
 
           const twiml = new twilio.twiml.MessagingResponse()
           twiml.message(noAgentReply)
-
-          return new NextResponse(twiml.toString(), {
-            status: 200,
-            headers: { 'Content-Type': 'text/xml' },
-          })
-        }
-
-        const rotatedAgentProfileId = await resolveProfileIdForRotationUser(
-          assignee.user_id,
-          lead.org_id
-        )
-
-        if (!rotatedAgentProfileId) {
-          const twiml = new twilio.twiml.MessagingResponse()
-          twiml.message(
-            `I’m sorry — I hit a snag finding the right agent for that request. Please try that one more time.`
-          )
 
           return new NextResponse(twiml.toString(), {
             status: 200,
@@ -1389,6 +1376,7 @@ export async function POST(req: NextRequest) {
         best_contact_channel: 'text',
         hot_until:
           brain.temperature === 'hot' ? addHours(now, 48).toISOString() : null,
+        agent_id: slotChoices[0]?.agent_id || lead.agent_id || null,
         appointment_offer_slot_a_iso: slotChoices[0]?.slot_iso || null,
         appointment_offer_slot_a_human: slotChoices[0]?.slot_human || null,
         appointment_offer_slot_b_iso: slotChoices[1]?.slot_iso || null,
