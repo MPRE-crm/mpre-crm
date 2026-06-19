@@ -899,18 +899,32 @@ export async function POST(req: NextRequest) {
           : null,
       ].filter(Boolean) as SlotChoice[]
 
+      const appointmentSlotChoices =
+        storedSlotChoices.length ? storedSlotChoices : slotChoices
+
+      const isAppointmentChoiceMode =
+        lead?.sms_state === 'OFFER_AGENT_CALL' ||
+        lead?.sms_current_objective === 'appointment' ||
+        lead?.preferred_next_step === 'appointment' ||
+        lead?.sms_last_question === 'appointment_offer' ||
+        lead?.sms_last_question === 'appointment_choice_clarify' ||
+        lead?.sms_lpmama_current_step === 'appointment' ||
+        storedSlotChoices.length > 0 ||
+        !!lead?.appointment_offer_slot_a_human ||
+        !!lead?.appointment_offer_slot_b_human
+
       const chosenSlot =
-        lead?.sms_state === 'OFFER_AGENT_CALL'
-          ? detectChosenSlot(body, storedSlotChoices.length ? storedSlotChoices : slotChoices)
+        isAppointmentChoiceMode && appointmentSlotChoices.length > 0
+          ? detectChosenSlot(body, appointmentSlotChoices)
           : null
 
       if (
-        lead?.sms_state === 'OFFER_AGENT_CALL' &&
-        storedSlotChoices.length > 0 &&
+        isAppointmentChoiceMode &&
+        appointmentSlotChoices.length > 0 &&
         !chosenSlot
       ) {
-        const optionA = storedSlotChoices[0]
-        const optionB = storedSlotChoices[1]
+        const optionA = appointmentSlotChoices[0]
+        const optionB = appointmentSlotChoices[1]
 
         const clarifyReply =
           optionA && optionB
