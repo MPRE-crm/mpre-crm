@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import twilio from "twilio";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
-import { getNextAssignee } from "../../../../lib/rotation/getNextAssignee";
 
 const twilioClient = twilio(
   process.env.TWILIO_ACCOUNT_SID!,
@@ -19,73 +18,73 @@ async function getRotationAgentProfileId(args: {
   const { orgId, fallbackAgentId } = args;
 
   try {
-    const assignee = (await getNextAssignee(orgId)) as any;
+    const { data: members, error: membersError } = await supabaseAdmin
+      .from("rotation_members")
+      .select("id, user_id, last_assigned_at, created_at")
+      .eq("org_id", orgId)
+      .eq("is_active", true)
+      .order("last_assigned_at", { ascending: true, nullsFirst: true })
+      .order("created_at", { ascending: true });
 
-    const rawAssigneeId =
-      assignee?.agent_id ||
-      assignee?.profile_id ||
-      assignee?.user_id ||
-      null;
-
-    if (!rawAssigneeId) {
-      console.error("Relocation rotation returned no assignee, using fallback agent:", {
-        assignee,
-        fallbackAgentId,
-      });
-
-      return fallbackAgentId;
-    }
-
-    const rawAssigneeIdText = String(rawAssigneeId);
-
-    let rotationUser: {
-      id: number;
-      user_id: string;
-      role: string | null;
-      is_active: boolean | null;
-    } | null = null;
-
-    let rotationUserError: any = null;
-
-    if (/^\d+$/.test(rawAssigneeIdText)) {
-      const result = await supabaseAdmin
-        .from("users")
-        .select("id, user_id, role, is_active")
-        .eq("id", Number(rawAssigneeIdText))
-        .eq("org_id", orgId)
-        .eq("is_active", true)
-        .maybeSingle();
-
-      rotationUser = result.data;
-      rotationUserError = result.error;
-    } else {
-      const result = await supabaseAdmin
-        .from("users")
-        .select("id, user_id, role, is_active")
-        .eq("user_id", rawAssigneeIdText)
-        .eq("org_id", orgId)
-        .eq("is_active", true)
-        .maybeSingle();
-
-      rotationUser = result.data;
-      rotationUserError = result.error;
-    }
-
-    if (rotationUserError) {
+    if (membersError) {
       console.error(
-        "Relocation rotation user lookup failed, using fallback agent:",
-        rotationUserError
+        "Relocation rotation members lookup failed, using fallback agent:",
+        membersError
       );
 
       return fallbackAgentId;
     }
 
-    if (!rotationUser?.id || !rotationUser?.user_id) {
-      console.error("Relocation rotation returned no usable users row, using fallback agent:", {
-        assignee,
-        rawAssigneeId,
-        fallbackAgentId,
-      });
+    const memberUserIds = (members || [])
+      .map((member) => member.user_id)
+      .filter(Boolean);
+
+    if (!memberUserIds.length) {
+      console.error(
+        "No active relocation rotation members found, using fallback agent."
+      );
+
+      return fallbackAgentId;
+    }
+
+    const { data: users, error: usersError } = await supabaseAdmin
+      .from("users")
+      .select("id, user_id, name, email, phone, role, is_active")
+      .eq("org_id", orgId)
+      .eq("is_active", true)
+      .in("id", memberUserIds);
+
+    if (usersError) {
+      console.error(
+        "Relocation rotation users lookup failed, using fallback agent:",
+        usersError
+      );
+
+      return fallbackAgentId;
+    }
+
+    const activeUsersById = new Map(
+      (users || []).map((user) => [user.id, user])
+    );
+
+    const selectedMember = (members || []).find((member) =>
+      activeUsersById.has(member.user_id)
+    );
+
+    if (!selectedMember) {
+      console.error(
+        "No usable relocation rotation user found, using fallback agent."
+      );
+
+      return fallbackAgentId;
+    }
+
+    const selectedUser = activeUsersById.get(selectedMember.user_id);
+
+    if (!selectedUser?.user_id) {
+      console.error(
+        "Selected rotation member has no profile user_id, using fallback agent."
+      );
 
       return fallbackAgentId;
     }
@@ -95,14 +94,13 @@ async function getRotationAgentProfileId(args: {
       .update({
         last_assigned_at: new Date().toISOString(),
       })
-      .eq("org_id", orgId)
-      .eq("user_id", rotationUser.id);
+      .eq("id", selectedMember.id);
 
     if (rotationTouchError) {
       console.error("Relocation rotation touch failed:", rotationTouchError);
     }
 
-    return rotationUser.user_id;
+    return selectedUser.user_id;
   } catch (rotationError) {
     console.error(
       "Relocation rotation lookup failed, using fallback agent:",
@@ -180,7 +178,7 @@ export async function POST(req: Request) {
       `Move timeline: ${move_timeline || "Not provided yet"}`,
       `Price range: ${price_range || "Not provided yet"}`,
       `Assigned agent profile ID: ${agentId}`,
-      "Assignment method: rotation with environment fallback.",
+      "Assignment method: direct rotation_members lookup with environment fallback.",
       "Consent language shown: I agree to receive calls, texts, and emails from MPRE Boise with Homes of Idaho about my real estate inquiry, including automated follow-up. Consent is not required to buy or sell real estate. Message/data rates may apply. Reply STOP to opt out.",
       "Verification message shown: We verify your phone and email before sending the guide so fake submissions do not trigger delivery.",
     ].join("\n");
