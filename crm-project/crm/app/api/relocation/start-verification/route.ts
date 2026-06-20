@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import twilio from "twilio";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
+import { getNextAssignee } from "../../../../lib/rotation/getNextAssignee";
 
 const twilioClient = twilio(
   process.env.TWILIO_ACCOUNT_SID!,
@@ -9,6 +10,45 @@ const twilioClient = twilio(
 
 function makeToken() {
   return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+async function getRotationAgentProfileId(args: {
+  orgId: string;
+  fallbackAgentId: string;
+}) {
+  const { orgId, fallbackAgentId } = args;
+
+  try {
+    const assignee = await getNextAssignee(orgId);
+
+    if (!assignee?.user_id) {
+      return fallbackAgentId;
+    }
+
+    const { data: rotationUser, error: rotationUserError } = await supabaseAdmin
+      .from("users")
+      .select("user_id")
+      .eq("id", assignee.user_id)
+      .eq("org_id", orgId)
+      .eq("is_active", true)
+      .maybeSingle();
+
+    if (rotationUserError) {
+      console.error(
+        "Relocation rotation user lookup failed, using fallback agent:",
+        rotationUserError
+      );
+      return fallbackAgentId;
+    }
+
+    return rotationUser?.user_id || fallbackAgentId;
+  } catch (rotationError) {
+    console.error(
+      "Relocation rotation lookup failed, using fallback agent:",
+      rotationError
+    );
+    return fallbackAgentId;
+  }
 }
 
 export async function POST(req: Request) {
@@ -23,20 +63,20 @@ export async function POST(req: Request) {
     const price_range = String(body.price_range || "").trim();
     const consent = Boolean(body.consent);
 
-    const agentId =
-      process.env.MPRE_BOISE_DEFAULT_AGENT_ID ||
-      process.env.DEFAULT_RELOCATION_AGENT_ID;
-
     const orgId =
       process.env.MPRE_BOISE_ORG_ID ||
       process.env.DEFAULT_RELOCATION_ORG_ID;
+
+    const fallbackAgentId =
+      process.env.MPRE_BOISE_DEFAULT_AGENT_ID ||
+      process.env.DEFAULT_RELOCATION_AGENT_ID;
 
     const siteUrl =
       process.env.NEXT_PUBLIC_SITE_URL ||
       process.env.NEXT_PUBLIC_APP_URL ||
       "http://localhost:3000";
 
-    if (!agentId || !orgId) {
+    if (!fallbackAgentId || !orgId) {
       return NextResponse.json(
         { error: "Missing relocation agent/org environment variables." },
         { status: 500 }
@@ -47,6 +87,18 @@ export async function POST(req: Request) {
       return NextResponse.json(
         { error: "Missing required fields." },
         { status: 400 }
+      );
+    }
+
+    const agentId = await getRotationAgentProfileId({
+      orgId,
+      fallbackAgentId,
+    });
+
+    if (!agentId) {
+      return NextResponse.json(
+        { error: "No relocation agent available." },
+        { status: 500 }
       );
     }
 
@@ -65,6 +117,8 @@ export async function POST(req: Request) {
       `TCPA consent timestamp: ${new Date().toISOString()}`,
       `Move timeline: ${move_timeline || "Not provided yet"}`,
       `Price range: ${price_range || "Not provided yet"}`,
+      `Assigned agent profile ID: ${agentId}`,
+      "Assignment method: rotation with environment fallback.",
       "Consent language shown: I agree to receive calls, texts, and emails from MPRE Boise with Homes of Idaho about my real estate inquiry, including automated follow-up. Consent is not required to buy or sell real estate. Message/data rates may apply. Reply STOP to opt out.",
       "Verification message shown: We verify your phone and email before sending the guide so fake submissions do not trigger delivery.",
     ].join("\n");
@@ -169,6 +223,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       success: true,
       lead_id: lead.id,
+      assigned_agent_id: agentId,
       message: "Verification links sent.",
     });
   } catch (error: any) {
