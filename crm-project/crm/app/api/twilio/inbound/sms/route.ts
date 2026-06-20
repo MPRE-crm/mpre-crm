@@ -1457,6 +1457,24 @@ export async function POST(req: NextRequest) {
 
       replyText = brain.replyText
 
+            const shouldForceAppointmentOptionLabels =
+        slotChoices.length >= 2 &&
+        (
+          shouldPreloadSlotsForAppointmentOffer ||
+          brain.nextState === 'OFFER_AGENT_CALL' ||
+          brain.currentObjective === 'appointment' ||
+          brain.lastQuestion === 'appointment_offer' ||
+          brain.bestNextStep === 'agent_call'
+        )
+
+      if (shouldForceAppointmentOptionLabels) {
+        replyText =
+          `Perfect, ${clean(lead?.first_name) || 'there'} — I can give you two good options:\n` +
+          `A) ${slotChoices[0].slot_human}\n` +
+          `B) ${slotChoices[1].slot_human}\n` +
+          `Which one works better for you? Just reply A or B.`
+      }
+
       const leadPatch: Record<string, any> = {
         sms_campaign: 'relocation',
         sms_state: brain.nextState,
