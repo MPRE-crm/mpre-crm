@@ -25,6 +25,21 @@ async function getRotationAgentProfileId(args: {
       return fallbackAgentId;
     }
 
+        const { error: rotationTouchError } = await supabaseAdmin
+      .from("rotation_members")
+      .update({
+        last_assigned_at: new Date().toISOString(),
+      })
+      .eq("org_id", orgId)
+      .eq("user_id", assignee.user_id);
+
+    if (rotationTouchError) {
+      console.error(
+        "Relocation rotation touch failed:",
+        rotationTouchError
+      );
+    }
+
     const { data: rotationUser, error: rotationUserError } = await supabaseAdmin
       .from("users")
       .select("user_id")
