@@ -19,49 +19,96 @@ async function getRotationAgentProfileId(args: {
   const { orgId, fallbackAgentId } = args;
 
   try {
-    const assignee = await getNextAssignee(orgId);
+    const assignee = (await getNextAssignee(orgId)) as any;
 
-    if (!assignee?.user_id) {
+    const rawAssigneeId =
+      assignee?.agent_id ||
+      assignee?.profile_id ||
+      assignee?.user_id ||
+      null;
+
+    if (!rawAssigneeId) {
+      console.error("Relocation rotation returned no assignee, using fallback agent:", {
+        assignee,
+        fallbackAgentId,
+      });
+
       return fallbackAgentId;
     }
 
-        const { error: rotationTouchError } = await supabaseAdmin
-      .from("rotation_members")
-      .update({
-        last_assigned_at: new Date().toISOString(),
-      })
-      .eq("org_id", orgId)
-      .eq("user_id", assignee.user_id);
+    const rawAssigneeIdText = String(rawAssigneeId);
 
-    if (rotationTouchError) {
-      console.error(
-        "Relocation rotation touch failed:",
-        rotationTouchError
-      );
+    let rotationUser: {
+      id: number;
+      user_id: string;
+      role: string | null;
+      is_active: boolean | null;
+    } | null = null;
+
+    let rotationUserError: any = null;
+
+    if (/^\d+$/.test(rawAssigneeIdText)) {
+      const result = await supabaseAdmin
+        .from("users")
+        .select("id, user_id, role, is_active")
+        .eq("id", Number(rawAssigneeIdText))
+        .eq("org_id", orgId)
+        .eq("is_active", true)
+        .maybeSingle();
+
+      rotationUser = result.data;
+      rotationUserError = result.error;
+    } else {
+      const result = await supabaseAdmin
+        .from("users")
+        .select("id, user_id, role, is_active")
+        .eq("user_id", rawAssigneeIdText)
+        .eq("org_id", orgId)
+        .eq("is_active", true)
+        .maybeSingle();
+
+      rotationUser = result.data;
+      rotationUserError = result.error;
     }
-
-    const { data: rotationUser, error: rotationUserError } = await supabaseAdmin
-      .from("users")
-      .select("user_id")
-      .eq("id", assignee.user_id)
-      .eq("org_id", orgId)
-      .eq("is_active", true)
-      .maybeSingle();
 
     if (rotationUserError) {
       console.error(
         "Relocation rotation user lookup failed, using fallback agent:",
         rotationUserError
       );
+
       return fallbackAgentId;
     }
 
-    return rotationUser?.user_id || fallbackAgentId;
+    if (!rotationUser?.id || !rotationUser?.user_id) {
+      console.error("Relocation rotation returned no usable users row, using fallback agent:", {
+        assignee,
+        rawAssigneeId,
+        fallbackAgentId,
+      });
+
+      return fallbackAgentId;
+    }
+
+    const { error: rotationTouchError } = await supabaseAdmin
+      .from("rotation_members")
+      .update({
+        last_assigned_at: new Date().toISOString(),
+      })
+      .eq("org_id", orgId)
+      .eq("user_id", rotationUser.id);
+
+    if (rotationTouchError) {
+      console.error("Relocation rotation touch failed:", rotationTouchError);
+    }
+
+    return rotationUser.user_id;
   } catch (rotationError) {
     console.error(
       "Relocation rotation lookup failed, using fallback agent:",
       rotationError
     );
+
     return fallbackAgentId;
   }
 }
@@ -177,6 +224,7 @@ export async function POST(req: Request) {
 
     if (insertError) {
       console.error("Lead insert error:", insertError);
+
       return NextResponse.json(
         { error: insertError.message },
         { status: 500 }
