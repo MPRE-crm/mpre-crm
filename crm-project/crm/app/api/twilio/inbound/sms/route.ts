@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { randomBytes } from 'crypto'
 import twilio from 'twilio'
 import { supabaseAdmin } from '../../../../../lib/supabaseAdmin'
 import { runRelocationSmsBrain } from '../../../../../src/lib/sms/relocationSmsBrain'
@@ -1079,6 +1080,8 @@ export async function POST(req: NextRequest) {
           })
         }
 
+        const actionToken = randomBytes(32).toString('hex')
+
         const { data: approvalRow, error: approvalInsertError } = await supabaseAdmin
           .from('appointment_approvals')
           .insert({
@@ -1091,8 +1094,10 @@ export async function POST(req: NextRequest) {
             status: 'pending',
             expires_at: expiresAt,
             rotation_attempt: nextRotationAttempt,
+            action_token: actionToken,
+            action_token_created_at: nowIso,
           })
-          .select('id, slot_human, expires_at')
+          .select('id, slot_human, expires_at, action_token')
           .single()
 
         if (approvalInsertError) {
@@ -1186,8 +1191,10 @@ export async function POST(req: NextRequest) {
                 const appBaseUrl =
                   process.env.NEXT_PUBLIC_APP_URL || 'https://www.easyrealtor.homes'
 
-                const acceptUrl = `${appBaseUrl}/api/appointments/agent-accept?id=${encodeURIComponent(approvalRow.id)}`
-                const declineUrl = `${appBaseUrl}/api/appointments/agent-decline?id=${encodeURIComponent(approvalRow.id)}`
+                const approvalToken = approvalRow.action_token || actionToken
+
+                const acceptUrl = `${appBaseUrl}/api/appointments/agent-accept?id=${encodeURIComponent(approvalRow.id)}&token=${encodeURIComponent(approvalToken)}`
+                const declineUrl = `${appBaseUrl}/api/appointments/agent-decline?id=${encodeURIComponent(approvalRow.id)}&token=${encodeURIComponent(approvalToken)}`
 
                 const leadName =
                   clean(lead?.first_name) ||

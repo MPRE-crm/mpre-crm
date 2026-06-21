@@ -1,9 +1,62 @@
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
+import { randomBytes } from "crypto";
 import twilio from "twilio";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 import { getNextAssignee } from "../../../../lib/rotation/getNextAssignee";
+
+
+type RequesterProfile = {
+  id: string;
+  email: string | null;
+  role: "agent" | "admin" | "platform_admin" | string;
+  org_id: string | null;
+};
+
+async function getRequesterProfile(req: NextRequest): Promise<RequesterProfile | null> {
+  const authHeader = req.headers.get("authorization") || "";
+  const bearerToken = authHeader.toLowerCase().startsWith("bearer ")
+    ? authHeader.slice(7).trim()
+    : "";
+
+  if (!bearerToken) return null;
+
+  const { data: userRes, error: userError } =
+    await supabaseAdmin.auth.getUser(bearerToken);
+
+  if (userError || !userRes?.user) return null;
+
+  const { data: profile, error: profileError } = await supabaseAdmin
+    .from("profiles")
+    .select("id, email, role, org_id")
+    .eq("id", userRes.user.id)
+    .maybeSingle();
+
+  if (profileError || !profile) return null;
+
+  return profile as RequesterProfile;
+}
+
+function canRequesterActOnApproval(args: {
+  requester: RequesterProfile | null;
+  approval: any;
+}) {
+  const { requester, approval } = args;
+
+  if (!requester) return false;
+  if (requester.role === "platform_admin") return true;
+
+  if (requester.role === "admin") {
+    return !!requester.org_id && requester.org_id === approval.org_id;
+  }
+
+  if (requester.role === "agent") {
+    return requester.id === approval.current_agent_id;
+  }
+
+  return false;
+}
 
 function html(message: string) {
   return new NextResponse(
@@ -69,6 +122,7 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
+    const token = String(searchParams.get("token") || "").trim();
     const reason = searchParams.get("reason") || "Agent declined";
 
     if (!id) {
@@ -83,6 +137,21 @@ export async function GET(req: NextRequest) {
 
     if (approvalError || !approval) {
       return html("Appointment approval request not found.");
+    }
+
+    const requester = await getRequesterProfile(req);
+    const tokenMatches =
+      !!token &&
+      typeof approval.action_token === "string" &&
+      token === approval.action_token;
+
+    const requesterAllowed = canRequesterActOnApproval({
+      requester,
+      approval,
+    });
+
+    if (!tokenMatches && !requesterAllowed) {
+      return html("This appointment decline link is invalid or expired. Please use the latest approval text or decline it from the dashboard.");
     }
 
     if (approval.status === "accepted") {
@@ -263,6 +332,7 @@ export async function GET(req: NextRequest) {
     }
 
     const nextExpiresAt = addMinutes(now, 5).toISOString();
+    const nextActionToken = randomBytes(32).toString("hex");
 
     const { data: nextApproval, error: nextApprovalError } = await supabaseAdmin
       .from("appointment_approvals")
@@ -276,10 +346,12 @@ export async function GET(req: NextRequest) {
         status: "pending",
         expires_at: nextExpiresAt,
         rotation_attempt: nextRotationAttempt,
+        action_token: nextActionToken,
+        action_token_created_at: nowIso,
         created_at: nowIso,
         updated_at: nowIso,
       })
-      .select("id, slot_human, expires_at")
+      .select("id, slot_human, expires_at, action_token")
       .single();
 
     if (nextApprovalError || !nextApproval) {
@@ -345,8 +417,10 @@ export async function GET(req: NextRequest) {
           const appBaseUrl =
             process.env.NEXT_PUBLIC_APP_URL || "https://www.easyrealtor.homes";
 
-          const acceptUrl = `${appBaseUrl}/api/appointments/agent-accept?id=${encodeURIComponent(nextApproval.id)}`;
-          const declineUrl = `${appBaseUrl}/api/appointments/agent-decline?id=${encodeURIComponent(nextApproval.id)}`;
+          const nextApprovalToken = nextApproval.action_token || nextActionToken;
+
+          const acceptUrl = `${appBaseUrl}/api/appointments/agent-accept?id=${encodeURIComponent(nextApproval.id)}&token=${encodeURIComponent(nextApprovalToken)}`;
+          const declineUrl = `${appBaseUrl}/api/appointments/agent-decline?id=${encodeURIComponent(nextApproval.id)}&token=${encodeURIComponent(nextApprovalToken)}`;
 
           const leadName =
             String(lead.first_name || "").trim() ||

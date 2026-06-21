@@ -103,6 +103,58 @@ async function resolveCalendarId(connection: any): Promise<string> {
   throw new Error("No default Google calendar id found on connection");
 }
 
+
+type RequesterProfile = {
+  id: string;
+  email: string | null;
+  role: "agent" | "admin" | "platform_admin" | string;
+  org_id: string | null;
+};
+
+async function getRequesterProfile(req: NextRequest): Promise<RequesterProfile | null> {
+  const authHeader = req.headers.get("authorization") || "";
+  const bearerToken = authHeader.toLowerCase().startsWith("bearer ")
+    ? authHeader.slice(7).trim()
+    : "";
+
+  if (!bearerToken) return null;
+
+  const { data: userRes, error: userError } =
+    await supabaseAdmin.auth.getUser(bearerToken);
+
+  if (userError || !userRes?.user) return null;
+
+  const { data: profile, error: profileError } = await supabaseAdmin
+    .from("profiles")
+    .select("id, email, role, org_id")
+    .eq("id", userRes.user.id)
+    .maybeSingle();
+
+  if (profileError || !profile) return null;
+
+  return profile as RequesterProfile;
+}
+
+function canRequesterActOnApproval(args: {
+  requester: RequesterProfile | null;
+  approval: any;
+}) {
+  const { requester, approval } = args;
+
+  if (!requester) return false;
+  if (requester.role === "platform_admin") return true;
+
+  if (requester.role === "admin") {
+    return !!requester.org_id && requester.org_id === approval.org_id;
+  }
+
+  if (requester.role === "agent") {
+    return requester.id === approval.current_agent_id;
+  }
+
+  return false;
+}
+
 function normalizePhone(raw?: string | null) {
   const value = String(raw || "").trim();
   const digits = value.replace(/\D/g, "");
@@ -147,6 +199,7 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
+    const token = String(searchParams.get("token") || "").trim();
 
     if (!id) {
       return html("Missing approval id.");
@@ -160,6 +213,21 @@ export async function GET(req: NextRequest) {
 
     if (approvalError || !approval) {
       return html("Appointment approval request not found.");
+    }
+
+    const requester = await getRequesterProfile(req);
+    const tokenMatches =
+      !!token &&
+      typeof approval.action_token === "string" &&
+      token === approval.action_token;
+
+    const requesterAllowed = canRequesterActOnApproval({
+      requester,
+      approval,
+    });
+
+    if (!tokenMatches && !requesterAllowed) {
+      return html("This appointment approval link is invalid or expired. Please use the latest approval text or approve it from the dashboard.");
     }
 
     if (approval.status === "accepted") {

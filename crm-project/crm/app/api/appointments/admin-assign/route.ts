@@ -8,8 +8,68 @@ type AssignBody = {
   agent_id?: string;
 };
 
+type RequesterProfile = {
+  id: string;
+  email: string | null;
+  role: "agent" | "admin" | "platform_admin" | string;
+  org_id: string | null;
+};
+
+async function getRequesterProfile(req: NextRequest): Promise<RequesterProfile> {
+  const authHeader = req.headers.get("authorization") || "";
+  const token = authHeader.toLowerCase().startsWith("bearer ")
+    ? authHeader.slice(7).trim()
+    : "";
+
+  if (!token) {
+    throw new Error("UNAUTHORIZED");
+  }
+
+  const { data: userRes, error: userError } = await supabaseAdmin.auth.getUser(token);
+
+  if (userError || !userRes?.user) {
+    throw new Error("UNAUTHORIZED");
+  }
+
+  const { data: profile, error: profileError } = await supabaseAdmin
+    .from("profiles")
+    .select("id, email, role, org_id")
+    .eq("id", userRes.user.id)
+    .maybeSingle();
+
+  if (profileError || !profile) {
+    throw new Error("PROFILE_NOT_FOUND");
+  }
+
+  return profile as RequesterProfile;
+}
+
+function canAdminManageApproval(args: {
+  requester: RequesterProfile;
+  approvalOrgId: string | null;
+}) {
+  const { requester, approvalOrgId } = args;
+
+  if (requester.role === "platform_admin") return true;
+
+  if (requester.role === "admin") {
+    return !!requester.org_id && !!approvalOrgId && requester.org_id === approvalOrgId;
+  }
+
+  return false;
+}
+
 export async function POST(req: NextRequest) {
   try {
+    const requester = await getRequesterProfile(req);
+
+    if (requester.role !== "admin" && requester.role !== "platform_admin") {
+      return NextResponse.json(
+        { error: "Only admins can assign appointment approvals" },
+        { status: 403 }
+      );
+    }
+
     const body = (await req.json()) as AssignBody;
     const approvalId = String(body.approval_id || "").trim();
     const agentId = String(body.agent_id || "").trim();
@@ -33,6 +93,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: approvalError?.message || "Appointment approval not found" },
         { status: 404 }
+      );
+    }
+
+    if (
+      !canAdminManageApproval({
+        requester,
+        approvalOrgId: approval.org_id || null,
+      })
+    ) {
+      return NextResponse.json(
+        { error: "You do not have permission to assign this approval" },
+        { status: 403 }
       );
     }
 
@@ -65,6 +137,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (requester.role === "admin" && agentProfile.org_id !== requester.org_id) {
+      return NextResponse.json(
+        { error: "Admins can only assign agents from their own organization" },
+        { status: 403 }
+      );
+    }
+
     if (approval.org_id && agentProfile.org_id !== approval.org_id) {
       return NextResponse.json(
         { error: "Agent does not belong to the same organization as this approval" },
@@ -91,6 +170,7 @@ export async function POST(req: NextRequest) {
       .from("leads")
       .select(`
         id,
+        org_id,
         notes,
         appointment_rotation_attempt
       `)
@@ -108,8 +188,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (requester.role === "admin" && lead.org_id !== requester.org_id) {
+      return NextResponse.json(
+        { error: "Admins can only update leads in their own organization" },
+        { status: 403 }
+      );
+    }
+
     const existingNotes = typeof lead.notes === "string" ? lead.notes.trim() : "";
-    const assignLogLine = `[${nowIso}] Floating appointment manually assigned to agent ${agentId}.`;
+    const assignLogLine = `[${nowIso}] Floating appointment manually assigned to agent ${agentId} by ${requester.email || requester.id}.`;
     const nextNotes = existingNotes ? `${existingNotes}\n\n${assignLogLine}` : assignLogLine;
 
     const { error: leadUpdateError } = await supabaseAdmin
@@ -142,6 +229,20 @@ export async function POST(req: NextRequest) {
       assigned_agent_id: agentId,
     });
   } catch (error: any) {
+    if (error?.message === "UNAUTHORIZED") {
+      return NextResponse.json(
+        { error: "Not authenticated" },
+        { status: 401 }
+      );
+    }
+
+    if (error?.message === "PROFILE_NOT_FOUND") {
+      return NextResponse.json(
+        { error: "Profile not found" },
+        { status: 403 }
+      );
+    }
+
     console.error("❌ admin-assign route error", error);
     return NextResponse.json(
       { error: error?.message || "Failed to assign appointment approval" },

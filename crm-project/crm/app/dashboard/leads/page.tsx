@@ -110,6 +110,9 @@ export default function LeadsPage() {
   const canEditSource =
     profile?.role === 'admin' || profile?.role === 'platform_admin';
 
+  const canDeleteLeads =
+    profile?.role === 'admin' || profile?.role === 'platform_admin';
+
   useEffect(() => {
     let mounted = true;
 
@@ -550,14 +553,16 @@ export default function LeadsPage() {
                     >
                       Conversation
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => deleteLead(r.id)}
-                      disabled={deletingLeadId === r.id}
-                      className="rounded border border-red-300 px-3 py-1.5 text-xs text-red-700 disabled:opacity-60"
-                    >
-                      {deletingLeadId === r.id ? 'Deleting...' : 'Delete'}
-                    </button>
+                    {canDeleteLeads && (
+                      <button
+                        type="button"
+                        onClick={() => deleteLead(r.id)}
+                        disabled={deletingLeadId === r.id}
+                        className="rounded border border-red-300 px-3 py-1.5 text-xs text-red-700 disabled:opacity-60"
+                      >
+                        {deletingLeadId === r.id ? 'Deleting...' : 'Delete'}
+                      </button>
+                    )}
                   </div>
                 </td>
               </tr>

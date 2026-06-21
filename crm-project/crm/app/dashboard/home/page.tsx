@@ -790,10 +790,12 @@ const hotLeadsNeedingAttention = Array.from(viewsByLead.entries()).filter(
         )
       }
 
-      const mergedRows: ViewRow[] = rawRows.map((row) => ({
-        ...row,
-        leads: leadMap.get(row.lead_id) || null,
-      }))
+      const mergedRows: ViewRow[] = rawRows
+        .filter((row) => leadMap.has(row.lead_id))
+        .map((row) => ({
+          ...row,
+          leads: leadMap.get(row.lead_id) || null,
+        }))
 
       setRows(mergedRows)
       setIdxLoading(false)
@@ -903,8 +905,18 @@ const hotLeadsNeedingAttention = Array.from(viewsByLead.entries()).filter(
       setApprovalsError(null)
       setApprovalMessage(null)
 
+      const { data: sessionRes, error: sessionErr } = await supabase.auth.getSession()
+      const accessToken = sessionRes?.session?.access_token
+
+      if (sessionErr || !accessToken) {
+        throw new Error(sessionErr?.message || 'Not authenticated')
+      }
+
       const res = await fetch(`/api/appointments/agent-accept?id=${encodeURIComponent(id)}`, {
         method: 'GET',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
       })
 
       if (!res.ok) {
@@ -929,10 +941,20 @@ const hotLeadsNeedingAttention = Array.from(viewsByLead.entries()).filter(
       setApprovalsError(null)
       setApprovalMessage(null)
 
+      const { data: sessionRes, error: sessionErr } = await supabase.auth.getSession()
+      const accessToken = sessionRes?.session?.access_token
+
+      if (sessionErr || !accessToken) {
+        throw new Error(sessionErr?.message || 'Not authenticated')
+      }
+
       const res = await fetch(
         `/api/appointments/agent-decline?id=${encodeURIComponent(id)}&reason=${encodeURIComponent(reason)}`,
         {
           method: 'GET',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
         }
       )
 

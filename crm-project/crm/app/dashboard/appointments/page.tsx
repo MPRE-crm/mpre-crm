@@ -399,8 +399,18 @@ export default function AppointmentsQueuePage() {
       setError(null)
       setMessage(null)
 
+      const { data: sessionRes, error: sessionErr } = await supabase.auth.getSession()
+      const accessToken = sessionRes?.session?.access_token
+
+      if (sessionErr || !accessToken) {
+        throw new Error(sessionErr?.message || 'Not authenticated')
+      }
+
       const res = await fetch(`/api/appointments/agent-accept?id=${encodeURIComponent(id)}`, {
         method: 'GET',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
       })
 
       if (!res.ok) {
@@ -426,10 +436,20 @@ export default function AppointmentsQueuePage() {
       setError(null)
       setMessage(null)
 
+      const { data: sessionRes, error: sessionErr } = await supabase.auth.getSession()
+      const accessToken = sessionRes?.session?.access_token
+
+      if (sessionErr || !accessToken) {
+        throw new Error(sessionErr?.message || 'Not authenticated')
+      }
+
       const res = await fetch(
         `/api/appointments/agent-decline?id=${encodeURIComponent(id)}&reason=${encodeURIComponent(reason)}`,
         {
           method: 'GET',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
         }
       )
 
@@ -459,9 +479,19 @@ export default function AppointmentsQueuePage() {
       setError(null)
       setMessage(null)
 
+      const { data: sessionRes, error: sessionErr } = await supabase.auth.getSession()
+      const accessToken = sessionRes?.session?.access_token
+
+      if (sessionErr || !accessToken) {
+        throw new Error(sessionErr?.message || 'Not authenticated')
+      }
+
       const res = await fetch('/api/appointments/admin-assign', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
         body: JSON.stringify({
           approval_id: approvalId,
           agent_id: agentId,
@@ -496,9 +526,19 @@ export default function AppointmentsQueuePage() {
       setError(null)
       setMessage(null)
 
+      const { data: sessionRes, error: sessionErr } = await supabase.auth.getSession()
+      const accessToken = sessionRes?.session?.access_token
+
+      if (sessionErr || !accessToken) {
+        throw new Error(sessionErr?.message || 'Not authenticated')
+      }
+
       const res = await fetch('/api/appointments/admin-reassign', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
         body: JSON.stringify({
           approval_id: approvalId,
           agent_id: agentId,
