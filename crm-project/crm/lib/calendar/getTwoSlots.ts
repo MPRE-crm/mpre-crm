@@ -2,7 +2,7 @@
 
 import { google } from "googleapis";
 import { supabaseAdmin } from "../supabaseAdmin";
-import { getGoogleOAuthClient } from "../googleCalendar";
+import { getAuthorizedGoogleOAuthClient } from "./getAuthorizedGoogleOAuthClient";
 
 type GetTwoSlotsArgs = { org_id: string; lead_id?: string | null };
 
@@ -862,14 +862,7 @@ export async function getTwoSlots(
       return null;
     }
 
-    const oauth2Client = getGoogleOAuthClient();
-    oauth2Client.setCredentials({
-      access_token: connection.access_token,
-      refresh_token: connection.refresh_token,
-      expiry_date: connection.token_expires_at
-        ? new Date(connection.token_expires_at).getTime()
-        : undefined,
-    });
+    const oauth2Client = await getAuthorizedGoogleOAuthClient(connection);
 
     let calendarId: string;
 

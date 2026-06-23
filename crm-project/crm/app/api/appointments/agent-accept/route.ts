@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
 import twilio from "twilio";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
-import { getGoogleOAuthClient } from "../../../../lib/googleCalendar";
+import { getAuthorizedGoogleOAuthClient } from "../../../../lib/calendar/getAuthorizedGoogleOAuthClient";
 
 async function getAgentGoogleConnection(args: {
   org_id: string;
@@ -298,14 +298,7 @@ export async function GET(req: NextRequest) {
       agent_id: approval.current_agent_id,
     });
 
-    const oauth2Client = getGoogleOAuthClient();
-    oauth2Client.setCredentials({
-      access_token: connection.access_token,
-      refresh_token: connection.refresh_token,
-      expiry_date: connection.token_expires_at
-        ? new Date(connection.token_expires_at).getTime()
-        : undefined,
-    });
+    const oauth2Client = await getAuthorizedGoogleOAuthClient(connection);
 
     const calendarId = await resolveCalendarId(connection);
 

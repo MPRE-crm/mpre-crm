@@ -3,7 +3,7 @@ export const runtime = "nodejs";
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
-import { getGoogleOAuthClient } from "../../../../lib/googleCalendar";
+import { getAuthorizedGoogleOAuthClient } from "../../../../lib/calendar/getAuthorizedGoogleOAuthClient";
 
 function extractGoogleEventId(notes: string | null) {
   if (!notes) return null;
@@ -76,15 +76,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (connection && googleEventId) {
-      const oauth2Client = getGoogleOAuthClient();
-
-      oauth2Client.setCredentials({
-        access_token: connection.access_token,
-        refresh_token: connection.refresh_token,
-        expiry_date: connection.token_expires_at
-          ? new Date(connection.token_expires_at).getTime()
-          : undefined,
-      });
+      const oauth2Client = await getAuthorizedGoogleOAuthClient(connection);
 
       const calendar = google.calendar({
         version: "v3",
