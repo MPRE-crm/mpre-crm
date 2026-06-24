@@ -186,6 +186,10 @@ export const relocationSmsText = {
     )
   },
 
+  companyValueAnswer(brandName: string) {
+    return `Great question. ${brandName} helps relocation buyers cut through the online noise and make smarter decisions faster. We help you understand how different areas actually feel, which neighborhoods fit your lifestyle, where the value is, and what to avoid. Then we help with the strategy and execution too - search setup, pricing, offer strategy, inspections, negotiation, and keeping the move clear through closing. When you are ready, you can still reply A or B for a quick strategy call.`
+  },
+
   catchAllError() {
     return `Thanks for your message. We received it and will follow up as soon as possible.`
   },

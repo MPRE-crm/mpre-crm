@@ -127,6 +127,8 @@ const VALID_STATES = new Set([
   'EXIT_ALREADY_HAS_LOCAL_AGENT',
   'EXIT_NOT_INTERESTED',
   'STOP',
+  'POST_FLOW_QA',
+  'RELATIONSHIP_NURTURE',
 ])
 
 function firstNameOf(lead: RelocationLead) {
@@ -313,6 +315,15 @@ function hasHardStop(text: string) {
 function wantsHuman(text: string) {
   return /real person|real agent|human|call me|talk to an agent|speak to an agent|connect me|have someone call/i.test(
     text.toLowerCase()
+  )
+}
+
+
+function isCompanyOrValueQuestion(text: string) {
+  const t = text.toLowerCase()
+
+  return (
+    /mpre|mpre boise|your company|your team|brokerage|who are you|what do you do|what makes.*different|why should i work with you|why use you|why mpre|why your team|how do you help|what value|value do you provide|what makes you different/i.test(t)
   )
 }
 
@@ -663,6 +674,33 @@ if (lead.sms_state === 'WAITING_FOR_LENDER_PERMISSION') {
         notes_append: inboundText,
       },
       aiSummary: 'Fallback hard stop',
+    }
+  }
+
+  if (isCompanyOrValueQuestion(inboundText)) {
+    return {
+      replyText: relocationSmsText.companyValueAnswer(market.brandName),
+      nextState: lead.sms_state || 'POST_FLOW_QA',
+      nextPriority: 'question_answered',
+      temperature: 'hot',
+      bestNextStep: 'agent_call',
+      confidence: 'high',
+      currentObjective: 'appointment',
+      appointmentReadiness: 5,
+      conversationTone: 'warm',
+      sentiment,
+      shouldEscalate: false,
+      debugReason: 'fallback_company_value_question',
+      lastQuestion: lead.sms_last_question || 'appointment_offer',
+      lpmamaCurrentStep: 'appointment',
+      lpmamaNextStep: 'appointment',
+      resumeStep: 'appointment',
+      detourReason: 'company_value_question',
+      extractedFields: {
+        preferred_next_step: lead.preferred_next_step || 'appointment',
+        notes_append: inboundText,
+      },
+      aiSummary: 'Answered MPRE company/value question',
     }
   }
 
@@ -1204,8 +1242,17 @@ Important:
 - When referring to agent help, always keep it in-house with ${market.brandName}. Say things like "our team here at ${market.brandName}" or "someone on our team here at ${market.brandName}".
 - Never suggest some random outside local agent.
 - If they already have a local agent and it is not your team, politely acknowledge it and exit.
-- Answer off-topic questions, objections, value questions, and local area questions as fully as needed.
+- Answer off-topic questions, objections, value questions, MPRE Boise/company questions, process questions, and local area questions as fully as needed.
 - Then return exactly to the NEXT MISSING TPMAMA STEP.
+- If the core TPMAMA/appointment flow is already complete, do not stop replying. Stay available as a helpful post-flow Q&A assistant.
+- If appointment options were already offered and the lead asks a question instead of choosing A/B, answer the question first. Then gently remind them they can still reply A or B when they are ready.
+- If the lead asks about ${market.brandName}, what your team does, or why they should work with MPRE, use these approved talking points:
+  1. Guidance: help relocation buyers cut through online noise, understand how areas actually feel, compare lifestyle fit, commute, neighborhoods, and avoid wasting time on homes or areas that look good online but do not fit the bigger picture.
+  2. Strategy: help them understand price ranges, market pace, competition, buyer leverage, and where they need to move quickly when the right opportunity appears.
+  3. Execution: help set up the right search, narrow best-fit homes, structure offers, negotiate inspections, and keep the process clear through closing.
+- Keep MPRE/company answers warm, professional, and concise for SMS. Do not send a long speech unless the customer asks for more detail.
+- Do not overstate awards, guarantees, rankings, or facts that were not provided.
+- Only stop replying for clear hard stops like stop, unsubscribe, remove me, or do not contact.
 - If the lead answers multiple steps in one message, capture them all.
 - If they say they need a loan, ask whether they have already spoken with a LOCAL loan officer there.
 - If they have not, offer a no-pressure, no-obligation local lender introduction through ${market.brandName}.

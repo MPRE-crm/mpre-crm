@@ -214,6 +214,53 @@ function isMortgageOrCashAnswer(text?: string | null) {
   )
 }
 
+
+function isLikelyCustomerQuestion(text?: string | null) {
+  const t = clean(text).toLowerCase()
+
+  if (!t) return false
+  if (t.includes('?')) return true
+
+  if (/^(what|why|how|who|when|where|which|can|could|would|do|does|did|is|are|will|should)\b/i.test(t)) {
+    return true
+  }
+
+  if (
+    /\b(tell me|explain|wondering|curious|question|questions|what makes|how does|who is|who are|mpre|mpre boise|company|team|brokerage|boise|meridian|eagle|nampa|caldwell|kuna|star|schools|taxes|neighborhood|area|market|rates|loan|lender|relocation|moving)\b/i.test(t)
+  ) {
+    return true
+  }
+
+  return false
+}
+
+function isLikelyStopRequest(text?: string | null) {
+  const t = clean(text).toLowerCase()
+
+  return /stop|unsubscribe|remove me|do not text|don't text|do not contact|don't contact|leave me alone|quit texting/i.test(t)
+}
+
+function isLikelyAppointmentDelay(text?: string | null) {
+  const t = clean(text).toLowerCase()
+
+  return /not right now|maybe later|later|not yet|too busy|busy|another time|circle back|follow up later/i.test(t)
+}
+
+function isLikelyAppointmentSelectionAttempt(text?: string | null) {
+  const t = clean(text).toLowerCase()
+
+  if (!t) return false
+
+  if (/^\s*(a|b|1|2|one|two|first|second)\s*$/i.test(t)) return true
+  if (/^\s*(yes|yeah|yep|sure|ok|okay|sounds good|that works)\s*$/i.test(t)) return true
+
+  return (
+    /\b(option|slot|time|appointment|first one|second one|morning|afternoon|evening)\b/i.test(t) ||
+    /\b(mon|monday|tue|tuesday|wed|wednesday|thu|thursday|fri|friday|sat|saturday|sun|sunday)\b/i.test(t) ||
+    /\b\d{1,2}(:\d{2})?\s*(am|pm|a\.m\.|p\.m\.)\b/i.test(t)
+  )
+}
+
 function isGuideCheckLead(lead: any) {
   return (
     lead?.call_status === 'guide_check_text_sent' &&
@@ -923,7 +970,11 @@ export async function POST(req: NextRequest) {
       if (
         isAppointmentChoiceMode &&
         appointmentSlotChoices.length > 0 &&
-        !chosenSlot
+        !chosenSlot &&
+        isLikelyAppointmentSelectionAttempt(body) &&
+        !isLikelyCustomerQuestion(body) &&
+        !isLikelyStopRequest(body) &&
+        !isLikelyAppointmentDelay(body)
       ) {
         const optionA = appointmentSlotChoices[0]
         const optionB = appointmentSlotChoices[1]
@@ -1467,6 +1518,9 @@ export async function POST(req: NextRequest) {
 
             const shouldForceAppointmentOptionLabels =
         slotChoices.length >= 2 &&
+        !isLikelyCustomerQuestion(body) &&
+        !isLikelyStopRequest(body) &&
+        !isLikelyAppointmentDelay(body) &&
         (
           shouldPreloadSlotsForAppointmentOffer ||
           brain.nextState === 'OFFER_AGENT_CALL' ||
