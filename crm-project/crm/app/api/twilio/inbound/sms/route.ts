@@ -1245,8 +1245,8 @@ export async function POST(req: NextRequest) {
 
                 const approvalToken = approvalRow.action_token || actionToken
 
-                const acceptUrl = `${appBaseUrl}/api/appointments/agent-accept?id=${encodeURIComponent(approvalRow.id)}&token=${encodeURIComponent(approvalToken)}`
-                const declineUrl = `${appBaseUrl}/api/appointments/agent-decline?id=${encodeURIComponent(approvalRow.id)}&token=${encodeURIComponent(approvalToken)}`
+                const acceptUrl = `${appBaseUrl}/a/${encodeURIComponent(approvalRow.id)}/${encodeURIComponent(approvalToken)}`
+                const declineUrl = `${appBaseUrl}/d/${encodeURIComponent(approvalRow.id)}/${encodeURIComponent(approvalToken)}`
 
                 const leadName =
                   clean(lead?.first_name) ||

@@ -96,12 +96,8 @@ async function sendAgentApprovalText(args: {
     const appBaseUrl =
       process.env.NEXT_PUBLIC_APP_URL || "https://www.easyrealtor.homes";
 
-    const acceptUrl = `${appBaseUrl}/api/appointments/agent-accept?id=${encodeURIComponent(
-      args.approvalId
-    )}`;
-    const declineUrl = `${appBaseUrl}/api/appointments/agent-decline?id=${encodeURIComponent(
-      args.approvalId
-    )}`;
+    const acceptUrl = `${appBaseUrl}/a/${encodeURIComponent(args.approvalId)}`;
+    const declineUrl = `${appBaseUrl}/d/${encodeURIComponent(args.approvalId)}`;
 
     const agentText =
       `New appointment request from ${args.leadName}.\n` +

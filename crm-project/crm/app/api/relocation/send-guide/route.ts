@@ -70,11 +70,12 @@ export async function POST(req: Request) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: "EasyRealtor <noreply@easyrealtor.homes>",
+        from: process.env.RESEND_FROM_EMAIL || "MPRE Boise <noreply@easyrealtor.homes>",
+        reply_to: process.env.RESEND_REPLY_TO || "Mike Petras <mpetras@mpre.homes>",
         to: claimedLead.email,
         subject: forceResend
-          ? "Resending your Boise Idaho Relocation Guide"
-          : "Your 2026 Boise Idaho Area Relocation Guide",
+          ? "Your Boise relocation guide"
+          : "Your Boise relocation guide",
         html: `
           <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #111827; max-width: 640px; margin: 0 auto;">
             <h2>${forceResend ? "Here is your relocation guide again" : "Your 2026 Boise Idaho Area Relocation Guide"}</h2>
@@ -99,7 +100,7 @@ export async function POST(req: Request) {
               <a href="${guideUrl}">${guideUrl}</a>
             </p>
 
-            <p>If this email landed in spam or junk, please move it to your inbox so you do not miss follow-up information.</p>
+            <p>You can reply to this email if you have questions about the guide or your move.</p>
 
             <p>Samantha may follow up to make sure you received the guide and help narrow down areas, timing, home search options, and next steps.</p>
 
@@ -127,7 +128,7 @@ ${
 Download your 2026 Boise Idaho Area Relocation Guide here:
 ${guideUrl}
 
-If this email landed in spam or junk, please move it to your inbox so you do not miss follow-up information.
+You can reply to this email if you have questions about the guide or your move.
 
 Samantha may follow up to make sure you received the guide and help narrow down areas, timing, home search options, and next steps.
 

@@ -419,8 +419,8 @@ export async function GET(req: NextRequest) {
 
           const nextApprovalToken = nextApproval.action_token || nextActionToken;
 
-          const acceptUrl = `${appBaseUrl}/api/appointments/agent-accept?id=${encodeURIComponent(nextApproval.id)}&token=${encodeURIComponent(nextApprovalToken)}`;
-          const declineUrl = `${appBaseUrl}/api/appointments/agent-decline?id=${encodeURIComponent(nextApproval.id)}&token=${encodeURIComponent(nextApprovalToken)}`;
+          const acceptUrl = `${appBaseUrl}/a/${encodeURIComponent(nextApproval.id)}/${encodeURIComponent(nextApprovalToken)}`;
+          const declineUrl = `${appBaseUrl}/d/${encodeURIComponent(nextApproval.id)}/${encodeURIComponent(nextApprovalToken)}`;
 
           const leadName =
             String(lead.first_name || "").trim() ||

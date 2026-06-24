@@ -229,13 +229,13 @@ export async function POST(req: Request) {
       );
     }
 
-    const phoneVerifyUrl = `${siteUrl}/api/relocation/verify?lead_id=${lead.id}&type=phone&token=${phoneToken}`;
-    const emailVerifyUrl = `${siteUrl}/api/relocation/verify?lead_id=${lead.id}&type=email&token=${emailToken}`;
+    const phoneVerifyUrl = `${siteUrl}/v/p/${phoneToken}`;
+    const emailVerifyUrl = `${siteUrl}/v/e/${emailToken}`;
 
     await twilioClient.messages.create({
       to: phone,
       from: process.env.TWILIO_PHONE_NUMBER!,
-      body: `Tap to verify your phone and unlock the MPRE Boise relocation guide: ${phoneVerifyUrl} Reply STOP to opt out.`,
+      body: `MPRE Boise: verify your phone for the Boise relocation guide. ${phoneVerifyUrl} Reply STOP to opt out.`,
     });
 
     const resendResponse = await fetch("https://api.resend.com/emails", {
@@ -245,13 +245,14 @@ export async function POST(req: Request) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: "EasyRealtor <noreply@easyrealtor.homes>",
+        from: process.env.RESEND_FROM_EMAIL || "MPRE Boise <noreply@easyrealtor.homes>",
+        reply_to: process.env.RESEND_REPLY_TO || "Mike Petras <mpetras@mpre.homes>",
         to: email,
-        subject: "Verify your email for the Boise Idaho Relocation Guide",
+        subject: "Verify your email for your Boise relocation guide",
         html: `
           <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #111827;">
-            <h2>Verify Your Email</h2>
-            <p>Click the button below to verify your email and unlock your 2026 Boise Idaho Area Relocation Guide.</p>
+            <h2>Verify your email</h2>
+            <p>Thanks for requesting the 2026 Boise Idaho Area Relocation Guide. Please confirm your email so we can send it over.</p>
             <p>
               <a href="${emailVerifyUrl}" style="display:inline-block;background:#f97316;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:bold;">
                 Verify My Email
@@ -263,7 +264,7 @@ export async function POST(req: Request) {
             <p style="font-size:12px;color:#6b7280;">You received this because you requested the Boise Idaho Area Relocation Guide.</p>
           </div>
         `,
-        text: `Verify your email for the 2026 Boise Idaho Area Relocation Guide: ${emailVerifyUrl}`,
+        text: `Thanks for requesting the 2026 Boise Idaho Area Relocation Guide. Confirm your email here: ${emailVerifyUrl}`,
       }),
     });
 
