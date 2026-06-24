@@ -1,3 +1,5 @@
+import { relocationSmsText } from './textHub/relocationSmsText'
+
 type SmsDirection = 'incoming' | 'outgoing'
 
 type SmsMessage = {
@@ -477,7 +479,7 @@ function formatSlotOptions(availableSlots: string[]) {
   const a = availableSlots?.[0]
   const b = availableSlots?.[1]
   if (!a || !b) return null
-  return `I can give you two good options: ${a} or ${b}. Which one works better for you?`
+  return relocationSmsText.slotOptions(a, b)
 }
 
 function fallbackReply(
@@ -515,7 +517,7 @@ function fallbackReply(
 if (lead.sms_state === 'WAITING_FOR_LOCAL_LENDER_STATUS') {
   if (localLenderStatus === 'yes') {
     return {
-      replyText: `Perfect — that helps. Since you already have that piece moving, the next best step would probably be a quick strategy call with ${market.teamLabel}. Want me to give you two good time options?`,
+      replyText: relocationSmsText.localLenderAlreadyMoving(market.teamLabel),
       nextState: 'OFFER_AGENT_CALL',
       nextPriority: 'appointment',
       temperature: 'hot',
@@ -543,7 +545,7 @@ if (lead.sms_state === 'WAITING_FOR_LOCAL_LENDER_STATUS') {
 
   if (localLenderStatus === 'no' || wantsLenderIntro(inboundText)) {
     return {
-      replyText: `No problem at all. We can connect you with one of our trusted local lenders here at ${market.brandName}. It would just be a simple, no-pressure intro to help you get the financing side squared away. Want me to set that up for you?`,
+      replyText: relocationSmsText.lenderIntroOffer(market.brandName),
       nextState: 'WAITING_FOR_LENDER_PERMISSION',
       nextPriority: 'lender_permission',
       temperature: 'hot',
@@ -575,7 +577,7 @@ if (lead.sms_state === 'WAITING_FOR_LOCAL_LENDER_STATUS') {
 if (lead.sms_state === 'WAITING_FOR_LENDER_PERMISSION') {
   if (lenderPermission === true || wantsLenderIntro(inboundText)) {
     return {
-      replyText: `Perfect. I’ll have one of our trusted local lenders reach out. After that, if you want, I can also help line up a quick strategy call with ${market.teamLabel}.`,
+      replyText: relocationSmsText.lenderIntroApproved(market.teamLabel),
       nextState: 'OFFER_AGENT_CALL',
       nextPriority: 'appointment',
       temperature: 'hot',
@@ -608,7 +610,7 @@ if (lead.sms_state === 'WAITING_FOR_LENDER_PERMISSION') {
 
   if (lenderPermission === false) {
     return {
-      replyText: `No worries at all. We can leave that piece alone for now. The next best step would probably be a quick strategy call with ${market.teamLabel} so you can get real answers and a game plan. Want me to give you two good time options?`,
+      replyText: relocationSmsText.lenderIntroDeclined(market.teamLabel),
       nextState: 'OFFER_AGENT_CALL',
       nextPriority: 'appointment',
       temperature: 'hot',
@@ -638,7 +640,7 @@ if (lead.sms_state === 'WAITING_FOR_LENDER_PERMISSION') {
 
   if (hasHardStop(inboundText)) {
     return {
-      replyText: `No problem, ${name}. I’ll stop here. If anything changes later on, you can always text me back.`,
+      replyText: relocationSmsText.hardStop(name),
       nextState: 'EXIT_NOT_INTERESTED',
       nextPriority: 'stop',
       temperature: 'warm',
@@ -666,7 +668,7 @@ if (lead.sms_state === 'WAITING_FOR_LENDER_PERMISSION') {
 
   if (wantsHuman(inboundText)) {
     return {
-      replyText: `Absolutely, ${name}. I can have someone from ${market.teamLabel} reach out. Would you like me to give you two good time options, or is there usually a time that works best for you?`,
+      replyText: relocationSmsText.humanHandoff(name, market.teamLabel),
       nextState: 'OFFER_AGENT_CALL',
       nextPriority: 'appointment',
       temperature: 'hot',
@@ -694,7 +696,7 @@ if (lead.sms_state === 'WAITING_FOR_LENDER_PERMISSION') {
 
   if (waitingForGuideConfirmation && guideReceived === 'yes') {
     return {
-      replyText: `Perfect, ${name} — glad you got it. So I can get a feel for your timing, when are you thinking about making your move? Are you thinking in the next few months, later this year, or are you still just exploring for now?`,
+      replyText: relocationSmsText.guideReceivedAskTimeline(name),
       nextState: 'WAITING_FOR_TIMELINE',
       nextPriority: 'timeline',
       temperature: 'hot',
@@ -720,7 +722,7 @@ if (lead.sms_state === 'WAITING_FOR_LENDER_PERMISSION') {
 
   if (waitingForGuideConfirmation && guideReceived === 'no') {
     return {
-      replyText: `No problem, ${name}. I can resend the guide for you. Is this still the best email to send it to?`,
+      replyText: relocationSmsText.guideNotReceivedAskResend(name),
       nextState: 'WAITING_FOR_TIMELINE',
       nextPriority: 'guide_resend',
       temperature: 'hot',
@@ -752,7 +754,7 @@ if (lead.sms_state === 'WAITING_FOR_LENDER_PERMISSION') {
   ) {
     if (unclearCount === 0) {
       return {
-        replyText: `Sorry ${name}, I want to make sure I understood you correctly. Are you thinking about moving in the next 3 months, around 6 months, or are you still just exploring for now?`,
+        replyText: relocationSmsText.unclearTimelineFirst(name),
         nextState: 'WAITING_FOR_TIMELINE',
         nextPriority: 'clarify',
         temperature: 'hot',
@@ -776,7 +778,7 @@ if (lead.sms_state === 'WAITING_FOR_LENDER_PERMISSION') {
 
     if (unclearCount === 1) {
       return {
-        replyText: `No worries. Let’s keep it simple — are you moving soon, later, or just browsing right now?`,
+        replyText: relocationSmsText.unclearTimelineSecond(),
         nextState: 'WAITING_FOR_TIMELINE',
         nextPriority: 'clarify',
         temperature: 'hot',
@@ -799,7 +801,7 @@ if (lead.sms_state === 'WAITING_FOR_LENDER_PERMISSION') {
     }
 
     return {
-      replyText: `No problem. Whenever you're ready, just text me something simple like "moving soon," "later," or "just browsing," and I’ll take it from there.`,
+      replyText: relocationSmsText.unclearTimelineThird(),
       nextState: 'NURTURE_WARM',
       nextPriority: 'nurture',
       temperature: 'warm',
@@ -826,7 +828,7 @@ if (lead.sms_state === 'WAITING_FOR_LENDER_PERMISSION') {
 
   if (agentStatus === 'local_agent' || agentStatus === 'signed_agent') {
     return {
-      replyText: `Got it, ${name}. If you’re already working with ${market.teamLabel}, you’re in good hands. If anything changes and you need something else from us, just text me back.`,
+      replyText: relocationSmsText.alreadyWorkingWithLocalAgent(name, market.teamLabel),
       nextState: 'EXIT_ALREADY_HAS_LOCAL_AGENT',
       nextPriority: 'stop',
       temperature: 'warm',
@@ -854,7 +856,7 @@ if (lead.sms_state === 'WAITING_FOR_LENDER_PERMISSION') {
 
   if (nextStep === 'location_timeline') {
     return {
-      replyText: `That helps, ${name}. So I can be useful here, when are you thinking about making your move? Are you thinking in the next few months, later this year, or are you still just exploring for now?`,
+      replyText: relocationSmsText.askTimeline(name),
       nextState: 'WAITING_FOR_TIMELINE',
       nextPriority: 'timeline',
       temperature: 'hot',
@@ -882,7 +884,7 @@ if (lead.sms_state === 'WAITING_FOR_LENDER_PERMISSION') {
 
   if (nextStep === 'price') {
     return {
-      replyText: `That helps. And so I can keep this realistic and useful for you, what kind of price range are you hoping to stay around?`,
+      replyText: relocationSmsText.askPrice(),
       nextState: 'WAITING_FOR_BUDGET',
       nextPriority: 'price',
       temperature: 'hot',
@@ -910,7 +912,7 @@ if (lead.sms_state === 'WAITING_FOR_LENDER_PERMISSION') {
 
   if (nextStep === 'motivation') {
     return {
-      replyText: `Makes sense. What’s really driving the move for you? Is this more about work, family, lifestyle, retirement, or something else going on right now?`,
+      replyText: relocationSmsText.askMotivation(),
       nextState: 'WAITING_FOR_MOTIVATION',
       nextPriority: 'motivation',
       temperature: 'hot',
@@ -940,7 +942,7 @@ if (lead.sms_state === 'WAITING_FOR_LENDER_PERMISSION') {
 
   if (nextStep === 'agent_status') {
     return {
-      replyText: `Just so I know how best to help, are you already working with an agent, or would you want help from ${market.teamLabel}?`,
+      replyText: relocationSmsText.askAgentStatus(market.teamLabel),
       nextState: 'WAITING_FOR_AGENT_STATUS',
       nextPriority: 'agent_status',
       temperature: 'hot',
@@ -971,7 +973,7 @@ if (lead.sms_state === 'WAITING_FOR_LENDER_PERMISSION') {
 
   if (nextStep === 'mortgage_or_cash') {
     return {
-      replyText: `Perfect. One other thing I like to clarify so we know the best path forward — are you thinking this will be a cash purchase, or will you probably want financing?`,
+      replyText: relocationSmsText.askMortgageOrCash(),
       nextState: 'WAITING_FOR_MORTGAGE_OR_CASH',
       nextPriority: 'mortgage_or_cash',
       temperature: 'hot',
@@ -1008,7 +1010,7 @@ if (lead.sms_state === 'WAITING_FOR_LENDER_PERMISSION') {
     !localLenderStatus
   ) {
     return {
-      replyText: `Got it. Have you already spoken with a local loan officer yet, or is that still something you’d want help getting lined up?`,
+      replyText: relocationSmsText.askLocalLenderStatus(),
       nextState: 'WAITING_FOR_LOCAL_LENDER_STATUS',
       nextPriority: 'local_lender_status',
       temperature: 'hot',
@@ -1040,7 +1042,7 @@ if (lead.sms_state === 'WAITING_FOR_LENDER_PERMISSION') {
     lenderPermission !== true
   ) {
     return {
-      replyText: `No problem at all. We can connect you with one of our trusted local lenders here at ${market.brandName}. It would just be a simple, no-pressure intro to help you get the financing side squared away. Want me to set that up for you?`,
+      replyText: relocationSmsText.lenderIntroOffer(market.brandName),
       nextState: 'WAITING_FOR_LENDER_PERMISSION',
       nextPriority: 'lender_permission',
       temperature: 'hot',
@@ -1069,7 +1071,7 @@ if (lead.sms_state === 'WAITING_FOR_LENDER_PERMISSION') {
 
   if ((lead.mortgage_or_cash === 'loan' || mortgageOrCash === 'loan') && lenderPermission === true) {
     return {
-      replyText: `Perfect. I’ll have one of our trusted local lenders reach out. After that, if you want, I can also help line up a quick strategy call with ${market.teamLabel}.`,
+      replyText: relocationSmsText.lenderIntroApproved(market.teamLabel),
       nextState: 'OFFER_AGENT_CALL',
       nextPriority: 'appointment',
       temperature: 'hot',
@@ -1100,7 +1102,7 @@ if (lead.sms_state === 'WAITING_FOR_LENDER_PERMISSION') {
   }
 
   return {
-    replyText: `That helps. The next best step would probably be a quick strategy call with ${market.teamLabel}. Want me to give you two good time options?`,
+    replyText: relocationSmsText.offerAppointment(market.teamLabel),
     nextState: 'OFFER_AGENT_CALL',
     nextPriority: 'appointment',
     temperature: 'hot',
@@ -1309,7 +1311,7 @@ ${inboundText}
       agentStatus === 'no_agent'
     ) {
       return {
-        replyText: `Perfect, ${firstNameOf(lead)}. One other thing I like to clarify so we know the best path forward — are you thinking this will be a cash purchase, or will you probably want financing?`,
+        replyText: relocationSmsText.askMortgageOrCashWithName(firstNameOf(lead)),
         nextState: 'WAITING_FOR_MORTGAGE_OR_CASH',
         nextPriority: 'mortgage_or_cash',
         temperature: 'hot',
@@ -1339,7 +1341,7 @@ ${inboundText}
         if (lead.sms_state === 'WAITING_FOR_MORTGAGE_OR_CASH') {
       if (mortgageOrCash === 'cash') {
         return {
-          replyText: `Got it — cash gives you a lot of flexibility. The next best step would probably be a quick strategy call with ${market.teamLabel} so we can help you line things up and talk through the best options. Want me to give you two good time options?`,
+          replyText: relocationSmsText.cashPathAppointment(market.teamLabel),
           nextState: 'OFFER_AGENT_CALL',
           nextPriority: 'appointment',
           temperature: 'hot',
@@ -1367,7 +1369,7 @@ ${inboundText}
 
       if (mortgageOrCash === 'loan' || wantsLenderIntro(inboundText)) {
         return {
-          replyText: `Absolutely — we can help with that. I can connect you with one of our trusted local lenders here at ${market.brandName}. It would just be a simple, no-pressure introduction so you can explore your financing options. Want me to set that up for you?`,
+          replyText: relocationSmsText.loanPathLenderIntro(market.brandName),
           nextState: 'WAITING_FOR_LENDER_PERMISSION',
           nextPriority: 'lender_permission',
           temperature: 'hot',
@@ -1401,7 +1403,7 @@ ${inboundText}
     if (lead.sms_state === 'WAITING_FOR_LOCAL_LENDER_STATUS') {
       if (localLenderStatus === 'yes') {
         return {
-          replyText: `Perfect — that helps. Since you already have that piece moving, the next best step would probably be a quick strategy call with ${market.teamLabel}. Want me to give you two good time options?`,
+          replyText: relocationSmsText.localLenderAlreadyMoving(market.teamLabel),
           nextState: 'OFFER_AGENT_CALL',
           nextPriority: 'appointment',
           temperature: 'hot',
@@ -1429,7 +1431,7 @@ ${inboundText}
 
       if (localLenderStatus === 'no' || wantsLenderIntro(inboundText)) {
         return {
-          replyText: `No problem at all. We can connect you with one of our trusted local lenders here at ${market.brandName}. It would just be a simple, no-pressure intro to help you get the financing side squared away. Want me to set that up for you?`,
+          replyText: relocationSmsText.lenderIntroOffer(market.brandName),
           nextState: 'WAITING_FOR_LENDER_PERMISSION',
           nextPriority: 'lender_permission',
           temperature: 'hot',
@@ -1461,7 +1463,7 @@ ${inboundText}
     if (lead.sms_state === 'WAITING_FOR_LENDER_PERMISSION') {
       if (lenderPermission === true || wantsLenderIntro(inboundText)) {
         return {
-          replyText: `Perfect. I’ll have one of our trusted local lenders reach out. After that, if you want, I can also help line up a quick strategy call with ${market.teamLabel}.`,
+          replyText: relocationSmsText.lenderIntroApproved(market.teamLabel),
           nextState: 'OFFER_AGENT_CALL',
           nextPriority: 'appointment',
           temperature: 'hot',
@@ -1494,7 +1496,7 @@ ${inboundText}
 
       if (lenderPermission === false) {
         return {
-          replyText: `No worries at all. We can leave that piece alone for now. The next best step would probably be a quick strategy call with ${market.teamLabel} so you can get real answers and a game plan. Want me to give you two good time options?`,
+          replyText: relocationSmsText.lenderIntroDeclined(market.teamLabel),
           nextState: 'OFFER_AGENT_CALL',
           nextPriority: 'appointment',
           temperature: 'hot',
@@ -1536,7 +1538,7 @@ ${inboundText}
       if (appointmentYes) {
         if (Array.isArray(availableSlots) && availableSlots.length >= 2) {
           return {
-            replyText: `Perfect, ${firstNameOf(lead)}. ${formatSlotOptions(availableSlots)}`,
+            replyText: relocationSmsText.appointmentSlots(firstNameOf(lead), formatSlotOptions(availableSlots)),
             nextState: 'OFFER_AGENT_CALL',
             nextPriority: 'appointment',
             temperature: 'hot',
@@ -1563,7 +1565,7 @@ ${inboundText}
         }
 
         return {
-          replyText: `Perfect, ${firstNameOf(lead)}. I don’t have live time slots showing right this second, but I can still help get this moving. Is there usually a better time for a quick call — mornings, afternoons, or evenings?`,
+          replyText: relocationSmsText.noLiveSlots(firstNameOf(lead)),
           nextState: 'CALLBACK_LATER',
           nextPriority: 'appointment',
           temperature: 'hot',
@@ -1591,7 +1593,7 @@ ${inboundText}
 
       if (appointmentNo) {
         return {
-          replyText: `No problem at all. We can circle back when the timing is better for you. Is there a day or part of the day that usually works best when you do want us to reach out?`,
+          replyText: relocationSmsText.appointmentNotReady(),
           nextState: 'CALLBACK_LATER',
           nextPriority: 'nurture',
           temperature: 'warm',
@@ -1627,7 +1629,7 @@ ${inboundText}
         parsed.lpmamaNextStep === 'appointment')
     ) {
       return {
-        replyText: `That makes sense, ${firstNameOf(lead)}. One other piece I like to clarify so we know the best path forward — are you thinking this will be a cash purchase, or will you probably want financing?`,
+        replyText: relocationSmsText.askMortgageOrCashThatMakesSense(firstNameOf(lead)),
         nextState: 'WAITING_FOR_MORTGAGE_OR_CASH',
         nextPriority: 'mortgage_or_cash',
         temperature: 'hot',
@@ -1667,7 +1669,7 @@ ${inboundText}
       /yes|yeah|yep|sounds good|that works|let's do it|lets do it/i.test(inboundText)
     ) {
       return {
-        replyText: `Perfect, ${firstNameOf(lead)}. ${formatSlotOptions(availableSlots)}`,
+        replyText: relocationSmsText.appointmentSlots(firstNameOf(lead), formatSlotOptions(availableSlots)),
         nextState: 'OFFER_AGENT_CALL',
         nextPriority: 'appointment',
         temperature: 'hot',

@@ -3,6 +3,7 @@ import { randomBytes } from 'crypto'
 import twilio from 'twilio'
 import { supabaseAdmin } from '../../../../../lib/supabaseAdmin'
 import { runRelocationSmsBrain } from '../../../../../src/lib/sms/relocationSmsBrain'
+import { relocationSmsText } from '../../../../../src/lib/sms/textHub/relocationSmsText'
 import { getTwoSlots } from '../../../../../lib/calendar/getTwoSlots'
 
 export const runtime = 'nodejs'
@@ -240,7 +241,7 @@ function isRelocationLead(lead: any) {
 
 function genericReply(firstName?: string | null) {
   const name = clean(firstName) || 'there'
-  return `Hi ${name}, this is Samantha with MPRE Boise. I got your message and will follow up shortly. If you'd like, text me your timeline, price range, and the area you're thinking about.`
+  return relocationSmsText.genericReply(name)
 }
 
 // Placeholder until we wire exact preferred-lender lookup
@@ -927,10 +928,10 @@ export async function POST(req: NextRequest) {
         const optionA = appointmentSlotChoices[0]
         const optionB = appointmentSlotChoices[1]
 
-        const clarifyReply =
-          optionA && optionB
-            ? `Almost there — please reply A for ${optionA.slot_human}, or B for ${optionB.slot_human}, and I’ll send the request to the agent for confirmation.`
-            : `Almost there — please reply A or B for the appointment option you prefer, and I’ll send the request to the agent for confirmation.`
+        const clarifyReply = relocationSmsText.appointmentChoiceClarify(
+          optionA?.slot_human,
+          optionB?.slot_human
+        )
 
         const { error: clarifyLeadUpdateError } = await supabaseAdmin
           .from('leads')
@@ -1006,7 +1007,7 @@ export async function POST(req: NextRequest) {
         if (existingPendingApproval?.id) {
           const twiml = new twilio.twiml.MessagingResponse()
           twiml.message(
-            `I already have that appointment request pending with the agent. I’ll keep watching it and follow up as soon as they respond.`
+            relocationSmsText.appointmentAlreadyPending()
           )
 
           return new NextResponse(twiml.toString(), {
@@ -1022,7 +1023,7 @@ export async function POST(req: NextRequest) {
           null
 
         if (!rotatedAgentProfileId) {
-          const noAgentReply = `I’ve got your requested time, but no agent is currently available to confirm it right this second. I’ll keep working on it and follow up with you as soon as I have the next best option.`
+          const noAgentReply = relocationSmsText.noAgentAvailable()
 
           const { error: noAgentLeadUpdateError } = await supabaseAdmin
             .from('leads')
@@ -1218,7 +1219,7 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          replyText = `Perfect, ${clean(lead?.first_name) || 'there'} — I’ve sent that time over for confirmation with the agent now. I’ll text you as soon as it’s locked in.`
+          replyText = relocationSmsText.appointmentSentForConfirmation(clean(lead?.first_name) || 'there')
 
           const { error: outgoingMessageInsertError } = await supabaseAdmin
             .from('messages')
@@ -1266,7 +1267,7 @@ export async function POST(req: NextRequest) {
         })
 
         if (lenderIntroSent) {
-          replyText = `Perfect, ${clean(lead?.first_name) || 'there'} — I’ll make that introduction for you. The next best step would probably be a quick strategy call with our team here at MPRE Boise so we can help you put a real game plan together. Want me to give you two good time options?`
+          replyText = relocationSmsText.lenderIntroSentAppointment(clean(lead?.first_name) || 'there')
 
           const { error: appointmentPatchError } = await supabaseAdmin
             .from('leads')
@@ -1327,7 +1328,7 @@ export async function POST(req: NextRequest) {
 
             if (isGuideCheckLead(lead)) {
         if (isYesToGuide(body)) {
-          replyText = `Perfect, ${clean(lead?.first_name) || 'there'} — glad you got it. Are you mostly looking at Boise itself, or are you also considering Meridian, Eagle, Nampa, Kuna, Star, or Caldwell?`
+          replyText = relocationSmsText.guideConfirmedAreaQuestion(clean(lead?.first_name) || 'there')
 
           const { error: guideYesUpdateError } = await supabaseAdmin
             .from('leads')
@@ -1399,7 +1400,7 @@ export async function POST(req: NextRequest) {
             console.error('❌ guide resend request error', resendError)
           }
 
-          replyText = `No problem, ${clean(lead?.first_name) || 'there'} — I just resent it to your email. Please check your inbox, spam, junk, or promotions folder. Once you have it, are you mostly looking at Boise itself, or also considering Meridian, Eagle, Nampa, Kuna, Star, or Caldwell?`
+          replyText = relocationSmsText.guideResentAreaQuestion(clean(lead?.first_name) || 'there')
 
           const { error: guideNoUpdateError } = await supabaseAdmin
             .from('leads')
@@ -1475,11 +1476,11 @@ export async function POST(req: NextRequest) {
         )
 
       if (shouldForceAppointmentOptionLabels) {
-        replyText =
-          `Perfect, ${clean(lead?.first_name) || 'there'} — I can give you two good options:\n` +
-          `A) ${slotChoices[0].slot_human}\n` +
-          `B) ${slotChoices[1].slot_human}\n` +
-          `Which one works better for you? Just reply A or B.`
+        replyText = relocationSmsText.forcedAppointmentOptions(
+          clean(lead?.first_name) || 'there',
+          slotChoices[0].slot_human,
+          slotChoices[1].slot_human
+        )
       }
 
       const leadPatch: Record<string, any> = {
@@ -1612,7 +1613,7 @@ export async function POST(req: NextRequest) {
         })
 
         if (lenderIntroSent) {
-          replyText = `Perfect, ${clean(lead?.first_name) || 'there'} — I’ll make that introduction for you. The next best step would probably be a quick strategy call with our team here at MPRE Boise so we can help you put a real game plan together. Want me to give you two good time options?`
+          replyText = relocationSmsText.lenderIntroSentAppointment(clean(lead?.first_name) || 'there')
 
           const appointmentPatch = {
             sms_state: 'OFFER_AGENT_CALL',
@@ -1697,9 +1698,7 @@ export async function POST(req: NextRequest) {
     console.error('❌ inbound sms route error', error)
 
     const twiml = new twilio.twiml.MessagingResponse()
-    twiml.message(
-      `Thanks for your message. We received it and will follow up as soon as possible.`
-    )
+    twiml.message(relocationSmsText.catchAllError())
 
     return new NextResponse(twiml.toString(), {
       status: 200,
