@@ -173,6 +173,34 @@ export const relocationSmsText = {
     return `${perfectName(name)} Glad you got it. Are you mostly looking at Boise itself, or are you also considering Meridian, Eagle, Nampa, Kuna, Star, or Caldwell?`
   },
 
+  guideVerificationCheck(name: string, email?: string | null) {
+    const cleaned = cleanName(name) || 'there'
+    const targetEmail = (email || '').trim() || 'your email address'
+    return `Hi ${cleaned}, this is Samantha with MPRE Boise. Hope all is well today! I sent your Boise relocation guide verification to ${targetEmail}, but sometimes email providers filter those messages to spam. Did you by chance receive it?`
+  },
+
+  guideEmailConfirmAsk(name: string, email?: string | null) {
+    const targetEmail = (email || '').trim() || 'your email address'
+    return `No problem ? we can fix that here! Is ${targetEmail} still the best email address for your Boise relocation guide?`
+  },
+
+  guideEmailPermissionAsk(name: string, email?: string | null) {
+    const targetEmail = (email || '').trim() || 'your email address'
+    return `Perfect, thank you. With your permission, I?ll resend the Boise relocation guide and related MPRE Boise follow-up about your relocation inquiry to ${targetEmail}. You can reply STOP at any time to opt out of texts. Is that okay?`
+  },
+
+  guideEmailPermissionApproved() {
+    return `Great ? I?m sending it now. If it still does not show up, I can also send the guide link here by text. Just let me know!`
+  },
+
+  guideEmailPermissionDeclined() {
+    return `No problem at all. I will not resend it right now. If you want it later, just text me back and I can help.`
+  },
+
+  guideVerificationReceivedNextStep() {
+    return `Perfect ? please tap the email verification link when you have a chance, and I?ll send the Boise relocation guide right over.`
+  },
+
   guideResentAreaQuestion(name: string) {
     return `No problem${withName(name)} - I just resent it to your email. Please check your inbox, spam, junk, or promotions folder. Once you have it, are you mostly looking at Boise itself, or also considering Meridian, Eagle, Nampa, Kuna, Star, or Caldwell?`
   },

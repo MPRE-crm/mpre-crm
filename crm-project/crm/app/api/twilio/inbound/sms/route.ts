@@ -528,6 +528,8 @@ export async function POST(req: NextRequest) {
   guide_sent_at,
   guide_last_sent_at,
   guide_send_count,
+  phone_verified,
+  email_verified,
   lead_heat,
   lead_source_detail,
   sms_state,
@@ -1376,33 +1378,32 @@ export async function POST(req: NextRequest) {
           })
         }
       }
+      const isGuideRecoveryConversation =
+        lead?.sms_state === 'WAITING_FOR_EMAIL_CONFIRMATION' ||
+        lead?.sms_state === 'WAITING_FOR_EMAIL_RESEND_PERMISSION'
 
-            if (isGuideCheckLead(lead)) {
-        if (isYesToGuide(body)) {
-          replyText = relocationSmsText.guideConfirmedAreaQuestion(clean(lead?.first_name) || 'there')
+      if (isGuideCheckLead(lead) || isGuideRecoveryConversation) {
+        const firstName = clean(lead?.first_name) || 'there'
+        const leadEmail = clean(lead?.email)
+        const emailMatch = body.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)
+        const confirmedEmail = clean(emailMatch?.[0] || leadEmail)
 
-          const { error: guideYesUpdateError } = await supabaseAdmin
+        const writeGuideRecoveryReply = async (patch: Record<string, any>) => {
+          const { error: guideRecoveryUpdateError } = await supabaseAdmin
             .from('leads')
             .update({
-              call_status: 'guide_received_confirmed',
               sms_campaign: 'relocation',
-              sms_state: 'GUIDE_RECEIVED_AREA_QUESTION',
-              sms_current_objective: 'area_preference',
-              sms_last_question: 'area_preference',
-              sms_lpmama_current_step: 'location',
-              sms_lpmama_next_step: 'location',
-              sms_resume_step: 'location',
-              sms_detour_reason: null,
               last_replied_text_at: nowIso,
               last_meaningful_engagement_at: nowIso,
               last_contact_attempt_at: nowIso,
               last_text_attempt_at: nowIso,
               updated_at: nowIso,
+              ...patch,
             })
             .eq('id', leadId)
 
-          if (guideYesUpdateError) {
-            console.error('❌ guide yes lead update error', guideYesUpdateError)
+          if (guideRecoveryUpdateError) {
+            console.error('? guide recovery lead update error', guideRecoveryUpdateError)
           }
 
           const { error: outgoingMessageInsertError } = await supabaseAdmin
@@ -1418,7 +1419,7 @@ export async function POST(req: NextRequest) {
             })
 
           if (outgoingMessageInsertError) {
-            console.error('❌ outbound sms message insert error', outgoingMessageInsertError)
+            console.error('? outbound sms message insert error', outgoingMessageInsertError)
           }
 
           const twiml = new twilio.twiml.MessagingResponse()
@@ -1430,76 +1431,149 @@ export async function POST(req: NextRequest) {
           })
         }
 
-        if (isNoToGuide(body)) {
-          try {
-            const appBaseUrl =
-              process.env.NEXT_PUBLIC_SITE_URL ||
-              process.env.NEXT_PUBLIC_APP_URL ||
-              'https://www.easyrealtor.homes'
+        if (lead?.sms_state === 'WAITING_FOR_EMAIL_CONFIRMATION') {
+          if (isYesToGuide(body) || emailMatch) {
+            replyText = relocationSmsText.guideEmailPermissionAsk(firstName, confirmedEmail)
 
-            await fetch(`${appBaseUrl}/api/relocation/send-guide`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                lead_id: leadId,
-                force_resend: true,
-              }),
+            return await writeGuideRecoveryReply({
+              email: confirmedEmail || leadEmail,
+              call_status: 'email_confirmed_awaiting_resend_permission',
+              sms_state: 'WAITING_FOR_EMAIL_RESEND_PERMISSION',
+              sms_current_objective: 'clarify',
+              sms_last_question: 'email_resend_permission',
+              sms_lpmama_current_step: 'location_timeline',
+              sms_lpmama_next_step: 'location_timeline',
+              sms_resume_step: 'location_timeline',
+              sms_detour_reason: 'email_resend_permission',
             })
-          } catch (resendError) {
-            console.error('❌ guide resend request error', resendError)
           }
 
-          replyText = relocationSmsText.guideResentAreaQuestion(clean(lead?.first_name) || 'there')
+          if (isNoToGuide(body)) {
+            replyText = `No problem ? please reply with the best email address for your Boise relocation guide, and I can help get it sent over.`
+            return await writeGuideRecoveryReply({
+              call_status: 'email_update_requested_by_sms',
+              sms_state: 'WAITING_FOR_EMAIL_CONFIRMATION',
+              sms_current_objective: 'clarify',
+              sms_last_question: 'best_email_address',
+              sms_detour_reason: 'email_update_requested',
+            })
+          }
+        }
 
-          const { error: guideNoUpdateError } = await supabaseAdmin
-            .from('leads')
-            .update({
-              call_status: 'guide_resent_after_sms',
-              sms_campaign: 'relocation',
-              sms_state: 'GUIDE_RESENT_AREA_QUESTION',
+        if (lead?.sms_state === 'WAITING_FOR_EMAIL_RESEND_PERMISSION') {
+          if (isYesToGuide(body)) {
+            const consentNote =
+              `[${nowIso}] Customer confirmed email by SMS and gave permission to resend the Boise relocation guide and related MPRE Boise follow-up about their relocation inquiry to ${confirmedEmail || leadEmail}. Inbound consent text: "${body}"`
+
+            const existingNotes = clean(lead?.notes)
+            const updatedNotes = existingNotes ? `${existingNotes}\n${consentNote}` : consentNote
+
+            await supabaseAdmin
+              .from('leads')
+              .update({
+                email: confirmedEmail || leadEmail,
+                email_verified: true,
+                email_verified_at: nowIso,
+                status: 'Verified Lead',
+                call_status: 'sms_email_permission_approved',
+                guide_delivery_status: 'verified_ready_to_send',
+                updated_at: nowIso,
+              })
+              .eq('id', leadId)
+
+            try {
+              const appBaseUrl =
+                process.env.NEXT_PUBLIC_SITE_URL ||
+                process.env.NEXT_PUBLIC_APP_URL ||
+                'https://www.easyrealtor.homes'
+
+              await fetch(`${appBaseUrl}/api/relocation/send-guide`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  lead_id: leadId,
+                  force_resend: true,
+                }),
+              })
+            } catch (resendError) {
+              console.error('? guide resend request error', resendError)
+            }
+
+            replyText = relocationSmsText.guideEmailPermissionApproved()
+
+            return await writeGuideRecoveryReply({
+              call_status: 'guide_resent_after_sms_permission',
+              sms_state: 'GUIDE_RESENT_AFTER_SMS_PERMISSION',
+              sms_current_objective: 'location_timeline',
+              sms_last_question: 'timeline',
+              sms_lpmama_current_step: 'location_timeline',
+              sms_lpmama_next_step: 'price',
+              sms_resume_step: 'location_timeline',
+              sms_detour_reason: 'guide_resent_after_sms_permission',
+              notes: updatedNotes,
+            })
+          }
+
+          if (isNoToGuide(body)) {
+            replyText = relocationSmsText.guideEmailPermissionDeclined()
+
+            return await writeGuideRecoveryReply({
+              call_status: 'email_resend_permission_declined',
+              sms_state: 'NURTURE_WARM',
+              sms_current_objective: 'clarify',
+              sms_last_question: null,
+              sms_detour_reason: 'email_resend_permission_declined',
+            })
+          }
+        }
+
+        if (isGuideCheckLead(lead)) {
+          if (isYesToGuide(body)) {
+            if (lead?.phone_verified === true && lead?.email_verified !== true) {
+              replyText = relocationSmsText.guideVerificationReceivedNextStep()
+
+              return await writeGuideRecoveryReply({
+                call_status: 'guide_verification_received_pending_click',
+                sms_state: 'WAITING_FOR_GUIDE_RECEIVED',
+                sms_current_objective: 'confirm_received_guide',
+                sms_last_question: 'guide_verification_received',
+                sms_lpmama_current_step: 'location_timeline',
+                sms_lpmama_next_step: 'location_timeline',
+                sms_resume_step: 'location_timeline',
+                sms_detour_reason: 'email_verification_recovery',
+              })
+            }
+
+            replyText = relocationSmsText.guideConfirmedAreaQuestion(firstName)
+
+            return await writeGuideRecoveryReply({
+              call_status: 'guide_received_confirmed',
+              sms_state: 'GUIDE_RECEIVED_AREA_QUESTION',
               sms_current_objective: 'area_preference',
               sms_last_question: 'area_preference',
-              sms_lpmama_current_step: 'location',
-              sms_lpmama_next_step: 'location',
-              sms_resume_step: 'location',
-              sms_detour_reason: 'guide_not_received',
-              last_replied_text_at: nowIso,
-              last_meaningful_engagement_at: nowIso,
-              last_contact_attempt_at: nowIso,
-              last_text_attempt_at: nowIso,
-              updated_at: nowIso,
+              sms_lpmama_current_step: 'location_timeline',
+              sms_lpmama_next_step: 'location_timeline',
+              sms_resume_step: 'location_timeline',
+              sms_detour_reason: null,
             })
-            .eq('id', leadId)
-
-          if (guideNoUpdateError) {
-            console.error('❌ guide no lead update error', guideNoUpdateError)
           }
 
-          const { error: outgoingMessageInsertError } = await supabaseAdmin
-            .from('messages')
-            .insert({
-              lead_id: leadId,
-              lead_phone: from,
-              direction: 'outgoing',
-              body: replyText,
-              status: 'twiml_reply_prepared',
-              twilio_sid: null,
-              created_at: nowIso,
+          if (isNoToGuide(body)) {
+            replyText = relocationSmsText.guideEmailConfirmAsk(firstName, confirmedEmail || leadEmail)
+
+            return await writeGuideRecoveryReply({
+              call_status: 'guide_email_confirmation_requested',
+              sms_state: 'WAITING_FOR_EMAIL_CONFIRMATION',
+              sms_current_objective: 'clarify',
+              sms_last_question: 'email_confirmation',
+              sms_lpmama_current_step: 'location_timeline',
+              sms_lpmama_next_step: 'location_timeline',
+              sms_resume_step: 'location_timeline',
+              sms_detour_reason: 'guide_not_received_email_confirm',
             })
-
-          if (outgoingMessageInsertError) {
-            console.error('❌ outbound sms message insert error', outgoingMessageInsertError)
           }
-
-          const twiml = new twilio.twiml.MessagingResponse()
-          twiml.message(replyText)
-
-          return new NextResponse(twiml.toString(), {
-            status: 200,
-            headers: { 'Content-Type': 'text/xml' },
-          })
         }
       }
 

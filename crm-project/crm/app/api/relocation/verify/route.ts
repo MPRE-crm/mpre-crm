@@ -28,7 +28,7 @@ export async function GET(req: Request) {
   const { data: lead, error: leadError } = await supabaseAdmin
     .from("leads")
     .select(
-      "id, phone_verified, email_verified, phone_verification_code, email_verification_code, verification_code_expires_at, guide_delivery_status"
+      "id, email, phone_verified, email_verified, phone_verification_code, email_verification_code, verification_code_expires_at, guide_delivery_status"
     )
     .eq("id", leadId)
     .single();
@@ -83,10 +83,24 @@ export async function GET(req: Request) {
     updateData.email_verified_at = nowIso;
   }
 
+  if (type === "phone" && !emailWillBeVerified) {
+    updateData.call_status = "phone_verified_pending_email";
+    updateData.sms_campaign = "relocation";
+    updateData.sms_state = "WAITING_FOR_GUIDE_RECEIVED";
+    updateData.sms_current_objective = "confirm_received_guide";
+    updateData.sms_last_question = "guide_verification_received";
+    updateData.sms_lpmama_current_step = "location_timeline";
+    updateData.sms_lpmama_next_step = "location_timeline";
+    updateData.sms_resume_step = "location_timeline";
+    updateData.sms_detour_reason = "email_verification_recovery";
+    updateData.next_contact_at = new Date(Date.now() + 6 * 60 * 1000).toISOString();
+  }
+
   if (bothVerified && !alreadySent && !alreadySending) {
     updateData.status = "Verified Lead";
     updateData.call_status = "verified_pending_guide";
     updateData.guide_delivery_status = "verified_ready_to_send";
+    updateData.next_contact_at = null;
   }
 
   const { error: updateError } = await supabaseAdmin

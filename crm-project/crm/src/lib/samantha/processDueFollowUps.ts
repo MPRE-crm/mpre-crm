@@ -3,6 +3,7 @@ import twilio from "twilio";
 import { sendText } from "../../../lib/sendText";
 import { resolvePostIdxAction } from "./resolvePostIdxAction";
 import { logSamanthaAction } from "./logSamanthaAction";
+import { relocationSmsText } from "../sms/textHub/relocationSmsText";
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
@@ -41,16 +42,31 @@ function buildIdxFollowUpText(lead: any) {
 
 function buildRelocationGuideCheckText(lead: any) {
   const firstName = getFirstName(lead);
+  const email = String(lead?.email || "").trim();
 
-  return `Hi ${firstName}, this is Samantha with MPRE Boise. Just checking — did you receive the Boise relocation guide okay?`;
+  if (lead?.phone_verified === true && lead?.email_verified !== true) {
+    return relocationSmsText.guideVerificationCheck(firstName, email);
+  }
+
+  return `Hi ${firstName}, this is Samantha with MPRE Boise. Just checking ? did you receive the Boise relocation guide okay?`;
 }
 
 function isRelocationGuideCheckDue(lead: any) {
-  return (
+  const pendingEmailVerification =
+    lead?.phone_verified === true &&
+    lead?.email_verified !== true &&
+    !!lead?.email &&
+    (
+      lead?.guide_delivery_status === "pending_verification" ||
+      lead?.call_status === "phone_verified_pending_email"
+    );
+
+  const guideAlreadySent =
     lead?.status === "Guide Sent" &&
     lead?.guide_delivery_status === "sent_by_email" &&
-    !!lead?.guide_sent_at
-  );
+    !!lead?.guide_sent_at;
+
+  return pendingEmailVerification || guideAlreadySent;
 }
 
 export async function processDueFollowUps(limit = 25) {
@@ -146,6 +162,17 @@ export async function processDueFollowUps(limit = 25) {
             last_text_attempt_at: nowIso,
             last_contact_attempt_at: nowIso,
             call_status: "guide_check_text_sent",
+            sms_campaign: "relocation",
+            sms_state: "WAITING_FOR_GUIDE_RECEIVED",
+            sms_current_objective: "confirm_received_guide",
+            sms_last_question: "guide_verification_received",
+            sms_lpmama_current_step: "location_timeline",
+            sms_lpmama_next_step: "location_timeline",
+            sms_resume_step: "location_timeline",
+            sms_detour_reason:
+              lead?.phone_verified === true && lead?.email_verified !== true
+                ? "email_verification_recovery"
+                : null,
             updated_at: nowIso,
           })
           .eq("id", lead.id);
