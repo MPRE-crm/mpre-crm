@@ -56,7 +56,7 @@ const guideBenefits = [
 const trustPoints = [
   "Local Boise / Treasure Valley real estate guidance",
   "Guide delivered after phone and email verification",
-  "No spam. No pressure. Just useful relocation info.",
+  "No pressure. Just useful relocation info.",
 ];
 
 export default function RelocationPage() {
@@ -278,7 +278,7 @@ export default function RelocationPage() {
             </div>
 
             <div className="rounded-2xl border border-green-200 bg-green-50 p-3 text-xs leading-5 text-green-800">
-              ✓ No spam. ✓ No pressure. ✓ The guide is sent after phone and
+              ✓ ✓ No pressure. ✓ The guide is sent after phone and
               email verification.
             </div>
 
@@ -396,8 +396,7 @@ export default function RelocationPage() {
 {success && (
   <div className="mt-4 rounded-xl bg-green-100 p-3 text-sm leading-6 text-green-800">
     Verification started. Check your phone and email for the verification links.
-    If you do not see the email within a minute, please check your spam, junk,
-    or promotions folder.
+    If you do not see the email right away, search your inbox for MPRE Boise.
     {leadId && (
       <span className="mt-1 block text-[11px] text-green-700">
         After both links are verified, we&apos;ll email your 2026 Boise Idaho
@@ -547,8 +546,7 @@ export default function RelocationPage() {
 
 <p className="mx-auto mt-4 max-w-2xl text-sm leading-7 text-slate-200">
   After both verification links are confirmed, we&apos;ll email your relocation
-  guide. If it does not show up right away, check your spam, junk, or promotions
-  folder. Then Samantha can help narrow down areas, timing, home search options,
+  guide. Then Samantha can help narrow down areas, timing, home search options,
   and next steps.
 </p>
 

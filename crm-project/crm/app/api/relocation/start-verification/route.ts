@@ -248,23 +248,43 @@ export async function POST(req: Request) {
         from: process.env.RESEND_FROM_EMAIL || "MPRE Boise <noreply@easyrealtor.homes>",
         reply_to: process.env.RESEND_REPLY_TO || "Mike Petras <mpetras@mpre.homes>",
         to: email,
-        subject: "Verify your email for your Boise relocation guide",
+        subject: "Confirm your email",
         html: `
-          <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #111827;">
-            <h2>Verify your email</h2>
-            <p>Thanks for requesting the 2026 Boise Idaho Area Relocation Guide. Please confirm your email so we can send it over.</p>
+          <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #111827; max-width: 560px; margin: 0 auto;">
+            <p>Hi ${first_name || "there"},</p>
+
+            <p>Thanks for requesting the Boise relocation guide.</p>
+
+            <p>Please confirm your email so we can send it over.</p>
+
             <p>
               <a href="${emailVerifyUrl}" style="display:inline-block;background:#f97316;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:bold;">
-                Verify My Email
+                Confirm Email
               </a>
             </p>
-            <p>If the button does not work, copy and paste this link into your browser:</p>
-            <p>${emailVerifyUrl}</p>
-            <p>MPRE Boise with Homes of Idaho</p>
-            <p style="font-size:12px;color:#6b7280;">You received this because you requested the Boise Idaho Area Relocation Guide.</p>
+
+            <p style="margin-top:24px;">
+              Thanks,<br />
+              MPRE Boise<br />
+              Homes of Idaho
+            </p>
+
+            <p style="font-size:12px;color:#6b7280;">
+              You received this because you requested the Boise relocation guide from MPRE Boise.
+            </p>
           </div>
         `,
-        text: `Thanks for requesting the 2026 Boise Idaho Area Relocation Guide. Confirm your email here: ${emailVerifyUrl}`,
+        text: `Hi ${first_name || "there"},
+
+Thanks for requesting the Boise relocation guide.
+
+Please confirm your email here:
+${emailVerifyUrl}
+
+Thanks,
+MPRE Boise
+Homes of Idaho
+`,
       }),
     });
 

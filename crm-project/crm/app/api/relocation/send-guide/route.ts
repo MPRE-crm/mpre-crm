@@ -73,69 +73,55 @@ export async function POST(req: Request) {
         from: process.env.RESEND_FROM_EMAIL || "MPRE Boise <noreply@easyrealtor.homes>",
         reply_to: process.env.RESEND_REPLY_TO || "Mike Petras <mpetras@mpre.homes>",
         to: claimedLead.email,
-        subject: forceResend
-          ? "Your Boise relocation guide"
-          : "Your Boise relocation guide",
+        subject: "Your Boise relocation guide",
         html: `
-          <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #111827; max-width: 640px; margin: 0 auto;">
-            <h2>${forceResend ? "Here is your relocation guide again" : "Your 2026 Boise Idaho Area Relocation Guide"}</h2>
-
+          <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #111827; max-width: 560px; margin: 0 auto;">
             <p>Hi ${firstName},</p>
 
             <p>${
               forceResend
-                ? "No problem — here is the Boise Idaho Area Relocation Guide again."
-                : "Thanks for verifying your phone and email. You can download your 2026 Boise Idaho Area Relocation Guide using the button below."
+                ? "Here is the Boise relocation guide again."
+                : "Here is the Boise relocation guide you requested."
             }</p>
 
             <p>
               <a href="${guideUrl}" style="display:inline-block;background:#f97316;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:bold;">
-                Download The Relocation Guide
+                Download Guide
               </a>
-            </p>
-
-            <p>If the button does not work, copy and paste this link into your browser:</p>
-
-            <p>
-              <a href="${guideUrl}">${guideUrl}</a>
             </p>
 
             <p>You can reply to this email if you have questions about the guide or your move.</p>
 
-            <p>Samantha may follow up to make sure you received the guide and help narrow down areas, timing, home search options, and next steps.</p>
-
-            <p>
-              MPRE Boise with Homes of Idaho<br />
-              Boise, Idaho Real Estate
+            <p style="margin-top:24px;">
+              Thanks,<br />
+              MPRE Boise<br />
+              Homes of Idaho
             </p>
 
             <p style="font-size:12px;color:#6b7280;">
-              You received this because you requested the Boise Idaho Area Relocation Guide.
-              Real estate services provided by MPRE Boise with Homes of Idaho.
+              You received this because you requested the Boise relocation guide from MPRE Boise.
               Equal Housing Opportunity.
             </p>
           </div>
         `,
-        text: `
-Hi ${firstName},
+        text: `Hi ${firstName},
 
 ${
   forceResend
-    ? "No problem — here is the Boise Idaho Area Relocation Guide again."
-    : "Thanks for verifying your phone and email."
+    ? "Here is the Boise relocation guide again."
+    : "Here is the Boise relocation guide you requested."
 }
 
-Download your 2026 Boise Idaho Area Relocation Guide here:
+Download guide:
 ${guideUrl}
 
 You can reply to this email if you have questions about the guide or your move.
 
-Samantha may follow up to make sure you received the guide and help narrow down areas, timing, home search options, and next steps.
-
-MPRE Boise with Homes of Idaho
-Boise, Idaho Real Estate
+Thanks,
+MPRE Boise
+Homes of Idaho
 Equal Housing Opportunity
-        `.trim(),
+`,
       }),
     });
 
