@@ -1505,7 +1505,7 @@ export async function POST(req: NextRequest) {
 
             return await writeGuideRecoveryReply({
               call_status: 'guide_resent_after_sms_permission',
-              sms_state: 'GUIDE_RESENT_AFTER_SMS_PERMISSION',
+              sms_state: 'WAITING_FOR_TIMELINE',
               sms_current_objective: 'location_timeline',
               sms_last_question: 'timeline',
               sms_lpmama_current_step: 'location_timeline',

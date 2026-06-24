@@ -181,16 +181,16 @@ export const relocationSmsText = {
 
   guideEmailConfirmAsk(name: string, email?: string | null) {
     const targetEmail = (email || '').trim() || 'your email address'
-    return `No problem ? we can fix that here! Is ${targetEmail} still the best email address for your Boise relocation guide?`
+    return `No problem - we can fix that here! Is ${targetEmail} still the best email address for your Boise relocation guide?`
   },
 
   guideEmailPermissionAsk(name: string, email?: string | null) {
     const targetEmail = (email || '').trim() || 'your email address'
-    return `Perfect, thank you. With your permission, I?ll resend the Boise relocation guide and related MPRE Boise follow-up about your relocation inquiry to ${targetEmail}. You can reply STOP at any time to opt out of texts. Is that okay?`
+    return `Perfect, thank you. With your permission, I'll resend the Boise relocation guide and related MPRE Boise follow-up about your relocation inquiry to ${targetEmail}. You can reply STOP at any time to opt out of texts. Is that okay?`
   },
 
   guideEmailPermissionApproved() {
-    return `Great ? I?m sending it now. If it still does not show up, I can also send the guide link here by text. Just let me know!`
+    return `Great - I'm sending it now. If it still does not show up, I can also send the guide link here by text. Just let me know! To point you in the right direction, when are you thinking about making the move - in the next few months, later this year, or are you still just exploring?`
   },
 
   guideEmailPermissionDeclined() {
@@ -198,7 +198,7 @@ export const relocationSmsText = {
   },
 
   guideVerificationReceivedNextStep() {
-    return `Perfect ? please tap the email verification link when you have a chance, and I?ll send the Boise relocation guide right over.`
+    return `Perfect - please tap the email verification link when you have a chance, and I'll send the Boise relocation guide right over.`
   },
 
   guideResentAreaQuestion(name: string) {
