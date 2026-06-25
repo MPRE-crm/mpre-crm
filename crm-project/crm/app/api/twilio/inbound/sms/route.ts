@@ -1437,6 +1437,37 @@ export async function POST(req: NextRequest) {
           })
         }
 
+        const shouldSendGuideLinkBySms =
+          guideRecoveryNo &&
+          (
+            lead?.call_status === 'guide_resent_after_sms_permission' ||
+            lead?.sms_detour_reason === 'guide_resent_after_sms_permission' ||
+            (lead?.guide_delivery_status === 'resent_by_email' && lead?.email_verified === true)
+          )
+
+        if (shouldSendGuideLinkBySms) {
+          const guideBaseUrl = (
+            process.env.NEXT_PUBLIC_SITE_URL ||
+            process.env.NEXT_PUBLIC_APP_URL ||
+            'https://easyrealtor.homes'
+          ).replace(/\/$/, '')
+
+          const guideLink = `${guideBaseUrl}/relocation-guide/boise-relocation-guide-2026.pdf`
+
+          replyText = relocationSmsText.guideSmsLink(guideLink)
+
+          return await writeGuideRecoveryReply({
+            call_status: 'guide_link_sent_by_sms',
+            sms_state: 'WAITING_FOR_TIMELINE',
+            sms_current_objective: 'location_timeline',
+            sms_last_question: 'timeline',
+            sms_lpmama_current_step: 'location_timeline',
+            sms_lpmama_next_step: 'price',
+            sms_resume_step: 'location_timeline',
+            sms_detour_reason: 'guide_link_sent_by_sms',
+          })
+        }
+
         if (lead?.sms_state === 'WAITING_FOR_EMAIL_CONFIRMATION') {
           if (guideRecoveryYes || emailMatch) {
             replyText = relocationSmsText.guideEmailPermissionAsk(firstName, confirmedEmail)

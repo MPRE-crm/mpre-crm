@@ -186,11 +186,15 @@ export const relocationSmsText = {
 
   guideEmailPermissionAsk(name: string, email?: string | null) {
     const targetEmail = (email || '').trim() || 'your email address'
-    return `Perfect, thank you. With your permission, I'll resend the Boise relocation guide and related MPRE Boise follow-up about your relocation inquiry to ${targetEmail}. You can reply STOP at any time to opt out of texts. Is that okay?`
+    return `Perfect, thank you. With your permission, I'll resend the Boise relocation guide to ${targetEmail}. You can reply STOP at any time to opt out of texts. Is that okay?`
   },
 
   guideEmailPermissionApproved() {
     return `Great - I'm sending it now. If it still does not show up, I can also send the guide link here by text. Just let me know!`
+  },
+
+  guideSmsLink(guideLink: string) {
+    return `Absolutely - here is the Boise relocation guide link: ${guideLink}\n\nIf it still gives you trouble, just reply here and I can help.`
   },
 
   guideEmailPermissionDeclined() {
