@@ -1443,9 +1443,26 @@ export async function POST(req: NextRequest) {
           })
         }
 
+        const normalizedGuideRequest = String(body || '').toLowerCase()
+
         const guideLinkRequestBySms =
           guideRecoveryNo ||
-          /(link|send link|send the link|text link|text the link|text it|send it|still|didn'?t get|didnt get|does not show|did not show|nothing came through|trouble)/i.test(body)
+          [
+            'link',
+            'send link',
+            'send the link',
+            'text link',
+            'text the link',
+            'text it',
+            'send it',
+            'still',
+            "didn't get",
+            'didnt get',
+            'does not show',
+            'did not show',
+            'nothing came through',
+            'trouble',
+          ].some((phrase) => normalizedGuideRequest.includes(phrase))
 
         const shouldSendGuideLinkBySms =
           guideLinkRequestBySms &&
@@ -1459,9 +1476,9 @@ export async function POST(req: NextRequest) {
           )
 
         if (shouldSendGuideLinkBySms) {
-          const guideBaseUrl = 'https://easyrealtor.homes'
-
-          const guideLink = 'https://wfjwkssqvifwatquhvti.supabase.co/storage/v1/object/public/relocation-guide/2025%20Boise%20Idaho%20Area%20Relocation%20Guide-4.pdf'
+          const guideLink =
+            process.env.RELOCATION_GUIDE_URL ||
+            'https://wfjwkssqvifwatquhvti.supabase.co/storage/v1/object/public/relocation-guide/2025%20Boise%20Idaho%20Area%20Relocation%20Guide-4.pdf'
 
           replyText = relocationSmsText.guideSmsLink(guideLink)
 
