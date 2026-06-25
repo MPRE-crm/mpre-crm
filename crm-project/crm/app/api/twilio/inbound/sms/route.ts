@@ -168,33 +168,22 @@ function wantsDirectLenderIntro(text?: string | null) {
   )
 }
 
-function isYesToGuide(text?: string | null) {
-  const t = clean(text).toLowerCase()
+function isNoToGuide(text?: string | null) {
+  const t = clean(text).toLowerCase().replace(/[?']/g, "'").trim()
 
   return (
-    /\byes\b/.test(t) ||
-    /\byep\b/.test(t) ||
-    /\byeah\b/.test(t) ||
-    /i did/.test(t) ||
-    /got it/.test(t) ||
-    /received it/.test(t) ||
-    /downloaded/.test(t)
+    /\b(no|nope|nah)\b/i.test(t) ||
+    /\b(didnt|didn't|did not|dont|don't|do not)\b/i.test(t) ||
+    /\b(not yet|never got|haven't|have not|nothing came through|did not receive|didn't receive|didnt receive|did not get|didn't get|didnt get)\b/i.test(t)
   )
 }
 
-function isNoToGuide(text?: string | null) {
-  const t = clean(text).toLowerCase()
+function isYesToGuide(text?: string | null) {
+  const t = clean(text).toLowerCase().replace(/[?']/g, "'").trim()
 
-  return (
-    /\bno\b/.test(t) ||
-    /did not/.test(t) ||
-    /didn'?t/.test(t) ||
-    /never got/.test(t) ||
-    /do not see/.test(t) ||
-    /don'?t see/.test(t) ||
-    /resend/.test(t) ||
-    /send it again/.test(t)
-  )
+  if (isNoToGuide(t)) return false
+
+  return /\b(yes|yep|yeah|correct|got it|received it|i got it|i received it|yes it is|that is correct|that's correct|ok|okay|sure)\b/i.test(t)
 }
 
 function isMortgageOrCashAnswer(text?: string | null) {
@@ -1396,8 +1385,8 @@ export async function POST(req: NextRequest) {
         const leadEmail = clean(lead?.email)
         const emailMatch = body.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)
         const confirmedEmail = clean(emailMatch?.[0] || leadEmail)
-        const guideRecoveryYes = isYesToGuide(body) || /\b(yes|yep|yeah|correct|that is correct|that's correct|yes it is|it is|ok|okay|sure)\b/i.test(body)
-        const guideRecoveryNo = isNoToGuide(body) || /\b(no|nope|nah|not yet|didnt|didn't|did not|never got|haven't|have not|nothing came through)\b/i.test(body)
+        const guideRecoveryNo = isNoToGuide(body) || /\b(no|nope|nah|not yet|didnt|didn't|did not|never got|haven't|have not|nothing came through|didnt receive|didn't receive|did not receive|didnt get|didn't get|did not get)\b/i.test(body)
+        const guideRecoveryYes = !guideRecoveryNo && (isYesToGuide(body) || /\b(yes|yep|yeah|correct|that is correct|that's correct|yes it is|ok|okay|sure)\b/i.test(body))
 
         const writeGuideRecoveryReply = async (patch: Record<string, any>) => {
           const { error: guideRecoveryUpdateError } = await supabaseAdmin
@@ -1460,7 +1449,7 @@ export async function POST(req: NextRequest) {
           }
 
           if (guideRecoveryNo) {
-            replyText = `No problem ? please reply with the best email address for your Boise relocation guide, and I can help get it sent over.`
+            replyText = `No problem - please reply with the best email address for your Boise relocation guide, and I can help get it sent over.`
             return await writeGuideRecoveryReply({
               call_status: 'email_update_requested_by_sms',
               sms_state: 'WAITING_FOR_EMAIL_CONFIRMATION',

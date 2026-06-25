@@ -176,7 +176,7 @@ export const relocationSmsText = {
   guideVerificationCheck(name: string, email?: string | null) {
     const cleaned = cleanName(name) || 'there'
     const targetEmail = (email || '').trim() || 'your email address'
-    return `Hi ${cleaned}, this is Samantha with MPRE Boise. Hope all is well today! I sent your Boise relocation guide verification to ${targetEmail}, but sometimes email providers filter those messages to spam. Did you by chance receive it?`
+    return `Hi ${cleaned}, this is Samantha with MPRE Boise. Hope all is well today! I sent your Boise relocation guide to ${targetEmail}, but sometimes email providers filter those messages to spam. Or, perhaps you may have not seen the email verification link, yet. These things happen, no worries! Did you by chance receive the Relocation guide, yet?`
   },
 
   guideEmailConfirmAsk(name: string, email?: string | null) {
