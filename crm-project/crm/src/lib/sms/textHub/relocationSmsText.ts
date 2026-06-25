@@ -190,7 +190,7 @@ export const relocationSmsText = {
   },
 
   guideEmailPermissionApproved() {
-    return `Great - I'm sending it now. If it still does not show up, I can also send the guide link here by text. Just let me know! To point you in the right direction, when are you thinking about making the move - in the next few months, later this year, or are you still just exploring?`
+    return `Great - I'm sending it now. If it still does not show up, I can also send the guide link here by text. Just let me know!`
   },
 
   guideEmailPermissionDeclined() {

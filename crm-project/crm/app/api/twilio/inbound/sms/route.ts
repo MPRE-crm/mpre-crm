@@ -1379,6 +1379,7 @@ export async function POST(req: NextRequest) {
         }
       }
       const isGuideRecoveryConversation =
+        lead?.sms_state === 'WAITING_FOR_GUIDE_RECEIVED' ||
         lead?.sms_state === 'WAITING_FOR_EMAIL_CONFIRMATION' ||
         lead?.sms_state === 'WAITING_FOR_EMAIL_RESEND_PERMISSION'
 
