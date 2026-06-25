@@ -243,6 +243,8 @@ function isGuideCheckLead(lead: any) {
 
   return (
     callStatus === 'guide_check_text_sent' ||
+    callStatus === 'guide_resent_after_sms_permission' ||
+    callStatus === 'guide_link_offered_after_resend' ||
     smsState === 'WAITING_FOR_GUIDE_RECEIVED' ||
     lastQuestion === 'guide_verification_received' ||
     detourReason === 'email_verification_recovery' ||
@@ -262,13 +264,16 @@ function isActiveGuideRecoveryLead(lead: any) {
     smsState === 'WAITING_FOR_GUIDE_RECEIVED' ||
     smsState === 'WAITING_FOR_EMAIL_CONFIRMATION' ||
     smsState === 'WAITING_FOR_EMAIL_RESEND_PERMISSION' ||
+    smsState === 'WAITING_FOR_GUIDE_LINK_REQUEST' ||
     callStatus === 'phone_verified_pending_email' ||
     callStatus === 'guide_check_text_sent' ||
     lastQuestion === 'guide_verification_received' ||
     detourReason === 'email_verification_recovery' ||
     detourReason === 'guide_not_received_email_confirm' ||
     detourReason === 'email_resend_permission' ||
-    detourReason === 'email_update_requested'
+    detourReason === 'email_update_requested' ||
+    detourReason === 'guide_resent_after_sms_permission' ||
+    detourReason === 'guide_link_offer'
   )
 }
 
@@ -1384,7 +1389,8 @@ export async function POST(req: NextRequest) {
       const isGuideRecoveryConversation =
         lead?.sms_state === 'WAITING_FOR_GUIDE_RECEIVED' ||
         lead?.sms_state === 'WAITING_FOR_EMAIL_CONFIRMATION' ||
-        lead?.sms_state === 'WAITING_FOR_EMAIL_RESEND_PERMISSION'
+        lead?.sms_state === 'WAITING_FOR_EMAIL_RESEND_PERMISSION' ||
+        lead?.sms_state === 'WAITING_FOR_GUIDE_LINK_REQUEST'
 
       if (isGuideCheckLead(lead) || isGuideRecoveryConversation) {
         const firstName = clean(lead?.first_name) || 'there'
@@ -1437,12 +1443,19 @@ export async function POST(req: NextRequest) {
           })
         }
 
+        const guideLinkRequestBySms =
+          guideRecoveryNo ||
+          /(link|send link|send the link|text link|text the link|text it|send it|still|didn'?t get|didnt get|does not show|did not show|nothing came through|trouble)/i.test(body)
+
         const shouldSendGuideLinkBySms =
-          guideRecoveryNo &&
+          guideLinkRequestBySms &&
           (
+            lead?.sms_state === 'WAITING_FOR_GUIDE_LINK_REQUEST' ||
             lead?.call_status === 'guide_resent_after_sms_permission' ||
+            lead?.call_status === 'guide_link_offered_after_resend' ||
             lead?.sms_detour_reason === 'guide_resent_after_sms_permission' ||
-            (lead?.guide_delivery_status === 'resent_by_email' && lead?.email_verified === true)
+            lead?.sms_detour_reason === 'guide_link_offer' ||
+            lead?.sms_last_question === 'guide_link_offer'
           )
 
         if (shouldSendGuideLinkBySms) {
@@ -1542,11 +1555,11 @@ export async function POST(req: NextRequest) {
 
             return await writeGuideRecoveryReply({
               call_status: 'guide_resent_after_sms_permission',
-              sms_state: 'WAITING_FOR_TIMELINE',
-              sms_current_objective: 'location_timeline',
-              sms_last_question: 'timeline',
+              sms_state: 'WAITING_FOR_GUIDE_LINK_REQUEST',
+              sms_current_objective: 'confirm_guide_delivery',
+              sms_last_question: 'guide_link_offer',
               sms_lpmama_current_step: 'location_timeline',
-              sms_lpmama_next_step: 'price',
+              sms_lpmama_next_step: 'location_timeline',
               sms_resume_step: 'location_timeline',
               sms_detour_reason: 'guide_resent_after_sms_permission',
               notes: updatedNotes,
