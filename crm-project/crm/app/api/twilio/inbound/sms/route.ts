@@ -1459,11 +1459,7 @@ export async function POST(req: NextRequest) {
           )
 
         if (shouldSendGuideLinkBySms) {
-          const guideBaseUrl = (
-            process.env.NEXT_PUBLIC_SITE_URL ||
-            process.env.NEXT_PUBLIC_APP_URL ||
-            'https://easyrealtor.homes'
-          ).replace(/\/$/, '')
+          const guideBaseUrl = 'https://easyrealtor.homes'
 
           const guideLink = `${guideBaseUrl}/relocation-guide/boise-relocation-guide-2026.pdf`
 
