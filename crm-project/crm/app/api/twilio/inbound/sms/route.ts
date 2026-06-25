@@ -4,6 +4,7 @@ import twilio from 'twilio'
 import { supabaseAdmin } from '../../../../../lib/supabaseAdmin'
 import { runRelocationSmsBrain } from '../../../../../src/lib/sms/relocationSmsBrain'
 import { relocationSmsText } from '../../../../../src/lib/sms/textHub/relocationSmsText'
+import { isGuideNo, isGuideYes } from '../../../../../src/lib/sms/textHub/relocationSmsIntent'
 import { getTwoSlots } from '../../../../../lib/calendar/getTwoSlots'
 
 export const runtime = 'nodejs'
@@ -168,23 +169,6 @@ function wantsDirectLenderIntro(text?: string | null) {
   )
 }
 
-function isNoToGuide(text?: string | null) {
-  const t = clean(text).toLowerCase().replace(/[?']/g, "'").trim()
-
-  return (
-    /\b(no|nope|nah)\b/i.test(t) ||
-    /\b(didnt|didn't|did not|dont|don't|do not)\b/i.test(t) ||
-    /\b(not yet|never got|haven't|have not|nothing came through|did not receive|didn't receive|didnt receive|did not get|didn't get|didnt get)\b/i.test(t)
-  )
-}
-
-function isYesToGuide(text?: string | null) {
-  const t = clean(text).toLowerCase().replace(/[?']/g, "'").trim()
-
-  if (isNoToGuide(t)) return false
-
-  return /\b(yes|yep|yeah|correct|got it|received it|i got it|i received it|yes it is|that is correct|that's correct|ok|okay|sure)\b/i.test(t)
-}
 
 function isMortgageOrCashAnswer(text?: string | null) {
   const t = clean(text).toLowerCase()
@@ -1385,8 +1369,8 @@ export async function POST(req: NextRequest) {
         const leadEmail = clean(lead?.email)
         const emailMatch = body.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)
         const confirmedEmail = clean(emailMatch?.[0] || leadEmail)
-        const guideRecoveryNo = isNoToGuide(body) || /\b(no|nope|nah|not yet|didnt|didn't|did not|never got|haven't|have not|nothing came through|didnt receive|didn't receive|did not receive|didnt get|didn't get|did not get)\b/i.test(body)
-        const guideRecoveryYes = !guideRecoveryNo && (isYesToGuide(body) || /\b(yes|yep|yeah|correct|that is correct|that's correct|yes it is|ok|okay|sure)\b/i.test(body))
+        const guideRecoveryNo = isGuideNo(body)
+        const guideRecoveryYes = !guideRecoveryNo && isGuideYes(body)
 
         const writeGuideRecoveryReply = async (patch: Record<string, any>) => {
           const { error: guideRecoveryUpdateError } = await supabaseAdmin

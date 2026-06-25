@@ -1,4 +1,5 @@
 import { relocationSmsText } from './textHub/relocationSmsText'
+import { detectGuideReceived } from './textHub/relocationSmsIntent'
 
 type SmsDirection = 'incoming' | 'outgoing'
 
@@ -335,13 +336,6 @@ function getUnclearCount(recentMessages: SmsMessage[]) {
         String(m.body || '')
       )
   ).length
-}
-
-function detectGuideReceived(text: string): 'yes' | 'no' | null {
-  const t = text.toLowerCase()
-  if (/yes|yeah|yep|i did|got it|received it|thanks/i.test(t)) return 'yes'
-  if (/no|not yet|didn't|did not|never got it|haven't|have not/i.test(t)) return 'no'
-  return null
 }
 
 function extractTimeline(text: string) {
