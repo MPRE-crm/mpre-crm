@@ -1461,7 +1461,7 @@ export async function POST(req: NextRequest) {
         if (shouldSendGuideLinkBySms) {
           const guideBaseUrl = 'https://easyrealtor.homes'
 
-          const guideLink = `${guideBaseUrl}/relocation-guide/boise-relocation-guide-2026.pdf`
+          const guideLink = 'https://wfjwkssqvifwatquhvti.supabase.co/storage/v1/object/public/relocation-guide/2025%20Boise%20Idaho%20Area%20Relocation%20Guide-4.pdf'
 
           replyText = relocationSmsText.guideSmsLink(guideLink)
 
