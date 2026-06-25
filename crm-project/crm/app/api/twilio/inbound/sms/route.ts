@@ -262,14 +262,22 @@ function isLikelyAppointmentSelectionAttempt(text?: string | null) {
 }
 
 function isGuideCheckLead(lead: any) {
+  const guideStatus = String(lead?.guide_delivery_status || '').toLowerCase()
+  const smsState = String(lead?.sms_state || '')
+  const lastQuestion = String(lead?.sms_last_question || '')
+  const detourReason = String(lead?.sms_detour_reason || '')
+  const callStatus = String(lead?.call_status || '')
+
   return (
-    lead?.call_status === 'guide_check_text_sent' &&
-    (
-      lead?.guide_delivery_status === 'sent_by_email' ||
-      lead?.guide_delivery_status === 'resent_by_email'
-    )
+    callStatus === 'guide_check_text_sent' ||
+    smsState === 'WAITING_FOR_GUIDE_RECEIVED' ||
+    lastQuestion === 'guide_verification_received' ||
+    detourReason === 'email_verification_recovery' ||
+    guideStatus === 'sent_by_email' ||
+    guideStatus === 'resent_by_email'
   )
 }
+
 
 function isRelocationLead(lead: any) {
   const sourceDetail = String(lead?.lead_source_detail || '').toLowerCase()
@@ -1388,6 +1396,8 @@ export async function POST(req: NextRequest) {
         const leadEmail = clean(lead?.email)
         const emailMatch = body.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)
         const confirmedEmail = clean(emailMatch?.[0] || leadEmail)
+        const guideRecoveryYes = isYesToGuide(body) || /\b(yes|yep|yeah|correct|that is correct|that's correct|yes it is|it is|ok|okay|sure)\b/i.test(body)
+        const guideRecoveryNo = isNoToGuide(body) || /\b(no|nope|nah|not yet|didnt|didn't|did not|never got|haven't|have not|nothing came through)\b/i.test(body)
 
         const writeGuideRecoveryReply = async (patch: Record<string, any>) => {
           const { error: guideRecoveryUpdateError } = await supabaseAdmin
@@ -1433,7 +1443,7 @@ export async function POST(req: NextRequest) {
         }
 
         if (lead?.sms_state === 'WAITING_FOR_EMAIL_CONFIRMATION') {
-          if (isYesToGuide(body) || emailMatch) {
+          if (guideRecoveryYes || emailMatch) {
             replyText = relocationSmsText.guideEmailPermissionAsk(firstName, confirmedEmail)
 
             return await writeGuideRecoveryReply({
@@ -1449,7 +1459,7 @@ export async function POST(req: NextRequest) {
             })
           }
 
-          if (isNoToGuide(body)) {
+          if (guideRecoveryNo) {
             replyText = `No problem ? please reply with the best email address for your Boise relocation guide, and I can help get it sent over.`
             return await writeGuideRecoveryReply({
               call_status: 'email_update_requested_by_sms',
@@ -1462,7 +1472,7 @@ export async function POST(req: NextRequest) {
         }
 
         if (lead?.sms_state === 'WAITING_FOR_EMAIL_RESEND_PERMISSION') {
-          if (isYesToGuide(body)) {
+          if (guideRecoveryYes) {
             const consentNote =
               `[${nowIso}] Customer confirmed email by SMS and gave permission to resend the Boise relocation guide and related MPRE Boise follow-up about their relocation inquiry to ${confirmedEmail || leadEmail}. Inbound consent text: "${body}"`
 
@@ -1517,7 +1527,7 @@ export async function POST(req: NextRequest) {
             })
           }
 
-          if (isNoToGuide(body)) {
+          if (guideRecoveryNo) {
             replyText = relocationSmsText.guideEmailPermissionDeclined()
 
             return await writeGuideRecoveryReply({
@@ -1531,7 +1541,7 @@ export async function POST(req: NextRequest) {
         }
 
         if (isGuideCheckLead(lead)) {
-          if (isYesToGuide(body)) {
+          if (guideRecoveryYes) {
             if (lead?.phone_verified === true && lead?.email_verified !== true) {
               replyText = relocationSmsText.guideVerificationReceivedNextStep()
 
@@ -1561,7 +1571,7 @@ export async function POST(req: NextRequest) {
             })
           }
 
-          if (isNoToGuide(body)) {
+          if (guideRecoveryNo) {
             replyText = relocationSmsText.guideEmailConfirmAsk(firstName, confirmedEmail || leadEmail)
 
             return await writeGuideRecoveryReply({
