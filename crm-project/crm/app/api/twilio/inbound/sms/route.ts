@@ -252,6 +252,27 @@ function isGuideCheckLead(lead: any) {
 }
 
 
+function isActiveGuideRecoveryLead(lead: any) {
+  const smsState = String(lead?.sms_state || '')
+  const lastQuestion = String(lead?.sms_last_question || '')
+  const detourReason = String(lead?.sms_detour_reason || '')
+  const callStatus = String(lead?.call_status || '')
+
+  return (
+    smsState === 'WAITING_FOR_GUIDE_RECEIVED' ||
+    smsState === 'WAITING_FOR_EMAIL_CONFIRMATION' ||
+    smsState === 'WAITING_FOR_EMAIL_RESEND_PERMISSION' ||
+    callStatus === 'phone_verified_pending_email' ||
+    callStatus === 'guide_check_text_sent' ||
+    lastQuestion === 'guide_verification_received' ||
+    detourReason === 'email_verification_recovery' ||
+    detourReason === 'guide_not_received_email_confirm' ||
+    detourReason === 'email_resend_permission' ||
+    detourReason === 'email_update_requested'
+  )
+}
+
+
 function isRelocationLead(lead: any) {
   const sourceDetail = String(lead?.lead_source_detail || '').toLowerCase()
   const smsCampaign = String(lead?.sms_campaign || '').toLowerCase()
@@ -581,6 +602,7 @@ export async function POST(req: NextRequest) {
     const matchedLeads = leadLookupResult.data || []
 
     existingLead =
+      matchedLeads.find((row: any) => isActiveGuideRecoveryLead(row)) ||
       matchedLeads.find(
         (row: any) =>
           isRelocationLead(row) &&
