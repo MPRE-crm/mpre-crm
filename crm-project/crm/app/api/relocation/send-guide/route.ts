@@ -1,20 +1,15 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
+import {
+  getActiveGuideUrl,
+  MPRE_BOISE_ORG_ID,
+} from "../../../../src/lib/guideAssets/getActiveGuideUrl";
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
     const leadId = String(body.lead_id || "").trim();
     const forceResend = Boolean(body.force_resend);
-
-    const guideUrl = process.env.RELOCATION_GUIDE_URL;
-
-    if (!guideUrl) {
-      return NextResponse.json(
-        { error: "Missing RELOCATION_GUIDE_URL environment variable." },
-        { status: 500 }
-      );
-    }
 
     if (!leadId) {
       return NextResponse.json({ error: "Missing lead_id." }, { status: 400 });
@@ -37,7 +32,7 @@ export async function POST(req: Request) {
       .eq("email_verified", true)
       .in("guide_delivery_status", readyStatuses)
       .select(
-        "id, first_name, last_name, email, phone_verified, email_verified, guide_delivery_status, guide_send_count"
+        "id, org_id, first_name, last_name, email, phone_verified, email_verified, guide_delivery_status, guide_send_count"
       )
       .single();
 
@@ -59,6 +54,27 @@ export async function POST(req: Request) {
         guide_delivery_status: existingLead?.guide_delivery_status || null,
         guide_send_count: existingLead?.guide_send_count || 0,
       });
+    }
+
+    const guideUrl = await getActiveGuideUrl({
+      orgId: claimedLead.org_id || MPRE_BOISE_ORG_ID,
+      guideType: "relocation",
+      fallbackUrl: process.env.RELOCATION_GUIDE_URL || null,
+    });
+
+    if (!guideUrl) {
+      await supabaseAdmin
+        .from("leads")
+        .update({
+          guide_delivery_status: forceResend ? "resend_failed" : "send_failed",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", leadId);
+
+      return NextResponse.json(
+        { error: "No active relocation guide is configured for this organization." },
+        { status: 500 }
+      );
     }
 
     const firstName = claimedLead.first_name || "there";
@@ -180,6 +196,7 @@ Equal Housing Opportunity
     return NextResponse.json({
       success: true,
       resent: forceResend,
+      guide_url_source: "guide_assets",
       message: forceResend
         ? "Guide resent successfully."
         : "Guide sent successfully.",

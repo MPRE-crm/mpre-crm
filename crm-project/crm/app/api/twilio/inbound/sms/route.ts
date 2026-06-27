@@ -1,3 +1,4 @@
+import { getActiveGuideUrl, MPRE_BOISE_ORG_ID } from '../../../../../src/lib/guideAssets/getActiveGuideUrl'
 import { NextRequest, NextResponse } from 'next/server'
 import { randomBytes } from 'crypto'
 import twilio from 'twilio'
@@ -1477,6 +1478,11 @@ export async function POST(req: NextRequest) {
 
         if (shouldSendGuideLinkBySms) {
           const guideLink =
+            (await getActiveGuideUrl({
+              orgId: (lead as any)?.org_id || MPRE_BOISE_ORG_ID,
+              guideType: 'relocation',
+              fallbackUrl: process.env.RELOCATION_GUIDE_URL || null,
+            })) ||
             process.env.RELOCATION_GUIDE_URL ||
             'https://wfjwkssqvifwatquhvti.supabase.co/storage/v1/object/public/relocation-guide/2025%20Boise%20Idaho%20Area%20Relocation%20Guide-4.pdf'
 
@@ -1899,3 +1905,4 @@ export async function POST(req: NextRequest) {
 }
 
 export const GET = POST
+
