@@ -126,7 +126,7 @@ export default function LoginClient() {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           className="w-full border rounded px-3 py-2 mb-2"
-          placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
+          placeholder={"\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"}
           autoComplete="current-password"
           disabled={loading || resetLoading}
         />
@@ -158,4 +158,7 @@ export default function LoginClient() {
     </div>
   );
 }
+
+
+
 
