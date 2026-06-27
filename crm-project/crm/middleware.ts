@@ -1,4 +1,4 @@
-// crm-project/crm/middleware.ts
+﻿// crm-project/crm/middleware.ts
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
@@ -8,14 +8,12 @@ const PUBLIC_PATHS = [
   '/login',
   '/reset-password',
   '/auth/callback',
-  '/api',                 // <-- allow ALL /api/*
+  '/api',
   '/favicon.ico',
   '/robots.txt',
   '/sitemap.xml',
 ];
 
-// Private areas that always require auth
-const PROTECTED_PREFIXES = ['/dashboard'];
 const BROWSER_SESSION_COOKIE = 'app-session';
 
 function isStaticAsset(pathname: string) {
@@ -30,23 +28,25 @@ function isPublicPath(pathname: string) {
   return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + '/'));
 }
 
-function isProtectedPath(pathname: string) {
-  if (pathname === '/' || pathname === '') return true; // protect root
-  return PROTECTED_PREFIXES.some((p) => pathname.startsWith(p));
-}
-
 export async function middleware(req: NextRequest) {
-  const { pathname, search } = req.nextUrl;
+  const { pathname } = req.nextUrl;
 
-  // --- CRITICAL: never intercept WS handshakes ---
+  // Never intercept WS handshakes
   const upgrade = (req.headers.get('upgrade') || '').toLowerCase();
   if (upgrade === 'websocket') return NextResponse.next();
 
   // Static assets
   if (isStaticAsset(pathname)) return NextResponse.next();
 
-  // --- All API routes are public (no auth/redirects) ---
+  // API routes are public to middleware. Route handlers enforce their own rules.
   if (pathname.startsWith('/api/')) return NextResponse.next();
+
+  // IMPORTANT:
+  // Dashboard auth is handled by MfaGate because the browser Supabase client
+  // stores the active auth session in localStorage. Middleware cannot reliably
+  // see that localStorage session, so protecting /dashboard here causes a
+  // login <-> dashboard redirect loop.
+  if (pathname.startsWith('/dashboard')) return NextResponse.next();
 
   let res = NextResponse.next();
 
@@ -68,15 +68,15 @@ export async function middleware(req: NextRequest) {
     }
   );
 
-  const { data: { session } } = await supabase.auth.getSession();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
 
-  const hasBrowserSession = !!req.cookies.get(BROWSER_SESSION_COOKIE)?.value;
   const isLogin = pathname === '/login';
   const isCallback = pathname.startsWith('/auth/callback');
-  const protectedPath = isProtectedPath(pathname);
   const publicPath = isPublicPath(pathname);
 
-  // OAuth callback → set browser session flag
+  // OAuth callback -> set browser session flag
   if (isCallback && session) {
     res.cookies.set({
       name: BROWSER_SESSION_COOKIE,
@@ -100,33 +100,20 @@ export async function middleware(req: NextRequest) {
         sameSite: 'lax',
         secure: true,
       });
+
       const url = req.nextUrl.clone();
       const target = url.searchParams.get('redirect') || '/dashboard/leads';
       return NextResponse.redirect(new URL(target, req.url));
     }
+
     return res;
   }
 
-  // Protected routes (including "/")
-  if (protectedPath) {
-    if (!session) {
-      const url = req.nextUrl.clone();
-      url.pathname = '/login';
-      url.searchParams.set('redirect', pathname + search);
-      return NextResponse.redirect(url);
-    }
-
-    if (!hasBrowserSession) {
-      res.cookies.set({
-        name: BROWSER_SESSION_COOKIE,
-        value: '1',
-        path: '/',
-        httpOnly: true,
-        sameSite: 'lax',
-        secure: true,
-      });
-      return res;
-    }
+  // Root goes to login. Dashboard itself is handled above by MfaGate.
+  if (pathname === '/' || pathname === '') {
+    const url = req.nextUrl.clone();
+    url.pathname = '/login';
+    return NextResponse.redirect(url);
   }
 
   return res;

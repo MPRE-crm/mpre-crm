@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -73,23 +73,22 @@ export default function LoginClient() {
 
     setResetLoading(true);
 
-    const resetUrl =
-      typeof window !== 'undefined'
-        ? `${window.location.origin}/reset-password`
-        : undefined;
-
-    const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
-      redirectTo: resetUrl,
+    const response = await fetch('/api/auth/recover', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: cleanEmail }),
     });
+
+    const result = await response.json().catch(() => null);
 
     setResetLoading(false);
 
-    if (error) {
-      setErr(error.message || 'Could not send password reset email.');
+    if (!response.ok || !result?.ok) {
+      setErr(result?.error || 'Could not send password reset email.');
       return;
     }
 
-    setNotice('Password reset email sent. Check your inbox.');
+    setNotice(result?.message || 'Password reset email sent. Check your inbox.');
   };
 
   return (
@@ -127,7 +126,7 @@ export default function LoginClient() {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           className="w-full border rounded px-3 py-2 mb-2"
-          placeholder="••••••••"
+          placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
           autoComplete="current-password"
           disabled={loading || resetLoading}
         />
@@ -138,7 +137,7 @@ export default function LoginClient() {
           disabled={loading || resetLoading}
           className="text-sm text-blue-700 hover:underline mb-4 disabled:opacity-60"
         >
-          {resetLoading ? 'Sending reset email…' : 'Forgot password?'}
+          {resetLoading ? 'Sending reset emailâ€¦' : 'Forgot password?'}
         </button>
 
         {err && <div className="text-red-600 text-sm mb-3">{err}</div>}
@@ -149,7 +148,7 @@ export default function LoginClient() {
           disabled={loading || resetLoading}
           className="w-full rounded-md border px-3 py-2 disabled:opacity-60 mb-3 bg-blue-600 text-white"
         >
-          {loading ? 'Logging in…' : 'Sign in'}
+          {loading ? 'Logging inâ€¦' : 'Sign in'}
         </button>
 
         <p className="text-xs text-neutral-500 text-center">
@@ -159,3 +158,4 @@ export default function LoginClient() {
     </div>
   );
 }
+
