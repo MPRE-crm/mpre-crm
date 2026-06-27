@@ -1,15 +1,10 @@
-// crm/app/api/preferences/calendar/calendars/route.ts
-import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-import { google } from "googleapis";
-import { getGoogleOauthClient } from "../../../../../lib/calendar/googleOauthClient";
-
+﻿// crm/app/api/preferences/calendar/calendars/route.ts
 export const runtime = "nodejs";
 
-const supabase = createClient(
-  process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { NextRequest, NextResponse } from "next/server";
+import { google } from "googleapis";
+import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
+import { getAuthorizedGoogleOAuthClient } from "../../../../../lib/calendar/getAuthorizedGoogleOAuthClient";
 
 export async function GET(req: NextRequest) {
   try {
@@ -19,7 +14,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Missing profileId" }, { status: 400 });
     }
 
-    const { data: connection, error } = await supabase
+    const { data: connection, error } = await supabaseAdmin
       .from("calendar_connections")
       .select("*")
       .eq("agent_id", profileId)
@@ -28,6 +23,7 @@ export async function GET(req: NextRequest) {
       .maybeSingle();
 
     if (error) throw new Error(error.message);
+
     if (!connection) {
       return NextResponse.json(
         { error: "No active Google calendar connection found" },
@@ -35,21 +31,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    if (!connection.refresh_token) {
-      return NextResponse.json(
-        { error: "Missing Google refresh token" },
-        { status: 400 }
-      );
-    }
-
-    const oauth2Client = getGoogleOauthClient();
-    oauth2Client.setCredentials({
-      refresh_token: connection.refresh_token,
-      access_token: connection.access_token || undefined,
-      expiry_date: connection.token_expires_at
-        ? new Date(connection.token_expires_at).getTime()
-        : undefined,
-    });
+    const oauth2Client = await getAuthorizedGoogleOAuthClient(connection);
 
     const calendar = google.calendar({ version: "v3", auth: oauth2Client });
     const result = await calendar.calendarList.list();

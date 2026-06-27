@@ -1,7 +1,9 @@
-export const runtime = "nodejs";
+﻿export const runtime = "nodejs";
+
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
-import { getGoogleOAuthClient, fetchGoogleCalendars } from "../../../../../lib/googleCalendar";
+import { fetchGoogleCalendars } from "../../../../../lib/googleCalendar";
+import { getAuthorizedGoogleOAuthClient } from "../../../../../lib/calendar/getAuthorizedGoogleOAuthClient";
 
 export async function POST(req: NextRequest) {
   try {
@@ -27,15 +29,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const oauth2Client = getGoogleOAuthClient();
-    oauth2Client.setCredentials({
-      access_token: connection.access_token,
-      refresh_token: connection.refresh_token,
-      expiry_date: connection.token_expires_at
-        ? new Date(connection.token_expires_at).getTime()
-        : undefined,
-    });
-
+    const oauth2Client = await getAuthorizedGoogleOAuthClient(connection);
     const calendars = await fetchGoogleCalendars(oauth2Client);
 
     const rows = calendars.map((cal: any) => ({
@@ -45,6 +39,7 @@ export async function POST(req: NextRequest) {
       timezone: cal.timezone,
       is_primary: cal.is_primary,
       is_selected: cal.provider_calendar_id === connection.default_calendar_id,
+      updated_at: new Date().toISOString(),
     }));
 
     if (rows.length > 0) {
