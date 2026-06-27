@@ -1,4 +1,5 @@
-import { relocationSmsText } from './textHub/relocationSmsText'
+﻿import { relocationSmsText } from './textHub/relocationSmsText'
+import { getOrgMessagingContext } from '../org/getOrgMessagingContext'
 import { detectGuideReceived } from './textHub/relocationSmsIntent'
 
 type SmsDirection = 'incoming' | 'outgoing'
@@ -267,30 +268,8 @@ function extractJson(text: string) {
   return text.slice(start, end + 1)
 }
 
-function marketContextFromLead(lead: RelocationLead) {
-  const source = String(lead.lead_source_detail || '').toLowerCase()
-
-  if (source.includes('twin falls')) {
-    return {
-      marketName: 'Twin Falls',
-      brandName: 'MPRE Twin Falls',
-      teamLabel: 'our team here at MPRE Twin Falls',
-    }
-  }
-
-  if (source.includes('cda') || source.includes('coeur')) {
-    return {
-      marketName: 'Coeur d’Alene',
-      brandName: 'MPRE CDA',
-      teamLabel: 'our team here at MPRE CDA',
-    }
-  }
-
-  return {
-    marketName: 'Boise',
-    brandName: 'MPRE Boise',
-    teamLabel: 'our team here at MPRE Boise',
-  }
+async function marketContextFromLead(lead: RelocationLead) {
+  return await getOrgMessagingContext((lead as any)?.org_id || null, 'relocation')
 }
 
 function detectSentiment(text: string): BrainResult['sentiment'] {
@@ -324,7 +303,7 @@ function isCompanyOrValueQuestion(text: string) {
   const t = text.toLowerCase()
 
   return (
-    /mpre|mpre boise|your company|your team|brokerage|who are you|what do you do|what makes.*different|why should i work with you|why use you|why mpre|why your team|how do you help|what value|value do you provide|what makes you different/i.test(t)
+    /mpre|your company|your team|brokerage|who are you|what do you do|what makes.*different|why should i work with you|why use you|why your team|how do you help|what value|value do you provide|what makes you different/i.test(t)
   )
 }
 
@@ -332,7 +311,7 @@ function getUnclearCount(recentMessages: SmsMessage[]) {
   return recentMessages.filter(
     (m) =>
       m.direction === 'outgoing' &&
-      /want to make sure i understood|let's keep it simple|lets keep it simple|didn’t quite catch that|didn't quite catch that/i.test(
+      /want to make sure i understood|let's keep it simple|lets keep it simple|didnâ€™t quite catch that|didn't quite catch that/i.test(
         String(m.body || '')
       )
   ).length
@@ -342,8 +321,8 @@ function extractTimeline(text: string) {
   const t = text.toLowerCase()
   const monthMatch = t.match(/(\d+)\s*(month|months)/)
   if (monthMatch) return `${monthMatch[1]} months`
-  if (/3\s*[-–]\s*6\s*months|3 to 6 months/.test(t)) return '3-6 months'
-  if (/6\s*[-–]\s*12\s*months|6 to 12 months/.test(t)) return '6-12 months'
+  if (/3\s*[-â€“]\s*6\s*months|3 to 6 months/.test(t)) return '3-6 months'
+  if (/6\s*[-â€“]\s*12\s*months|6 to 12 months/.test(t)) return '6-12 months'
   if (/asap|right away|immediately|right now/.test(t)) return 'ASAP'
   if (/next month/.test(t)) return 'next month'
   if (/this year/.test(t)) return 'this year'
@@ -401,7 +380,7 @@ function extractAgentStatus(text: string) {
   }
 
   if (
-    /no agent|not working with an agent|dont have an agent|don't have an agent|need an agent|need someone|need help|need assistance|assistance please|help please|need help from mpre|need someone from mpre|assign me someone|you can assign me someone|someone from mpre|mpre boise please|mpre boise to assist|mpre please|want help from your team|would like assistance from your team|assistance from your team|your team please/i.test(t)
+    /no agent|not working with an agent|dont have an agent|don't have an agent|need an agent|need someone|need help|need assistance|assistance please|help please|need help from mpre|need someone from mpre|assign me someone|you can assign me someone|someone from mpre|mpre please|want help from your team|would like assistance from your team|assistance from your team|your team please/i.test(t)
   ) {
     return 'no_agent'
   }
@@ -487,15 +466,15 @@ function formatSlotOptions(availableSlots: string[]) {
   return relocationSmsText.slotOptions(a, b)
 }
 
-function fallbackReply(
+async function fallbackReply(
   lead: RelocationLead,
   inboundText: string,
   recentMessages: SmsMessage[]
-): BrainResult {
+): Promise<BrainResult> {
   const name = firstNameOf(lead)
   const sentiment = detectSentiment(inboundText)
   const unclearCount = getUnclearCount(recentMessages)
-  const market = marketContextFromLead(lead)
+  const market = await marketContextFromLead(lead)
 
   const timeline = extractTimeline(inboundText)
   const price = extractBudget(inboundText)
@@ -1179,7 +1158,7 @@ export async function runRelocationSmsBrain(args: {
     return fallbackReply(lead, inboundText, recentMessages)
   }
 
-  const market = marketContextFromLead(lead)
+  const market = await marketContextFromLead(lead)
   const { default: OpenAI } = await import('openai')
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
@@ -1197,11 +1176,21 @@ export async function runRelocationSmsBrain(args: {
   })
   const currentStep = sanitizeStep(lead.sms_lpmama_current_step, nextStep)
 
-  const guidePromptIndex = recentMessages
-    .map((m) => String(m.body || '').toLowerCase())
-    .lastIndexOf(
-      'hi john, this is samantha with mpre boise. i just tried giving you a quick call because you requested our boise relocation guide. did you happen to receive it yet?'.toLowerCase()
-    )
+  const normalizedRecentBodies = recentMessages.map((m) =>
+    String(m.body || '').toLowerCase()
+  )
+  let guidePromptIndex = -1
+  for (let i = normalizedRecentBodies.length - 1; i >= 0; i -= 1) {
+    const recentBody = normalizedRecentBodies[i]
+    if (
+      recentBody.includes('this is samantha with') &&
+      recentBody.includes('just tried giving you a quick call') &&
+      recentBody.includes('did you happen to receive it yet')
+    ) {
+      guidePromptIndex = i
+      break
+    }
+  }
 
   const transcriptWindow =
     guidePromptIndex >= 0 ? recentMessages.slice(guidePromptIndex) : recentMessages.slice(-10)
@@ -1236,15 +1225,15 @@ Important:
 - When referring to agent help, always keep it in-house with ${market.brandName}. Say things like "our team here at ${market.brandName}" or "someone on our team here at ${market.brandName}".
 - Never suggest some random outside local agent.
 - If they already have a local agent and it is not your team, politely acknowledge it and exit.
-- Answer off-topic questions, objections, value questions, MPRE Boise/company questions, process questions, and local area questions as fully as needed.
+- Answer off-topic questions, objections, value questions, ${market.brandName}/company questions, process questions, and local area questions as fully as needed.
 - Then return exactly to the NEXT MISSING TPMAMA STEP.
 - If the core TPMAMA/appointment flow is already complete, do not stop replying. Stay available as a helpful post-flow Q&A assistant.
 - If appointment options were already offered and the lead asks a question instead of choosing A/B, answer the question first. Then gently remind them they can still reply A or B when they are ready.
-- If the lead asks about ${market.brandName}, what your team does, or why they should work with MPRE, use these approved talking points:
+- If the lead asks about ${market.brandName}, what your team does, or why they should work with ${market.brandName}, use these approved talking points:
   1. Guidance: help relocation buyers cut through online noise, understand how areas actually feel, compare lifestyle fit, commute, neighborhoods, and avoid wasting time on homes or areas that look good online but do not fit the bigger picture.
   2. Strategy: help them understand price ranges, market pace, competition, buyer leverage, and where they need to move quickly when the right opportunity appears.
   3. Execution: help set up the right search, narrow best-fit homes, structure offers, negotiate inspections, and keep the process clear through closing.
-- Keep MPRE/company answers warm, professional, and concise for SMS. Do not send a long speech unless the customer asks for more detail.
+- Keep ${market.brandName}/company answers warm, professional, and concise for SMS. Do not send a long speech unless the customer asks for more detail.
 - Do not overstate awards, guarantees, rankings, or facts that were not provided.
 - Only stop replying for clear hard stops like stop, unsubscribe, remove me, or do not contact.
 - If the lead answers multiple steps in one message, capture them all.
@@ -1739,7 +1728,7 @@ ${inboundText}
     return {
       replyText:
         trimOrNull(parsed.replyText) ||
-        fallbackReply(lead, inboundText, recentMessages).replyText,
+        (await fallbackReply(lead, inboundText, recentMessages)).replyText,
       nextState: sanitizeState(parsed.nextState, lead.sms_state || 'WAITING_FOR_TIMELINE'),
       nextPriority: trimOrNull(parsed.nextPriority) || nextStep,
       temperature: sanitizeTemperature(parsed.temperature),
@@ -1785,3 +1774,6 @@ ${inboundText}
     return fallbackReply(lead, inboundText, recentMessages)
   }
 }
+
+
+

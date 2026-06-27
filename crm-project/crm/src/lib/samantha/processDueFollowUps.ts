@@ -1,9 +1,10 @@
-import { createClient } from "@supabase/supabase-js";
+﻿import { createClient } from "@supabase/supabase-js";
 import twilio from "twilio";
 import { sendText } from "../../../lib/sendText";
 import { resolvePostIdxAction } from "./resolvePostIdxAction";
 import { logSamanthaAction } from "./logSamanthaAction";
 import { relocationSmsText } from "../sms/textHub/relocationSmsText";
+import { getOrgMessagingContext } from "../org/getOrgMessagingContext";
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
@@ -34,21 +35,23 @@ function getFirstName(lead: any) {
   );
 }
 
-function buildIdxFollowUpText(lead: any) {
+async function buildIdxFollowUpText(lead: any) {
   const firstName = getFirstName(lead);
+  const ctx = await getOrgMessagingContext(lead?.org_id, "relocation");
 
-  return `Hi ${firstName}, this is Samantha with MPRE Boise. I saw you were looking at homes and wanted to see if you'd like help narrowing down the best options or setting up a quick home search.`;
+  return `Hi ${firstName}, this is Samantha with ${ctx.brandName}. I saw you were looking at homes and wanted to see if you'd like help narrowing down the best options or setting up a quick home search.`;
 }
 
-function buildRelocationGuideCheckText(lead: any) {
+async function buildRelocationGuideCheckText(lead: any) {
   const firstName = getFirstName(lead);
   const email = String(lead?.email || "").trim();
+  const ctx = await getOrgMessagingContext(lead?.org_id, "relocation");
 
   if (lead?.phone_verified === true && lead?.email_verified !== true) {
-    return relocationSmsText.guideVerificationCheck(firstName, email);
+    return `Hi ${firstName}, this is Samantha with ${ctx.brandName}. Just checking — did you receive the ${ctx.guideLabel} okay?`;
   }
 
-  return `Hi ${firstName}, this is Samantha with MPRE Boise. Just checking ? did you receive the Boise relocation guide okay?`;
+  return `Hi ${firstName}, this is Samantha with ${ctx.brandName}. Just checking — did you receive the ${ctx.guideLabel} okay?`;
 }
 
 function isRelocationGuideCheckDue(lead: any) {
@@ -89,7 +92,7 @@ export async function processDueFollowUps(limit = 25) {
 
   for (const lead of leads || []) {
     if (isRelocationGuideCheckDue(lead)) {
-      const message = buildRelocationGuideCheckText(lead);
+      const message = await buildRelocationGuideCheckText(lead);
 
       if (EXECUTION_MODE === "mock") {
         await logSamanthaAction({
@@ -200,7 +203,7 @@ export async function processDueFollowUps(limit = 25) {
     });
 
     if (action.action === "text_now") {
-      const message = buildIdxFollowUpText(lead);
+      const message = await buildIdxFollowUpText(lead);
 
       if (EXECUTION_MODE === "mock") {
         await logSamanthaAction({

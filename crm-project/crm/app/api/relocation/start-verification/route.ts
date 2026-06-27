@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 import twilio from "twilio";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
+import { getOrgMessagingContext } from "../../../../src/lib/org/getOrgMessagingContext";
 
 const twilioClient = twilio(
   process.env.TWILIO_ACCOUNT_SID!,
@@ -150,6 +151,8 @@ export async function POST(req: Request) {
       );
     }
 
+    const ctx = await getOrgMessagingContext(orgId, "relocation");
+
     const agentId = await getRotationAgentProfileId({
       orgId,
       fallbackAgentId,
@@ -167,9 +170,9 @@ export async function POST(req: Request) {
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
 
     const notes = [
-      "Lead submitted from MPRE Boise relocation landing page.",
+      `Lead submitted from ${ctx.brandName} relocation landing page.`,
       "Source platform: EasyRealtor CRM",
-      "Public brand: MPRE Boise with Homes of Idaho",
+      `Public brand: ${ctx.brandName} with ${ctx.brokerageName}`,
       "Guide delivery status: pending_verification",
       "Phone verified: false",
       "Email verified: false",
@@ -179,7 +182,7 @@ export async function POST(req: Request) {
       `Price range: ${price_range || "Not provided yet"}`,
       `Assigned agent profile ID: ${agentId}`,
       "Assignment method: direct rotation_members lookup with environment fallback.",
-      "Consent language shown: I agree to receive calls, texts, and emails from MPRE Boise with Homes of Idaho about my real estate inquiry, including automated follow-up. Consent is not required to buy or sell real estate. Message/data rates may apply. Reply STOP to opt out.",
+      `Consent language shown: I agree to receive calls, texts, and emails from ${ctx.brandName} with ${ctx.brokerageName} about my real estate inquiry, including automated follow-up. Consent is not required to buy or sell real estate. Message/data rates may apply. Reply STOP to opt out.`,
       "Verification message shown: We verify your phone and email before sending the guide so fake submissions do not trigger delivery.",
     ].join("\n");
 
@@ -193,7 +196,7 @@ export async function POST(req: Request) {
         agent_id: agentId,
         org_id: orgId,
         status: "Unverified Lead",
-        lead_source: "MPRE Boise Relocation Landing Page",
+        lead_source: `${ctx.brandName} Relocation Landing Page`,
         source: "relocation_landing_page",
         move_timeline,
         price_range,
@@ -235,7 +238,7 @@ export async function POST(req: Request) {
     await twilioClient.messages.create({
       to: phone,
       from: process.env.TWILIO_PHONE_NUMBER!,
-      body: `MPRE Boise: verify your phone for the Boise relocation guide. ${phoneVerifyUrl} Reply STOP to opt out.`,
+      body: `${ctx.brandName}: verify your phone for the ${ctx.guideLabel}. ${phoneVerifyUrl} Reply STOP to opt out.`,
     });
 
     const resendResponse = await fetch("https://api.resend.com/emails", {
@@ -245,7 +248,7 @@ export async function POST(req: Request) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: process.env.RESEND_FROM_EMAIL || "MPRE Boise <noreply@easyrealtor.homes>",
+        from: process.env.RESEND_FROM_EMAIL || `${ctx.brandName} <noreply@mpre.homes>`,
         reply_to: process.env.RESEND_REPLY_TO || "Mike Petras <mpetras@mpre.homes>",
         to: email,
         subject: "Confirm your email",
@@ -253,7 +256,7 @@ export async function POST(req: Request) {
           <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #111827; max-width: 560px; margin: 0 auto;">
             <p>Hi ${first_name || "there"},</p>
 
-            <p>Thanks for requesting the Boise relocation guide.</p>
+            <p>Thanks for requesting the ${ctx.guideLabel}.</p>
 
             <p>Please confirm your email so we can send it over.</p>
 
@@ -265,25 +268,25 @@ export async function POST(req: Request) {
 
             <p style="margin-top:24px;">
               Thanks,<br />
-              MPRE Boise<br />
-              Homes of Idaho
+              ${ctx.brandName}<br />
+              ${ctx.brokerageName}
             </p>
 
             <p style="font-size:12px;color:#6b7280;">
-              You received this because you requested the Boise relocation guide from MPRE Boise.
+              You received this because you requested the ${ctx.guideLabel} from ${ctx.brandName}.
             </p>
           </div>
         `,
         text: `Hi ${first_name || "there"},
 
-Thanks for requesting the Boise relocation guide.
+Thanks for requesting the ${ctx.guideLabel}.
 
 Please confirm your email here:
 ${emailVerifyUrl}
 
 Thanks,
-MPRE Boise
-Homes of Idaho
+${ctx.brandName}
+${ctx.brokerageName}
 `,
       }),
     });
@@ -317,3 +320,4 @@ Homes of Idaho
     );
   }
 }
+

@@ -7,6 +7,7 @@ import { runRelocationSmsBrain } from '../../../../../src/lib/sms/relocationSmsB
 import { relocationSmsText } from '../../../../../src/lib/sms/textHub/relocationSmsText'
 import { isGuideNo, isGuideYes } from '../../../../../src/lib/sms/textHub/relocationSmsIntent'
 import { getTwoSlots } from '../../../../../lib/calendar/getTwoSlots'
+import { getOrgMessagingContext } from '../../../../../src/lib/org/getOrgMessagingContext'
 
 export const runtime = 'nodejs'
 
@@ -200,7 +201,7 @@ function isLikelyCustomerQuestion(text?: string | null) {
   }
 
   if (
-    /\b(tell me|explain|wondering|curious|question|questions|what makes|how does|who is|who are|mpre|mpre boise|company|team|brokerage|boise|meridian|eagle|nampa|caldwell|kuna|star|schools|taxes|neighborhood|area|market|rates|loan|lender|relocation|moving)\b/i.test(t)
+    /\b(tell me|explain|wondering|curious|question|questions|what makes|how does|who is|who are|mpre|company|team|brokerage|schools|taxes|neighborhood|area|market|rates|loan|lender|relocation|moving|city|community|communities|commute)\b/i.test(t)
   ) {
     return true
   }
@@ -887,7 +888,7 @@ export async function POST(req: NextRequest) {
         /cash|mortgage|financ|loan|lender|paying/i.test(lastOutgoingSms)
 
       const lastOutgoingWasAssistancePath =
-        /assist|assistance|our team|mpre boise/i.test(lastOutgoingSms)
+        /assist|assistance|our team|mpre/i.test(lastOutgoingSms)
 
       const shouldPreloadSlotsForAppointmentOffer =
         inboundLooksLikeMortgageOrCashAnswer &&
@@ -1329,7 +1330,10 @@ export async function POST(req: NextRequest) {
         })
 
         if (lenderIntroSent) {
-          replyText = relocationSmsText.lenderIntroSentAppointment(clean(lead?.first_name) || 'there')
+          replyText = relocationSmsText.lenderIntroSentAppointment(
+            clean(lead?.first_name) || 'there',
+            await getOrgMessagingContext((lead as any)?.org_id || DEFAULT_ORG_ID, 'relocation')
+          )
 
           const { error: appointmentPatchError } = await supabaseAdmin
             .from('leads')
@@ -1502,7 +1506,10 @@ export async function POST(req: NextRequest) {
             })
           }
 
-          replyText = relocationSmsText.guideSmsLink(guideLink)
+          replyText = relocationSmsText.guideSmsLink(
+            guideLink,
+            await getOrgMessagingContext((lead as any)?.org_id || DEFAULT_ORG_ID, 'relocation')
+          )
 
           return await writeGuideRecoveryReply({
             call_status: 'guide_link_sent_by_sms',
@@ -1518,7 +1525,11 @@ export async function POST(req: NextRequest) {
 
         if (lead?.sms_state === 'WAITING_FOR_EMAIL_CONFIRMATION') {
           if (guideRecoveryYes || emailMatch) {
-            replyText = relocationSmsText.guideEmailPermissionAsk(firstName, confirmedEmail)
+            replyText = relocationSmsText.guideEmailPermissionAsk(
+              firstName,
+              confirmedEmail,
+              await getOrgMessagingContext((lead as any)?.org_id || DEFAULT_ORG_ID, 'relocation')
+            )
 
             return await writeGuideRecoveryReply({
               email: confirmedEmail || leadEmail,
@@ -1534,7 +1545,11 @@ export async function POST(req: NextRequest) {
           }
 
           if (guideRecoveryNo) {
-            replyText = `No problem - please reply with the best email address for your Boise relocation guide, and I can help get it sent over.`
+            replyText = relocationSmsText.guideEmailConfirmAsk(
+              firstName,
+              null,
+              await getOrgMessagingContext((lead as any)?.org_id || DEFAULT_ORG_ID, 'relocation')
+            )
             return await writeGuideRecoveryReply({
               call_status: 'email_update_requested_by_sms',
               sms_state: 'WAITING_FOR_EMAIL_CONFIRMATION',
@@ -1547,8 +1562,9 @@ export async function POST(req: NextRequest) {
 
         if (lead?.sms_state === 'WAITING_FOR_EMAIL_RESEND_PERMISSION') {
           if (guideRecoveryYes) {
+            const smsCtx = await getOrgMessagingContext((lead as any)?.org_id || DEFAULT_ORG_ID, 'relocation')
             const consentNote =
-              `[${nowIso}] Customer confirmed email by SMS and gave permission to resend the Boise relocation guide and related MPRE Boise follow-up about their relocation inquiry to ${confirmedEmail || leadEmail}. Inbound consent text: "${body}"`
+              `[${nowIso}] Customer confirmed email by SMS and gave permission to resend the ${smsCtx.guideLabel} and related ${smsCtx.brandName} follow-up about their relocation inquiry to ${confirmedEmail || leadEmail}. Inbound consent text: "${body}"`
 
             const existingNotes = clean(lead?.notes)
             const updatedNotes = existingNotes ? `${existingNotes}\n${consentNote}` : consentNote
@@ -1617,7 +1633,9 @@ export async function POST(req: NextRequest) {
         if (isGuideCheckLead(lead)) {
           if (guideRecoveryYes) {
             if (lead?.phone_verified === true && lead?.email_verified !== true) {
-              replyText = relocationSmsText.guideVerificationReceivedNextStep()
+              replyText = relocationSmsText.guideVerificationReceivedNextStep(
+                await getOrgMessagingContext((lead as any)?.org_id || DEFAULT_ORG_ID, 'relocation')
+              )
 
               return await writeGuideRecoveryReply({
                 call_status: 'guide_verification_received_pending_click',
@@ -1631,7 +1649,10 @@ export async function POST(req: NextRequest) {
               })
             }
 
-            replyText = relocationSmsText.guideConfirmedAreaQuestion(firstName)
+            replyText = relocationSmsText.guideConfirmedAreaQuestion(
+              firstName,
+              await getOrgMessagingContext((lead as any)?.org_id || DEFAULT_ORG_ID, 'relocation')
+            )
 
             return await writeGuideRecoveryReply({
               call_status: 'guide_received_confirmed',
@@ -1646,7 +1667,11 @@ export async function POST(req: NextRequest) {
           }
 
           if (guideRecoveryNo) {
-            replyText = relocationSmsText.guideEmailConfirmAsk(firstName, confirmedEmail || leadEmail)
+            replyText = relocationSmsText.guideEmailConfirmAsk(
+              firstName,
+              confirmedEmail || leadEmail,
+              await getOrgMessagingContext((lead as any)?.org_id || DEFAULT_ORG_ID, 'relocation')
+            )
 
             return await writeGuideRecoveryReply({
               call_status: 'guide_email_confirmation_requested',
@@ -1826,7 +1851,10 @@ export async function POST(req: NextRequest) {
         })
 
         if (lenderIntroSent) {
-          replyText = relocationSmsText.lenderIntroSentAppointment(clean(lead?.first_name) || 'there')
+          replyText = relocationSmsText.lenderIntroSentAppointment(
+            clean(lead?.first_name) || 'there',
+            await getOrgMessagingContext((lead as any)?.org_id || DEFAULT_ORG_ID, 'relocation')
+          )
 
           const appointmentPatch = {
             sms_state: 'OFFER_AGENT_CALL',

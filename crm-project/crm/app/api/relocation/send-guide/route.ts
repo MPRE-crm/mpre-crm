@@ -1,9 +1,10 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 import {
   getActiveGuideUrl,
   MPRE_BOISE_ORG_ID,
 } from "../../../../src/lib/guideAssets/getActiveGuideUrl";
+import { getOrgMessagingContext } from "../../../../src/lib/org/getOrgMessagingContext";
 
 export async function POST(req: Request) {
   try {
@@ -78,6 +79,10 @@ export async function POST(req: Request) {
     }
 
     const firstName = claimedLead.first_name || "there";
+    const ctx = await getOrgMessagingContext(
+      claimedLead.org_id || MPRE_BOISE_ORG_ID,
+      "relocation"
+    );
 
     const resendResponse = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -86,18 +91,18 @@ export async function POST(req: Request) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: process.env.RESEND_FROM_EMAIL || "MPRE Boise <noreply@easyrealtor.homes>",
+        from: process.env.RESEND_FROM_EMAIL || `${ctx.brandName} <noreply@mpre.homes>`,
         reply_to: process.env.RESEND_REPLY_TO || "Mike Petras <mpetras@mpre.homes>",
         to: claimedLead.email,
-        subject: "Your Boise relocation guide",
+        subject: `Your ${ctx.guideLabel}`,
         html: `
           <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #111827; max-width: 560px; margin: 0 auto;">
             <p>Hi ${firstName},</p>
 
             <p>${
               forceResend
-                ? "Here is the Boise relocation guide again."
-                : "Here is the Boise relocation guide you requested."
+                ? `Here is the ${ctx.guideLabel} again.`
+                : `Here is the ${ctx.guideLabel} you requested.`
             }</p>
 
             <p>
@@ -110,12 +115,12 @@ export async function POST(req: Request) {
 
             <p style="margin-top:24px;">
               Thanks,<br />
-              MPRE Boise<br />
-              Homes of Idaho
+              ${ctx.brandName}<br />
+              ${ctx.brokerageName}
             </p>
 
             <p style="font-size:12px;color:#6b7280;">
-              You received this because you requested the Boise relocation guide from MPRE Boise.
+              You received this because you requested the ${ctx.guideLabel} from ${ctx.brandName}.
               Equal Housing Opportunity.
             </p>
           </div>
@@ -124,8 +129,8 @@ export async function POST(req: Request) {
 
 ${
   forceResend
-    ? "Here is the Boise relocation guide again."
-    : "Here is the Boise relocation guide you requested."
+    ? `Here is the ${ctx.guideLabel} again.`
+    : `Here is the ${ctx.guideLabel} you requested.`
 }
 
 Download guide:
@@ -134,8 +139,8 @@ ${guideUrl}
 You can reply to this email if you have questions about the guide or your move.
 
 Thanks,
-MPRE Boise
-Homes of Idaho
+${ctx.brandName}
+${ctx.brokerageName}
 Equal Housing Opportunity
 `,
       }),
@@ -210,3 +215,4 @@ Equal Housing Opportunity
     );
   }
 }
+

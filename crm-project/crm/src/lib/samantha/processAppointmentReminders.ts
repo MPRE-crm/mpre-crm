@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 import { logSamanthaAction } from "./logSamanthaAction";
+import { getOrgMessagingContext } from "../org/getOrgMessagingContext";
 
 type ReminderRow = {
   id: string;
@@ -23,24 +24,25 @@ type LeadRow = {
   org_id: string | null;
 };
 
-function buildReminderMessage(lead: LeadRow, reminderType: string) {
+async function buildReminderMessage(lead: LeadRow, reminderType: string) {
   const firstName = (lead.first_name || "there").trim();
   const dateText = lead.appointment_date || "your scheduled date";
   const timeText = lead.appointment_time || "your scheduled time";
+  const ctx = await getOrgMessagingContext(lead.org_id, "relocation");
 
   if (reminderType === "24h") {
-    return `Hi ${firstName}, this is Samantha with MPRE Boise. Just a reminder that your appointment is tomorrow, ${dateText} at ${timeText}. Reply here if you need to reschedule.`;
+    return `Hi ${firstName}, this is Samantha with ${ctx.brandName}. Just a reminder that your appointment is tomorrow, ${dateText} at ${timeText}. Reply here if you need to reschedule.`;
   }
 
   if (reminderType === "2h") {
-    return `Hi ${firstName}, this is Samantha with MPRE Boise. Just a quick reminder that your appointment is today at ${timeText}. Reply here if anything changes.`;
+    return `Hi ${firstName}, this is Samantha with ${ctx.brandName}. Just a quick reminder that your appointment is today at ${timeText}. Reply here if anything changes.`;
   }
 
   if (reminderType === "30m") {
-    return `Hi ${firstName}, this is Samantha with MPRE Boise. Your appointment starts in about 30 minutes at ${timeText}. Looking forward to it.`;
+    return `Hi ${firstName}, this is Samantha with ${ctx.brandName}. Your appointment starts in about 30 minutes at ${timeText}. Looking forward to it.`;
   }
 
-  return `Hi ${firstName}, this is Samantha with MPRE Boise. This is a reminder about your appointment on ${dateText} at ${timeText}.`;
+  return `Hi ${firstName}, this is Samantha with ${ctx.brandName}. This is a reminder about your appointment on ${dateText} at ${timeText}.`;
 }
 
 export async function processAppointmentReminders() {
@@ -140,7 +142,7 @@ export async function processAppointmentReminders() {
       continue;
     }
 
-    const message = buildReminderMessage(lead as LeadRow, row.reminder_type);
+    const message = await buildReminderMessage(lead as LeadRow, row.reminder_type);
 
     await logSamanthaAction({
       db: supabaseAdmin,

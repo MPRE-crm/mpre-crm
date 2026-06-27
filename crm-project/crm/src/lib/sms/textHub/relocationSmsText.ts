@@ -5,6 +5,37 @@
   return cleaned
 }
 
+export type RelocationSmsContext = {
+  brandName?: string | null
+  teamLabel?: string | null
+  guideLabel?: string | null
+  areaQuestion?: string | null
+}
+
+function ctxValue(value: string | null | undefined, fallback: string) {
+  const cleaned = String(value || '').trim()
+  return cleaned || fallback
+}
+
+function ctxBrand(ctx?: RelocationSmsContext | null) {
+  return ctxValue(ctx?.brandName, 'our real estate team')
+}
+
+function ctxTeam(ctx?: RelocationSmsContext | null) {
+  return ctxValue(ctx?.teamLabel, `the ${ctxBrand(ctx)} team`)
+}
+
+function ctxGuide(ctx?: RelocationSmsContext | null) {
+  return ctxValue(ctx?.guideLabel, 'relocation guide')
+}
+
+function ctxAreaQuestion(ctx?: RelocationSmsContext | null) {
+  return ctxValue(
+    ctx?.areaQuestion,
+    'Are you mostly focused on one area, or are you also considering nearby communities?'
+  )
+}
+
 function withName(name?: string | null) {
   const cleaned = cleanName(name)
   return cleaned ? `, ${cleaned}` : ''
@@ -131,8 +162,8 @@ export const relocationSmsText = {
     return `No problem at all. We can circle back when the timing is better. When you are ready, is there usually a better day or time of day for a quick call?`
   },
 
-  genericReply(name: string) {
-    return `${hiName(name)} this is Samantha with MPRE Boise. I got your message and will follow up shortly. To help point you in the right direction, you can text me your timeline, price range, and the area you are considering.`
+  genericReply(name: string, ctx?: RelocationSmsContext | null) {
+    return `${hiName(name)} this is Samantha with ${ctxBrand(ctx)}. I got your message and will follow up shortly. To help point you in the right direction, you can text me your timeline, price range, and the area you are considering.`
   },
 
   appointmentChoiceClarify(optionA?: string | null, optionB?: string | null) {
@@ -165,48 +196,47 @@ export const relocationSmsText = {
     return `${perfectName(name)} I sent that time over for confirmation with the agent. I will text you as soon as it is locked in.`
   },
 
-  lenderIntroSentAppointment(name: string) {
-    return `${perfectName(name)} I will make that lender introduction for you. The next best step would be a quick strategy call with our team here at MPRE Boise so we can help you build a clear game plan. Want me to send two good time options?`
+  lenderIntroSentAppointment(name: string, ctx?: RelocationSmsContext | null) {
+    return `${perfectName(name)} I will make that lender introduction for you. The next best step would be a quick strategy call with ${ctxTeam(ctx)} so we can help you build a clear game plan. Want me to send two good time options?`
   },
 
-  guideConfirmedAreaQuestion(name: string) {
-    return `${perfectName(name)} Glad you got it. Are you mostly looking at Boise itself, or are you also considering Meridian, Eagle, Nampa, Kuna, Star, or Caldwell?`
+  guideConfirmedAreaQuestion(name: string, ctx?: RelocationSmsContext | null) {
+    return `${perfectName(name)} Glad you got it. ${ctxAreaQuestion(ctx)}`
   },
 
-  guideVerificationCheck(name: string, email?: string | null) {
+  guideVerificationCheck(name: string, _email?: string | null, ctx?: RelocationSmsContext | null) {
     const cleaned = cleanName(name) || 'there'
-    const targetEmail = (email || '').trim() || 'your email address'
-    return `Hi ${cleaned}, this is Samantha with MPRE Boise. Hope all is well today! I sent your Boise relocation guide to ${targetEmail}, but sometimes email providers filter those messages to spam. Or, perhaps you may have not seen the email verification link, yet. These things happen, no worries! Did you by chance receive the Relocation guide, yet?`
+    return `Hi ${cleaned}, this is Samantha with ${ctxBrand(ctx)}. Just checking — did you receive the ${ctxGuide(ctx)} okay?`
   },
 
-  guideEmailConfirmAsk(name: string, email?: string | null) {
+  guideEmailConfirmAsk(_name: string, email?: string | null, ctx?: RelocationSmsContext | null) {
     const targetEmail = (email || '').trim() || 'your email address'
-    return `No problem - we can fix that here! Is ${targetEmail} still the best email address for your Boise relocation guide?`
+    return `No problem - we can fix that here! Is ${targetEmail} still the best email address for your ${ctxGuide(ctx)}?`
   },
 
-  guideEmailPermissionAsk(name: string, email?: string | null) {
+  guideEmailPermissionAsk(_name: string, email?: string | null, ctx?: RelocationSmsContext | null) {
     const targetEmail = (email || '').trim() || 'your email address'
-    return `Perfect, thank you. With your permission, I'll resend the Boise relocation guide to ${targetEmail}. You can reply STOP at any time to opt out of texts. Is that okay?`
+    return `Perfect, thank you. With your permission, I'll resend the ${ctxGuide(ctx)} to ${targetEmail}. You can reply STOP at any time to opt out of texts. Is that okay?`
   },
 
   guideEmailPermissionApproved() {
     return `Great - I'm sending it now. If it still does not show up, I can also send the guide link here by text. Just let me know!`
   },
 
-  guideSmsLink(guideLink: string) {
-    return `Absolutely - here is the Boise relocation guide link: ${guideLink}\n\nIf it still gives you trouble, just reply here and I can help.`
+  guideSmsLink(guideLink: string, ctx?: RelocationSmsContext | null) {
+    return `Absolutely - here is the ${ctxGuide(ctx)} link: ${guideLink}\n\nIf it still gives you trouble, just reply here and I can help.`
   },
 
   guideEmailPermissionDeclined() {
     return `No problem at all. I will not resend it right now. If you want it later, just text me back and I can help.`
   },
 
-  guideVerificationReceivedNextStep() {
-    return `Perfect - please tap the email verification link when you have a chance, and I'll send the Boise relocation guide right over.`
+  guideVerificationReceivedNextStep(ctx?: RelocationSmsContext | null) {
+    return `Perfect - please tap the email verification link when you have a chance, and I'll send the ${ctxGuide(ctx)} right over.`
   },
 
-  guideResentAreaQuestion(name: string) {
-    return `No problem${withName(name)} - I just resent it to your email. Please check your inbox, spam, junk, or promotions folder. Once you have it, are you mostly looking at Boise itself, or also considering Meridian, Eagle, Nampa, Kuna, Star, or Caldwell?`
+  guideResentAreaQuestion(name: string, ctx?: RelocationSmsContext | null) {
+    return `No problem${withName(name)} - I just resent it to your email. Please check your inbox, spam, junk, or promotions folder. Once you have it, ${ctxAreaQuestion(ctx).charAt(0).toLowerCase()}${ctxAreaQuestion(ctx).slice(1)}`
   },
 
   forcedAppointmentOptions(name: string, slotA: string, slotB: string) {
@@ -226,3 +256,4 @@ export const relocationSmsText = {
     return `Thanks for your message. We received it and will follow up as soon as possible.`
   },
 } as const
+

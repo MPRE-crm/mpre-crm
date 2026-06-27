@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 import { logSamanthaAction } from "./logSamanthaAction";
+import { getOrgMessagingContext } from "../org/getOrgMessagingContext";
 
 type ReminderRow = {
   id: string;
@@ -26,12 +27,13 @@ type LeadRow = {
   notes: string | null;
 };
 
-function buildMissedAppointmentCallNote(lead: LeadRow) {
+async function buildMissedAppointmentCallNote(lead: LeadRow) {
   const firstName = (lead.first_name || "there").trim();
   const dateText = lead.appointment_date || "your appointment date";
   const timeText = lead.appointment_time || "your appointment time";
+  const ctx = await getOrgMessagingContext(lead.org_id, "relocation");
 
-  return `Hi ${firstName}, this is Samantha with MPRE Boise. We missed you for your appointment on ${dateText} at ${timeText}. I wanted to follow up and help you reschedule when you're ready.`;
+  return `Hi ${firstName}, this is Samantha with ${ctx.brandName}. We missed you for your appointment on ${dateText} at ${timeText}. I wanted to follow up and help you reschedule when you're ready.`;
 }
 
 function isCanceledOrRescheduled(status: string) {
@@ -197,7 +199,7 @@ export async function processMissedAppointmentFollowUps() {
       continue;
     }
 
-    const callNote = buildMissedAppointmentCallNote(leadRow);
+    const callNote = await buildMissedAppointmentCallNote(leadRow);
 
     await logSamanthaAction({
       db: supabaseAdmin,

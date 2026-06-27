@@ -1,6 +1,7 @@
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 import { sendText } from "../../../lib/sendText";
 import { logSamanthaAction } from "./logSamanthaAction";
+import { getOrgMessagingContext } from "../org/getOrgMessagingContext";
 
 type MissedCallRow = {
   id: string;
@@ -19,6 +20,7 @@ type LeadRow = {
   preferred_contact_start_hour: number | null;
   preferred_contact_end_hour: number | null;
   next_contact_at: string | null;
+  org_id: string | null;
 };
 
 function getHourInBoise(date = new Date()) {
@@ -39,11 +41,13 @@ function contactAllowedNow(lead: LeadRow) {
   return hour >= start && hour < end;
 }
 
-function buildMissedCallFallbackText(lead: LeadRow) {
+async function buildMissedCallFallbackText(lead: LeadRow) {
   const firstName =
     String(lead?.first_name || "").trim().split(" ")[0] || "there";
 
-  return `Hi ${firstName}, this is Samantha with MPRE Boise. I just tried giving you a quick call because you requested our Boise relocation guide. Did you happen to receive it yet?`;
+  const ctx = await getOrgMessagingContext(lead.org_id, "relocation");
+
+  return `Hi ${firstName}, this is Samantha with ${ctx.brandName}. I just tried giving you a quick call because you requested our ${ctx.guideLabel}. Did you happen to receive it yet?`;
 }
 
 function chooseMissedCallAction(lead: LeadRow, missedCountLast7d: number) {
@@ -134,7 +138,8 @@ export async function processMissedCalls() {
         lead_heat,
         preferred_contact_start_hour,
         preferred_contact_end_hour,
-        next_contact_at
+        next_contact_at,
+        org_id
       `)
       .eq("id", log.lead_id)
       .single();
@@ -216,7 +221,7 @@ export async function processMissedCalls() {
         },
       });
     } else if (decision.action === "text") {
-      const message = buildMissedCallFallbackText(typedLead);
+      const message = await buildMissedCallFallbackText(typedLead);
 
       if (!typedLead.phone) {
         executedStatus = "failed";
