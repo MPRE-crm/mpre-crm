@@ -20,6 +20,7 @@ import {
   ClipboardList,
   PhoneMissed,
   LogOut,
+  FileText,
 } from 'lucide-react'
 import { getSupabaseBrowser } from '../../lib/supabase-browser'
 
@@ -45,6 +46,7 @@ const ADMIN_NAV: NavItem[] = [
   { label: 'Follow-Up Queue', href: '/dashboard/follow-up-queue', icon: <ClipboardList className="h-4 w-4" /> },
   { label: 'Missed Call Queue', href: '/dashboard/missed-call-queue', icon: <PhoneMissed className="h-4 w-4" /> },
   { label: 'Agents', href: '/dashboard/agents', icon: <Users className="h-4 w-4" /> },
+  { label: 'Guides', href: '/dashboard/admin/guides', icon: <FileText className="h-4 w-4" /> },
   { label: 'Add User', href: '/dashboard/add-user', icon: <UserPlus className="h-4 w-4" /> },
   { label: 'Security', href: '/dashboard/security', icon: <ShieldAlert className="h-4 w-4" /> },
   { label: 'Preferences', href: '/dashboard/preferences', icon: <Settings className="h-4 w-4" /> },
