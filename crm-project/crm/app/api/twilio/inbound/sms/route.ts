@@ -1,4 +1,4 @@
-import { getActiveGuideUrl, MPRE_BOISE_ORG_ID } from '../../../../../src/lib/guideAssets/getActiveGuideUrl'
+﻿import { getActiveGuideUrl, MPRE_BOISE_ORG_ID } from '../../../../../src/lib/guideAssets/getActiveGuideUrl'
 import { NextRequest, NextResponse } from 'next/server'
 import { randomBytes } from 'crypto'
 import twilio from 'twilio'
@@ -310,7 +310,7 @@ async function handlePreferredLenderIntro(args: {
     const { leadId, agentId, orgId, phone } = args
 
     if (!agentId || !orgId || !phone) {
-      console.error('❌ lender intro missing agentId/orgId/phone', args)
+      console.error('âŒ lender intro missing agentId/orgId/phone', args)
       return false
     }
 
@@ -319,7 +319,7 @@ async function handlePreferredLenderIntro(args: {
     const fromNumber = process.env.TWILIO_PHONE_NUMBER
 
     if (!accountSid || !authToken || !fromNumber) {
-      console.error('❌ lender intro missing Twilio env vars')
+      console.error('âŒ lender intro missing Twilio env vars')
       return false
     }
 
@@ -331,7 +331,7 @@ async function handlePreferredLenderIntro(args: {
       .maybeSingle()
 
     if (agentLookupError) {
-      console.error('❌ lender intro agent lookup error', agentLookupError)
+      console.error('âŒ lender intro agent lookup error', agentLookupError)
       return false
     }
 
@@ -339,7 +339,7 @@ async function handlePreferredLenderIntro(args: {
     const resolvedAgentName = agentUser?.name || agentUser?.email || 'Assigned Agent'
 
     if (!resolvedAgentUserId) {
-      console.error('❌ lender intro could not resolve agent id', {
+      console.error('âŒ lender intro could not resolve agent id', {
         agentId,
         orgId,
       })
@@ -355,12 +355,12 @@ async function handlePreferredLenderIntro(args: {
       .order('position', { ascending: true })
 
     if (prefsError) {
-      console.error('❌ lender intro prefs lookup error', prefsError)
+      console.error('âŒ lender intro prefs lookup error', prefsError)
       return false
     }
 
     if (!preferences || preferences.length === 0) {
-      console.error('❌ lender intro no active preferred lenders found', {
+      console.error('âŒ lender intro no active preferred lenders found', {
         agentUserId: resolvedAgentUserId,
         orgId,
       })
@@ -375,7 +375,7 @@ async function handlePreferredLenderIntro(args: {
       .maybeSingle()
 
     if (rotationError) {
-      console.error('❌ lender intro rotation lookup error', rotationError)
+      console.error('âŒ lender intro rotation lookup error', rotationError)
       return false
     }
 
@@ -401,12 +401,12 @@ async function handlePreferredLenderIntro(args: {
       .maybeSingle()
 
     if (lenderLookupError) {
-      console.error('❌ lender intro lender lookup error', lenderLookupError)
+      console.error('âŒ lender intro lender lookup error', lenderLookupError)
       return false
     }
 
     if (!lenderUser?.phone) {
-      console.error('❌ lender intro lender missing phone', {
+      console.error('âŒ lender intro lender missing phone', {
         lenderUserId: selectedPref.lender_user_id,
       })
       return false
@@ -419,7 +419,7 @@ async function handlePreferredLenderIntro(args: {
       .maybeSingle()
 
     if (leadLookupError) {
-      console.error('❌ lender intro lead lookup error', leadLookupError)
+      console.error('âŒ lender intro lead lookup error', leadLookupError)
       return false
     }
 
@@ -430,7 +430,7 @@ async function handlePreferredLenderIntro(args: {
       .maybeSingle()
 
     if (orgLookupError) {
-      console.error('❌ lender intro org lookup error', orgLookupError)
+      console.error('âŒ lender intro org lookup error', orgLookupError)
       return false
     }
 
@@ -468,10 +468,10 @@ async function handlePreferredLenderIntro(args: {
       })
 
     if (rotationUpsertError) {
-      console.error('❌ lender intro rotation upsert error', rotationUpsertError)
+      console.error('âŒ lender intro rotation upsert error', rotationUpsertError)
     }
 
-    console.log('✅ lender intro sent', {
+    console.log('âœ… lender intro sent', {
       leadId,
       lenderUserId: selectedPref.lender_user_id,
       lenderMessageSid: sent.sid,
@@ -479,7 +479,7 @@ async function handlePreferredLenderIntro(args: {
 
     return true
   } catch (error) {
-    console.error('❌ lender intro unexpected error', error)
+    console.error('âŒ lender intro unexpected error', error)
     return false
   }
 }
@@ -735,7 +735,7 @@ export async function POST(req: NextRequest) {
         .single()
 
       if (insertError) {
-        console.error('❌ inbound sms lead insert error', insertError)
+        console.error('âŒ inbound sms lead insert error', insertError)
       } else {
         lead = newLead
         leadId = newLead.id
@@ -756,7 +756,7 @@ export async function POST(req: NextRequest) {
         })
 
       if (messageInsertError) {
-        console.error('❌ inbound sms message insert error', messageInsertError)
+        console.error('âŒ inbound sms message insert error', messageInsertError)
       }
     }
 
@@ -919,7 +919,7 @@ export async function POST(req: NextRequest) {
           availableSlots = slotChoices.map((s) => s.slot_human)
         }
       } catch (error) {
-        console.error('❌ sms calendar slot load error, using SMS fallback slots', error)
+        console.error('âŒ sms calendar slot load error, using SMS fallback slots', error)
 
         slotChoices = makeFallbackSmsSlots().map((slot) => ({
           ...slot,
@@ -1013,7 +1013,7 @@ export async function POST(req: NextRequest) {
           .eq('id', leadId)
 
         if (clarifyLeadUpdateError) {
-          console.error('❌ appointment choice clarify lead update error', clarifyLeadUpdateError)
+          console.error('âŒ appointment choice clarify lead update error', clarifyLeadUpdateError)
         }
 
         const { error: outgoingMessageInsertError } = await supabaseAdmin
@@ -1029,7 +1029,7 @@ export async function POST(req: NextRequest) {
           })
 
         if (outgoingMessageInsertError) {
-          console.error('❌ outbound sms message insert error', outgoingMessageInsertError)
+          console.error('âŒ outbound sms message insert error', outgoingMessageInsertError)
         }
 
         const twiml = new twilio.twiml.MessagingResponse()
@@ -1053,11 +1053,11 @@ export async function POST(req: NextRequest) {
           .maybeSingle()
 
         if (existingPendingApprovalError) {
-          console.error('❌ existing pending appointment approval lookup error', existingPendingApprovalError)
+          console.error('âŒ existing pending appointment approval lookup error', existingPendingApprovalError)
 
           const twiml = new twilio.twiml.MessagingResponse()
           twiml.message(
-            `I’m sorry — I hit a snag checking that appointment request. Please try that one more time.`
+            `Iâ€™m sorry â€” I hit a snag checking that appointment request. Please try that one more time.`
           )
 
           return new NextResponse(twiml.toString(), {
@@ -1115,7 +1115,7 @@ export async function POST(req: NextRequest) {
             .eq('id', leadId)
 
           if (noAgentLeadUpdateError) {
-            console.error('❌ no available agent lead update error', noAgentLeadUpdateError)
+            console.error('âŒ no available agent lead update error', noAgentLeadUpdateError)
           }
 
           const { error: outgoingMessageInsertError } = await supabaseAdmin
@@ -1131,7 +1131,7 @@ export async function POST(req: NextRequest) {
             })
 
           if (outgoingMessageInsertError) {
-            console.error('❌ outbound sms message insert error', outgoingMessageInsertError)
+            console.error('âŒ outbound sms message insert error', outgoingMessageInsertError)
           }
 
           const twiml = new twilio.twiml.MessagingResponse()
@@ -1164,11 +1164,11 @@ export async function POST(req: NextRequest) {
           .single()
 
         if (approvalInsertError) {
-          console.error('❌ appointment approval insert error', approvalInsertError)
+          console.error('âŒ appointment approval insert error', approvalInsertError)
 
           const twiml = new twilio.twiml.MessagingResponse()
           twiml.message(
-            `I’m sorry - I hit a snag saving that appointment request. Please try that one more time.`
+            `Iâ€™m sorry - I hit a snag saving that appointment request. Please try that one more time.`
           )
 
           return new NextResponse(twiml.toString(), {
@@ -1218,11 +1218,11 @@ export async function POST(req: NextRequest) {
             .single()
 
           if (pendingLeadUpdateError || !pendingLeadRow) {
-            console.error('❌ pending approval lead update error', pendingLeadUpdateError)
+            console.error('âŒ pending approval lead update error', pendingLeadUpdateError)
 
             const twiml = new twilio.twiml.MessagingResponse()
             twiml.message(
-              `I’m sorry — I hit a snag saving that appointment request. Please try that one more time.`
+              `Iâ€™m sorry â€” I hit a snag saving that appointment request. Please try that one more time.`
             )
 
             return new NextResponse(twiml.toString(), {
@@ -1239,7 +1239,7 @@ export async function POST(req: NextRequest) {
             .maybeSingle()
 
           if (agentUserError) {
-            console.error('❌ agent lookup for appointment approval text error', agentUserError)
+            console.error('âŒ agent lookup for appointment approval text error', agentUserError)
           }
 
           if (agentUser?.phone && approvalRow?.id) {
@@ -1277,7 +1277,7 @@ export async function POST(req: NextRequest) {
                 })
               }
             } catch (agentSmsError) {
-              console.error('❌ agent appointment approval text send error', agentSmsError)
+              console.error('âŒ agent appointment approval text send error', agentSmsError)
             }
           }
 
@@ -1296,7 +1296,7 @@ export async function POST(req: NextRequest) {
             })
 
           if (outgoingMessageInsertError) {
-            console.error('❌ outbound sms message insert error', outgoingMessageInsertError)
+            console.error('âŒ outbound sms message insert error', outgoingMessageInsertError)
           }
 
           const twiml = new twilio.twiml.MessagingResponse()
@@ -1354,7 +1354,7 @@ export async function POST(req: NextRequest) {
 
           if (appointmentPatchError) {
             console.error(
-              '❌ direct lender intro appointment patch error',
+              'âŒ direct lender intro appointment patch error',
               appointmentPatchError
             )
           }
@@ -1373,7 +1373,7 @@ export async function POST(req: NextRequest) {
 
           if (outgoingMessageInsertError) {
             console.error(
-              '❌ outbound sms message insert error',
+              'âŒ outbound sms message insert error',
               outgoingMessageInsertError
             )
           }
@@ -1484,7 +1484,23 @@ export async function POST(req: NextRequest) {
               fallbackUrl: process.env.RELOCATION_GUIDE_URL || null,
             })) ||
             process.env.RELOCATION_GUIDE_URL ||
-            'https://wfjwkssqvifwatquhvti.supabase.co/storage/v1/object/public/relocation-guide/2025%20Boise%20Idaho%20Area%20Relocation%20Guide-4.pdf'
+            null
+
+          if (!guideLink) {
+            replyText =
+              'I am sorry, I am having trouble pulling up the guide link right now. I will have Mike follow up with it directly.'
+
+            return await writeGuideRecoveryReply({
+              call_status: 'guide_link_sms_failed_missing_url',
+              sms_state: 'WAITING_FOR_TIMELINE',
+              sms_current_objective: 'location_timeline',
+              sms_last_question: 'timeline',
+              sms_lpmama_current_step: 'location_timeline',
+              sms_lpmama_next_step: 'price',
+              sms_resume_step: 'location_timeline',
+              sms_detour_reason: 'guide_link_missing_url',
+            })
+          }
 
           replyText = relocationSmsText.guideSmsLink(guideLink)
 
@@ -1794,7 +1810,7 @@ export async function POST(req: NextRequest) {
         .eq('id', leadId)
 
       if (leadUpdateError) {
-        console.error('❌ relocation sms lead update error', leadUpdateError)
+        console.error('âŒ relocation sms lead update error', leadUpdateError)
       }
 
       const lenderApprovedThisTurn =
@@ -1831,7 +1847,7 @@ export async function POST(req: NextRequest) {
 
           if (appointmentPatchError) {
             console.error(
-              '❌ relocation sms appointment patch after lender intro error',
+              'âŒ relocation sms appointment patch after lender intro error',
               appointmentPatchError
             )
           }
@@ -1859,7 +1875,7 @@ export async function POST(req: NextRequest) {
         .eq('id', leadId)
 
       if (leadUpdateError) {
-        console.error('❌ inbound sms lead update error', leadUpdateError)
+        console.error('âŒ inbound sms lead update error', leadUpdateError)
       }
     }
 
@@ -1878,7 +1894,7 @@ export async function POST(req: NextRequest) {
 
       if (outgoingMessageInsertError) {
         console.error(
-          '❌ outbound sms message insert error',
+          'âŒ outbound sms message insert error',
           outgoingMessageInsertError
         )
       }
@@ -1892,7 +1908,7 @@ export async function POST(req: NextRequest) {
       headers: { 'Content-Type': 'text/xml' },
     })
   } catch (error: any) {
-    console.error('❌ inbound sms route error', error)
+    console.error('âŒ inbound sms route error', error)
 
     const twiml = new twilio.twiml.MessagingResponse()
     twiml.message(relocationSmsText.catchAllError())
@@ -1905,4 +1921,7 @@ export async function POST(req: NextRequest) {
 }
 
 export const GET = POST
+
+
+
 
