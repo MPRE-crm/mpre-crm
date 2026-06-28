@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "../../../lib/supabaseAdmin";
+﻿import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 
 export type GuideType =
   | "relocation"
@@ -52,6 +52,7 @@ export async function getActiveGuideUrl({
       .eq("guide_type", guideType)
       .eq("status", "active")
       .eq("is_active", true)
+      .order("updated_at", { ascending: false })
       .order("uploaded_at", { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -87,3 +88,4 @@ export async function getMpreBoiseRelocationGuideUrl(): Promise<string | null> {
     fallbackUrl: process.env.RELOCATION_GUIDE_URL || null,
   });
 }
+

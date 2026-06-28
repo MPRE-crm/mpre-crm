@@ -109,6 +109,22 @@ function guideTypeLabel(value: string) {
   return GUIDE_TYPES.find((type) => type.value === value)?.label || value;
 }
 
+function guideDisplayTitle(titleValue?: string | null, yearValue?: string | number | null) {
+  const cleanTitle = String(titleValue || '').trim();
+  const parsedYear = Number(String(yearValue || '').trim());
+
+  if (!cleanTitle) return '';
+
+  if (!Number.isInteger(parsedYear) || parsedYear < 2000 || parsedYear > 2100) {
+    return cleanTitle;
+  }
+
+  if (new RegExp(`^\\s*${parsedYear}\\b`).test(cleanTitle)) {
+    return cleanTitle;
+  }
+
+  return `${parsedYear} ${cleanTitle}`;
+}
 function safeSlug(value?: string | null) {
   return (
     String(value || 'org')
@@ -164,6 +180,8 @@ export default function AdminGuidesPage() {
     profile?.role === 'org_admin';
 
   const canSeeAllOrgs = profile?.role === 'platform_admin';
+
+  const displayTitlePreview = useMemo(() => guideDisplayTitle(title, year), [title, year]);
 
   const orgById = useMemo(() => {
     const map = new Map<string, Organization>();
@@ -380,6 +398,9 @@ export default function AdminGuidesPage() {
         metadata: {
           uploaded_from: 'dashboard_admin_guides',
           org_slug: orgSlug,
+          display_title: guideDisplayTitle(cleanTitle, yearNumber),
+          guide_year: yearNumber,
+          guide_type: guideType,
         },
       });
 
@@ -675,7 +696,7 @@ export default function AdminGuidesPage() {
               className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
               value={title}
               onChange={(event) => setTitle(event.target.value)}
-              placeholder="2026 Boise Idaho Area Relocation Guide"
+              placeholder="Boise Idaho Area Relocation Guide"
             />
           </label>
 
@@ -688,6 +709,12 @@ export default function AdminGuidesPage() {
               placeholder="2026"
             />
           </label>
+
+          {displayTitlePreview && (
+            <div className="lg:col-span-12 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+              Samantha/email/SMS will call this: <span className="font-semibold">{displayTitlePreview}</span>
+            </div>
+          )}
 
           <label className="lg:col-span-6">
             <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">File</span>
@@ -752,6 +779,7 @@ export default function AdminGuidesPage() {
           {visibleGuides.map((guide) => {
             const org = orgById.get(guide.org_id);
             const active = guide.is_active && guide.status === 'active';
+            const displayName = guideDisplayTitle(guide.title, guide.year);
 
             return (
               <div key={guide.id} className="p-5">
@@ -779,7 +807,7 @@ export default function AdminGuidesPage() {
                       )}
                     </div>
 
-                    <h3 className="truncate text-lg font-semibold text-slate-900">{guide.title}</h3>
+                    <h3 className="truncate text-lg font-semibold text-slate-900">{displayName}</h3>
 
                     <div className="mt-2 grid grid-cols-1 gap-2 text-xs text-slate-500 md:grid-cols-2 xl:grid-cols-4">
                       <div>File: {guide.file_name || '-'}</div>
