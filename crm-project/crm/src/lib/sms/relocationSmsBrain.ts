@@ -1,6 +1,12 @@
 import { relocationSmsText } from './textHub/relocationSmsText'
 import { getOrgMessagingContext } from '../org/getOrgMessagingContext'
-import { detectGuideReceived } from './textHub/relocationSmsIntent'
+import {
+  detectGuideReceived,
+  detectBoiseAreaPreference,
+  detectOutOfMarketArea,
+  isStillConsideringBoise,
+  isMainlyOutOfMarket,
+} from './textHub/relocationSmsIntent'
 
 type SmsDirection = 'incoming' | 'outgoing'
 
@@ -132,6 +138,7 @@ const VALID_STATES = new Set([
   'POST_FLOW_QA',
   'RELATIONSHIP_NURTURE',
   'GUIDE_RECEIVED_AREA_QUESTION',
+  'WAITING_FOR_OUT_OF_MARKET_AREA_CLARIFICATION',
 ])
 
 function firstNameOf(lead: RelocationLead) {
@@ -312,7 +319,7 @@ function getUnclearCount(recentMessages: SmsMessage[]) {
   return recentMessages.filter(
     (m) =>
       m.direction === 'outgoing' &&
-      /want to make sure i understood|let's keep it simple|lets keep it simple|didnâ€™t quite catch that|didn't quite catch that/i.test(
+      /want to make sure i understood|let's keep it simple|lets keep it simple|didnÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢t quite catch that|didn't quite catch that/i.test(
         String(m.body || '')
       )
   ).length
@@ -322,8 +329,8 @@ function extractTimeline(text: string) {
   const t = text.toLowerCase()
   const monthMatch = t.match(/(\d+)\s*(month|months)/)
   if (monthMatch) return `${monthMatch[1]} months`
-  if (/3\s*[-â€“]\s*6\s*months|3 to 6 months/.test(t)) return '3-6 months'
-  if (/6\s*[-â€“]\s*12\s*months|6 to 12 months/.test(t)) return '6-12 months'
+  if (/3\s*[-ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“]\s*6\s*months|3 to 6 months/.test(t)) return '3-6 months'
+  if (/6\s*[-ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“]\s*12\s*months|6 to 12 months/.test(t)) return '6-12 months'
   if (/asap|right away|immediately|right now/.test(t)) return 'ASAP'
   if (/next month/.test(t)) return 'next month'
   if (/this year/.test(t)) return 'this year'
@@ -418,39 +425,6 @@ function wantsLenderIntro(text: string) {
 }
 
 
-function extractPreferredArea(text: string) {
-  const t = String(text || '').toLowerCase().trim()
-
-  const areas = [
-    'boise',
-    'meridian',
-    'eagle',
-    'nampa',
-    'kuna',
-    'star',
-    'caldwell',
-    'middleton',
-    'garden city',
-    'emmett',
-  ]
-
-  for (const area of areas) {
-    const pattern = new RegExp(`\\b${area.replace(/\s+/g, '\\s+')}\\b`, 'i')
-    if (pattern.test(t)) {
-      return area
-        .split(' ')
-        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-        .join(' ')
-    }
-  }
-
-  if (/not sure|unsure|anywhere|open|safe|schools|land|new construction/i.test(t)) {
-    return String(text || '').trim()
-  }
-
-  return null
-}
-
 function isWaitingForAreaPreference(lead: RelocationLead) {
   return (
     lead.sms_state === 'GUIDE_RECEIVED_AREA_QUESTION' ||
@@ -459,22 +433,17 @@ function isWaitingForAreaPreference(lead: RelocationLead) {
   )
 }
 
+function isWaitingForOutOfMarketAreaClarification(lead: RelocationLead) {
+  return lead.sms_state === 'WAITING_FOR_OUT_OF_MARKET_AREA_CLARIFICATION'
+}
+
 function areaPreferenceCapturedResult(
   area: string,
   inboundText: string,
   sentiment: BrainResult['sentiment']
 ): BrainResult {
-  const lowerArea = area.toLowerCase()
-
-  const leadIn =
-    /not sure|unsure|anywhere|open/i.test(lowerArea)
-      ? 'Totally fair - we can narrow that down.'
-      : /safe|school|land|new construction/i.test(lowerArea)
-        ? 'Got it - that helps narrow the search.'
-        : `Great - ${area} is a solid area to focus on.`
-
   return {
-    replyText: `${leadIn} Are you thinking of moving soon, 3-6 months out, or more like next year?`,
+    replyText: relocationSmsText.areaPreferenceCaptured(area),
     nextState: 'WAITING_FOR_TIMELINE',
     nextPriority: 'timeline',
     temperature: 'hot',
@@ -497,6 +466,99 @@ function areaPreferenceCapturedResult(
       notes_append: inboundText,
     },
     aiSummary: 'Area preference captured, asked timeline',
+  }
+}
+
+function outOfMarketAreaClarificationResult(
+  area: string,
+  inboundText: string,
+  sentiment: BrainResult['sentiment']
+): BrainResult {
+  return {
+    replyText: relocationSmsText.outOfMarketAreaClarification(area),
+    nextState: 'WAITING_FOR_OUT_OF_MARKET_AREA_CLARIFICATION',
+    nextPriority: 'area_clarification',
+    temperature: 'hot',
+    bestNextStep: 'none',
+    confidence: 'high',
+    currentObjective: 'clarify',
+    appointmentReadiness: 1,
+    conversationTone: 'warm',
+    sentiment,
+    shouldEscalate: false,
+    debugReason: 'out_of_market_area_clarification',
+    lastQuestion: 'out_of_market_area_clarification',
+    lpmamaCurrentStep: 'location_timeline',
+    lpmamaNextStep: 'location_timeline',
+    resumeStep: 'location_timeline',
+    detourReason: 'out_of_market_area_clarification',
+    extractedFields: {
+      preferred_areas: area,
+      area_answered: true,
+      notes_append: inboundText,
+    },
+    aiSummary: 'Out-of-market area mentioned, clarified Boise interest',
+  }
+}
+
+function outOfMarketReferralResult(
+  area: string,
+  inboundText: string,
+  sentiment: BrainResult['sentiment']
+): BrainResult {
+  return {
+    replyText: relocationSmsText.outOfMarketReferralReview(area),
+    nextState: 'CALLBACK_LATER',
+    nextPriority: 'referral_review',
+    temperature: 'hot',
+    bestNextStep: 'agent_call',
+    confidence: 'high',
+    currentObjective: 'handoff',
+    appointmentReadiness: 3,
+    conversationTone: 'warm',
+    sentiment,
+    shouldEscalate: true,
+    debugReason: 'out_of_market_referral_review',
+    lastQuestion: 'referral_review',
+    lpmamaCurrentStep: 'location_timeline',
+    lpmamaNextStep: 'location_timeline',
+    resumeStep: 'location_timeline',
+    detourReason: 'out_of_market_referral',
+    extractedFields: {
+      preferred_areas: area,
+      preferred_next_step: 'referral_review',
+      notes_append: inboundText,
+    },
+    aiSummary: 'Lead is mainly focused outside Boise area, referral review needed',
+  }
+}
+
+function outOfMarketKeepBoiseResult(
+  inboundText: string,
+  sentiment: BrainResult['sentiment']
+): BrainResult {
+  return {
+    replyText: relocationSmsText.outOfMarketKeepBoise(),
+    nextState: 'WAITING_FOR_TIMELINE',
+    nextPriority: 'timeline',
+    temperature: 'hot',
+    bestNextStep: 'none',
+    confidence: 'high',
+    currentObjective: 'location_timeline',
+    appointmentReadiness: 2,
+    conversationTone: 'warm',
+    sentiment,
+    shouldEscalate: false,
+    debugReason: 'out_of_market_but_still_considering_boise',
+    lastQuestion: 'timeline',
+    lpmamaCurrentStep: 'location_timeline',
+    lpmamaNextStep: 'price',
+    resumeStep: 'location_timeline',
+    detourReason: null,
+    extractedFields: {
+      notes_append: inboundText,
+    },
+    aiSummary: 'Lead confirmed Boise is still in consideration, continued flow',
   }
 }
 
@@ -582,7 +644,24 @@ async function fallbackReply(
     lead.sms_lpmama_current_step === 'guide_confirmation' ||
     String(lead.sms_last_question || '').toLowerCase().includes('receive it yet')
 
-  const preferredArea = extractPreferredArea(inboundText)
+  const outOfMarketArea = detectOutOfMarketArea(inboundText)
+  const preferredArea = detectBoiseAreaPreference(inboundText)
+
+  if (isWaitingForOutOfMarketAreaClarification(lead) && !hasHardStop(inboundText)) {
+    const referralArea = lead.preferred_areas || outOfMarketArea || 'that area'
+
+    if (isStillConsideringBoise(inboundText)) {
+      return outOfMarketKeepBoiseResult(inboundText, sentiment)
+    }
+
+    if (isMainlyOutOfMarket(inboundText)) {
+      return outOfMarketReferralResult(referralArea, inboundText, sentiment)
+    }
+  }
+
+  if (isWaitingForAreaPreference(lead) && outOfMarketArea && !hasHardStop(inboundText)) {
+    return outOfMarketAreaClarificationResult(outOfMarketArea, inboundText, sentiment)
+  }
 
   if (isWaitingForAreaPreference(lead) && preferredArea && !hasHardStop(inboundText)) {
     return areaPreferenceCapturedResult(preferredArea, inboundText, sentiment)
@@ -1266,14 +1345,28 @@ export async function runRelocationSmsBrain(args: {
   })
   const currentStep = sanitizeStep(lead.sms_lpmama_current_step, nextStep)
 
-  const preferredArea = extractPreferredArea(inboundText)
+  const inboundSentiment = detectSentiment(inboundText)
+  const outOfMarketArea = detectOutOfMarketArea(inboundText)
+  const preferredArea = detectBoiseAreaPreference(inboundText)
+
+  if (isWaitingForOutOfMarketAreaClarification(lead) && !hasHardStop(inboundText)) {
+    const referralArea = lead.preferred_areas || outOfMarketArea || 'that area'
+
+    if (isStillConsideringBoise(inboundText)) {
+      return outOfMarketKeepBoiseResult(inboundText, inboundSentiment)
+    }
+
+    if (isMainlyOutOfMarket(inboundText)) {
+      return outOfMarketReferralResult(referralArea, inboundText, inboundSentiment)
+    }
+  }
+
+  if (isWaitingForAreaPreference(lead) && outOfMarketArea && !hasHardStop(inboundText)) {
+    return outOfMarketAreaClarificationResult(outOfMarketArea, inboundText, inboundSentiment)
+  }
 
   if (isWaitingForAreaPreference(lead) && preferredArea && !hasHardStop(inboundText)) {
-    return areaPreferenceCapturedResult(
-      preferredArea,
-      inboundText,
-      detectSentiment(inboundText)
-    )
+    return areaPreferenceCapturedResult(preferredArea, inboundText, inboundSentiment)
   }
 
   const normalizedRecentBodies = recentMessages.map((m) =>

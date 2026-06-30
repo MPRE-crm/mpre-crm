@@ -37,3 +37,102 @@ export function detectGuideReceived(text?: string | null): 'yes' | 'no' | null {
   if (isGuideYes(text)) return 'yes'
   return null
 }
+
+function titleCaseArea(area: string) {
+  return area
+    .split(' ')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
+}
+
+function normalizeOutOfMarketArea(area: string) {
+  const lower = cleanIntent(area)
+  if (lower === 'cda' || lower.includes('coeur')) return "Coeur d'Alene"
+  return titleCaseArea(area)
+}
+
+export function detectBoiseAreaPreference(text?: string | null) {
+  const raw = String(text || '').trim()
+  const t = cleanIntent(raw)
+
+  const boiseAreaTargets = [
+    'boise area',
+    'treasure valley',
+    'garden city',
+    'boise',
+    'meridian',
+    'eagle',
+    'nampa',
+    'kuna',
+    'star',
+    'caldwell',
+    'middleton',
+    'emmett',
+  ]
+
+  const matchedAreas = boiseAreaTargets
+    .filter((area) => {
+      const pattern = new RegExp(`\\b${area.replace(/\s+/g, '\\s+')}\\b`, 'i')
+      return pattern.test(t)
+    })
+    .map(titleCaseArea)
+
+  if (matchedAreas.length > 0) {
+    return matchedAreas.join(', ')
+  }
+
+  if (/all areas|any area|anywhere|open|no preference|not sure|unsure/i.test(t)) {
+    return 'Open to Boise area'
+  }
+
+  if (/safe|schools|school district|land|acreage|new construction|new build/i.test(t)) {
+    return raw
+  }
+
+  return null
+}
+
+export function detectOutOfMarketArea(text?: string | null) {
+  const t = cleanIntent(text)
+
+  const outOfMarketAreas = [
+    'twin falls',
+    'idaho falls',
+    'coeur d alene',
+    'coeur d’alene',
+    "coeur d'alene",
+    'cda',
+    'mccall',
+    'mountain home',
+    'pocatello',
+    'sandpoint',
+    'lewiston',
+    'moscow',
+    'rexburg',
+    'sun valley',
+    'hailey',
+    'ketchum',
+    'burley',
+    'jerome',
+    'blackfoot',
+    'post falls',
+    'rathdrum',
+  ]
+
+  for (const area of outOfMarketAreas) {
+    const pattern = new RegExp(`\\b${area.replace(/\s+/g, '\\s+')}\\b`, 'i')
+    if (pattern.test(t)) return normalizeOutOfMarketArea(area)
+  }
+
+  return null
+}
+
+export function isStillConsideringBoise(text?: string | null) {
+  const t = cleanIntent(text)
+  return /yes|yeah|yep|both|also boise|boise too|still boise|treasure valley|either|open to boise/i.test(t)
+}
+
+export function isMainlyOutOfMarket(text?: string | null) {
+  const t = cleanIntent(text)
+  return /no|mainly|mostly|only|just|focused on|not boise|outside boise|twin falls|idaho falls|coeur|cda|mccall|pocatello|sandpoint|lewiston|moscow|rexburg|sun valley|post falls|rathdrum/i.test(t)
+}

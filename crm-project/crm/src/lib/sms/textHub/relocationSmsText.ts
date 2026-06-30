@@ -1,4 +1,4 @@
-﻿function cleanName(name?: string | null) {
+function cleanName(name?: string | null) {
   const cleaned = (name || '').trim()
   if (!cleaned) return ''
   if (['there', 'unknown', 'customer', 'lead'].includes(cleaned.toLowerCase())) return ''
@@ -252,6 +252,30 @@ export const relocationSmsText = {
     return `Great question. ${brandName} helps relocation buyers cut through the online noise and make smarter decisions faster. We help you understand how different areas actually feel, which neighborhoods fit your lifestyle, where the value is, and what to avoid. Then we help with the strategy and execution too - search setup, pricing, offer strategy, inspections, negotiation, and keeping the move clear through closing. When you are ready, you can still reply A or B for a quick strategy call.`
   },
 
+  areaPreferenceCaptured(area: string) {
+    const lowerArea = area.toLowerCase()
+
+    const leadIn =
+      /open to boise area|not sure|unsure|anywhere|open/i.test(lowerArea)
+        ? 'Totally fair - we can narrow that down.'
+        : /safe|school|land|acreage|new construction/i.test(lowerArea)
+          ? 'Got it - that helps narrow the search.'
+          : `Great - ${area} is a solid area to focus on.`
+
+    return `${leadIn} Are you thinking of moving soon, 3-6 months out, or more like next year?`
+  },
+
+  outOfMarketAreaClarification(area: string) {
+    return `Got it - are you still considering the Boise area too, or are you mainly focused on ${area}?`
+  },
+
+  outOfMarketReferralReview(area: string) {
+    return `Got it - I'll flag this for our team so they can help point you in the right direction for ${area}.`
+  },
+
+  outOfMarketKeepBoise() {
+    return `Perfect - we can keep Boise in the mix. Are you thinking of moving soon, 3-6 months out, or more like next year?`
+  },
   catchAllError() {
     return `Thanks for your message. We received it and will follow up as soon as possible.`
   },
