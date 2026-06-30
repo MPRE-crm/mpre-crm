@@ -1,4 +1,4 @@
-﻿import { relocationSmsText } from './textHub/relocationSmsText'
+import { relocationSmsText } from './textHub/relocationSmsText'
 import { getOrgMessagingContext } from '../org/getOrgMessagingContext'
 import { detectGuideReceived } from './textHub/relocationSmsIntent'
 
@@ -131,6 +131,7 @@ const VALID_STATES = new Set([
   'STOP',
   'POST_FLOW_QA',
   'RELATIONSHIP_NURTURE',
+  'GUIDE_RECEIVED_AREA_QUESTION',
 ])
 
 function firstNameOf(lead: RelocationLead) {
@@ -416,6 +417,89 @@ function wantsLenderIntro(text: string) {
   )
 }
 
+
+function extractPreferredArea(text: string) {
+  const t = String(text || '').toLowerCase().trim()
+
+  const areas = [
+    'boise',
+    'meridian',
+    'eagle',
+    'nampa',
+    'kuna',
+    'star',
+    'caldwell',
+    'middleton',
+    'garden city',
+    'emmett',
+  ]
+
+  for (const area of areas) {
+    const pattern = new RegExp(`\\b${area.replace(/\s+/g, '\\s+')}\\b`, 'i')
+    if (pattern.test(t)) {
+      return area
+        .split(' ')
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ')
+    }
+  }
+
+  if (/not sure|unsure|anywhere|open|safe|schools|land|new construction/i.test(t)) {
+    return String(text || '').trim()
+  }
+
+  return null
+}
+
+function isWaitingForAreaPreference(lead: RelocationLead) {
+  return (
+    lead.sms_state === 'GUIDE_RECEIVED_AREA_QUESTION' ||
+    lead.sms_current_objective === 'area_preference' ||
+    lead.sms_last_question === 'area_preference'
+  )
+}
+
+function areaPreferenceCapturedResult(
+  area: string,
+  inboundText: string,
+  sentiment: BrainResult['sentiment']
+): BrainResult {
+  const lowerArea = area.toLowerCase()
+
+  const leadIn =
+    /not sure|unsure|anywhere|open/i.test(lowerArea)
+      ? 'Totally fair - we can narrow that down.'
+      : /safe|school|land|new construction/i.test(lowerArea)
+        ? 'Got it - that helps narrow the search.'
+        : `Great - ${area} is a solid area to focus on.`
+
+  return {
+    replyText: `${leadIn} Are you thinking of moving soon, 3-6 months out, or more like next year?`,
+    nextState: 'WAITING_FOR_TIMELINE',
+    nextPriority: 'timeline',
+    temperature: 'hot',
+    bestNextStep: 'none',
+    confidence: 'high',
+    currentObjective: 'location_timeline',
+    appointmentReadiness: 2,
+    conversationTone: 'warm',
+    sentiment,
+    shouldEscalate: false,
+    debugReason: 'deterministic_area_answer_ask_timeline',
+    lastQuestion: 'timeline',
+    lpmamaCurrentStep: 'location_timeline',
+    lpmamaNextStep: 'price',
+    resumeStep: 'location_timeline',
+    detourReason: null,
+    extractedFields: {
+      preferred_areas: area,
+      area_answered: true,
+      notes_append: inboundText,
+    },
+    aiSummary: 'Area preference captured, asked timeline',
+  }
+}
+
 function nextMissingStep(
   lead: RelocationLead,
   extracted?: {
@@ -497,6 +581,12 @@ async function fallbackReply(
     lead.sms_current_objective === 'confirm_received_guide' ||
     lead.sms_lpmama_current_step === 'guide_confirmation' ||
     String(lead.sms_last_question || '').toLowerCase().includes('receive it yet')
+
+  const preferredArea = extractPreferredArea(inboundText)
+
+  if (isWaitingForAreaPreference(lead) && preferredArea && !hasHardStop(inboundText)) {
+    return areaPreferenceCapturedResult(preferredArea, inboundText, sentiment)
+  }
 
 if (lead.sms_state === 'WAITING_FOR_LOCAL_LENDER_STATUS') {
   if (localLenderStatus === 'yes') {
@@ -1175,6 +1265,16 @@ export async function runRelocationSmsBrain(args: {
     mortgageOrCash,
   })
   const currentStep = sanitizeStep(lead.sms_lpmama_current_step, nextStep)
+
+  const preferredArea = extractPreferredArea(inboundText)
+
+  if (isWaitingForAreaPreference(lead) && preferredArea && !hasHardStop(inboundText)) {
+    return areaPreferenceCapturedResult(
+      preferredArea,
+      inboundText,
+      detectSentiment(inboundText)
+    )
+  }
 
   const normalizedRecentBodies = recentMessages.map((m) =>
     String(m.body || '').toLowerCase()
