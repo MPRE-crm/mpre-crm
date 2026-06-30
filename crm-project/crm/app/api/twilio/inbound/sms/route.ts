@@ -1765,21 +1765,25 @@ export async function POST(req: NextRequest) {
         sms_confidence: brain.confidence,
         sms_current_objective: brain.currentObjective,
         sms_timeline_answered:
-          brain.extractedFields.timeline_answered ??
-          lead.sms_timeline_answered ??
-          false,
+          lead.sms_timeline_answered === true ||
+          brain.extractedFields.timeline_answered === true ||
+          Boolean(lead.move_timeline) ||
+          Boolean(brain.extractedFields.move_timeline),
         sms_budget_answered:
-          brain.extractedFields.budget_answered ??
-          lead.sms_budget_answered ??
-          false,
+          lead.sms_budget_answered === true ||
+          brain.extractedFields.budget_answered === true ||
+          Boolean(lead.price_range) ||
+          Boolean(brain.extractedFields.price_range),
         sms_area_answered:
-          brain.extractedFields.area_answered ??
-          lead.sms_area_answered ??
-          false,
+          lead.sms_area_answered === true ||
+          brain.extractedFields.area_answered === true ||
+          Boolean(lead.preferred_areas) ||
+          Boolean(brain.extractedFields.preferred_areas),
         sms_agent_status_answered:
-          brain.extractedFields.agent_status_answered ??
-          lead.sms_agent_status_answered ??
-          false,
+          lead.sms_agent_status_answered === true ||
+          brain.extractedFields.agent_status_answered === true ||
+          Boolean(lead.agent_status) ||
+          Boolean(brain.extractedFields.agent_status),
         sms_appointment_readiness: brain.appointmentReadiness,
         sms_conversation_tone: brain.conversationTone,
         sms_sentiment: brain.sentiment,
