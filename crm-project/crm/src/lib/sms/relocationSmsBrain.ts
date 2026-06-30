@@ -477,27 +477,7 @@ function readinessForNextStep(step: LpmamaStep) {
 }
 
 function areaNextQuestionText(step: LpmamaStep, teamLabel: string) {
-  if (step === 'location_timeline') {
-    return 'Are you thinking of moving soon, 3-6 months out, or more like next year?'
-  }
-
-  if (step === 'price') {
-    return 'What price range are you hoping to stay around?'
-  }
-
-  if (step === 'motivation') {
-    return 'What is the main reason behind the move - work, family, lifestyle, retirement, or something else?'
-  }
-
-  if (step === 'agent_status') {
-    return `Are you already working with an agent, or would you like help from ${teamLabel}?`
-  }
-
-  if (step === 'mortgage_or_cash') {
-    return 'Are you thinking this will be a cash purchase, or will you probably want financing?'
-  }
-
-  return `The next best step would be a quick strategy call with ${teamLabel} so we can answer questions and help you map out the move. Want me to send two good time options?`
+  return relocationSmsText.nextQuestionForLpmamaStep(step, teamLabel)
 }
 
 function areaPreferenceCapturedResult(

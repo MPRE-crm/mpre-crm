@@ -252,6 +252,29 @@ export const relocationSmsText = {
     return `Great question. ${brandName} helps relocation buyers cut through the online noise and make smarter decisions faster. We help you understand how different areas actually feel, which neighborhoods fit your lifestyle, where the value is, and what to avoid. Then we help with the strategy and execution too - search setup, pricing, offer strategy, inspections, negotiation, and keeping the move clear through closing. When you are ready, you can still reply A or B for a quick strategy call.`
   },
 
+  nextQuestionForLpmamaStep(step: string, teamLabel: string) {
+    if (step === 'location_timeline') {
+      return 'Are you thinking of moving soon, 3-6 months out, or more like next year?'
+    }
+
+    if (step === 'price') {
+      return 'What price range are you hoping to stay around?'
+    }
+
+    if (step === 'motivation') {
+      return 'What is the main reason behind the move - work, family, lifestyle, retirement, or something else?'
+    }
+
+    if (step === 'agent_status') {
+      return `Are you already working with an agent, or would you like help from ${teamLabel}?`
+    }
+
+    if (step === 'mortgage_or_cash') {
+      return 'Are you thinking this will be a cash purchase, or will you probably want financing?'
+    }
+
+    return `The next best step would be a quick strategy call with ${teamLabel} so we can answer questions and help you map out the move. Want me to send you two good time options?`
+  },
   areaPreferenceCaptured(area: string, nextQuestion?: string | null) {
     const lowerArea = area.toLowerCase()
 
