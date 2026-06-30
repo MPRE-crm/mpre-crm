@@ -1429,6 +1429,40 @@ export async function runRelocationSmsBrain(args: {
   const outOfMarketArea = detectOutOfMarketArea(inboundText)
   const preferredArea = detectBoiseAreaPreference(inboundText)
 
+  const waitingForMotivationAnswer =
+    lead.sms_state === 'WAITING_FOR_MOTIVATION' ||
+    lead.sms_current_objective === 'motivation' ||
+    lead.sms_last_question === 'motivation' ||
+    lead.sms_lpmama_current_step === 'motivation' ||
+    String(lead.sms_last_question || '').toLowerCase().includes('motivating')
+
+  if (waitingForMotivationAnswer && motivation) {
+    return {
+      replyText: relocationSmsText.askAgentStatus(market.teamLabel),
+      nextState: 'WAITING_FOR_AGENT_STATUS',
+      nextPriority: 'agent_status',
+      temperature: 'hot',
+      bestNextStep: 'none',
+      confidence: 'high',
+      currentObjective: 'agent_status',
+      appointmentReadiness: 3,
+      conversationTone: 'warm',
+      sentiment: inboundSentiment,
+      shouldEscalate: false,
+      debugReason: 'deterministic_motivation_answer_ask_agent_status',
+      lastQuestion: 'agent_status',
+      lpmamaCurrentStep: 'agent_status',
+      lpmamaNextStep: 'mortgage_or_cash',
+      resumeStep: 'agent_status',
+      detourReason: null,
+      extractedFields: {
+        motivation,
+        notes_append: inboundText,
+      },
+      aiSummary: 'Lead motivation captured deterministically; asked agent status.',
+    }
+  }
+
   if (isWaitingForOutOfMarketAreaClarification(lead) && !hasHardStop(inboundText)) {
     const referralArea = lead.preferred_areas || outOfMarketArea || 'that area'
 
