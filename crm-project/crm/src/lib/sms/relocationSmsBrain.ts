@@ -437,38 +437,110 @@ function isWaitingForOutOfMarketAreaClarification(lead: RelocationLead) {
   return lead.sms_state === 'WAITING_FOR_OUT_OF_MARKET_AREA_CLARIFICATION'
 }
 
+function nextStepAfter(step: LpmamaStep): LpmamaStep {
+  if (step === 'location_timeline') return 'price'
+  if (step === 'price') return 'motivation'
+  if (step === 'motivation') return 'agent_status'
+  if (step === 'agent_status') return 'mortgage_or_cash'
+  return 'appointment'
+}
+
+function stateForNextStep(step: LpmamaStep) {
+  if (step === 'location_timeline') return 'WAITING_FOR_TIMELINE'
+  if (step === 'price') return 'WAITING_FOR_BUDGET'
+  if (step === 'motivation') return 'WAITING_FOR_MOTIVATION'
+  if (step === 'agent_status') return 'WAITING_FOR_AGENT_STATUS'
+  if (step === 'mortgage_or_cash') return 'WAITING_FOR_MORTGAGE_OR_CASH'
+  return 'OFFER_AGENT_CALL'
+}
+
+function priorityForNextStep(step: LpmamaStep) {
+  return step === 'location_timeline' ? 'timeline' : step
+}
+
+function questionForNextStep(step: LpmamaStep) {
+  if (step === 'location_timeline') return 'timeline'
+  if (step === 'price') return 'price'
+  if (step === 'motivation') return 'motivation'
+  if (step === 'agent_status') return 'agent_status'
+  if (step === 'mortgage_or_cash') return 'mortgage_or_cash'
+  return 'appointment_offer'
+}
+
+function readinessForNextStep(step: LpmamaStep) {
+  if (step === 'location_timeline') return 2
+  if (step === 'price') return 2
+  if (step === 'motivation') return 3
+  if (step === 'agent_status') return 3
+  if (step === 'mortgage_or_cash') return 4
+  return 5
+}
+
+function areaNextQuestionText(step: LpmamaStep, teamLabel: string) {
+  if (step === 'location_timeline') {
+    return 'Are you thinking of moving soon, 3-6 months out, or more like next year?'
+  }
+
+  if (step === 'price') {
+    return 'What price range are you hoping to stay around?'
+  }
+
+  if (step === 'motivation') {
+    return 'What is the main reason behind the move - work, family, lifestyle, retirement, or something else?'
+  }
+
+  if (step === 'agent_status') {
+    return `Are you already working with an agent, or would you like help from ${teamLabel}?`
+  }
+
+  if (step === 'mortgage_or_cash') {
+    return 'Are you thinking this will be a cash purchase, or will you probably want financing?'
+  }
+
+  return `The next best step would be a quick strategy call with ${teamLabel} so we can answer questions and help you map out the move. Want me to send two good time options?`
+}
+
 function areaPreferenceCapturedResult(
+  lead: RelocationLead,
   area: string,
   inboundText: string,
-  sentiment: BrainResult['sentiment']
+  sentiment: BrainResult['sentiment'],
+  teamLabel: string
 ): BrainResult {
+  const nextStep = nextMissingStep(lead)
+  const nextPriority = priorityForNextStep(nextStep)
+  const nextQuestion = questionForNextStep(nextStep)
+
   return {
-    replyText: relocationSmsText.areaPreferenceCaptured(area),
-    nextState: 'WAITING_FOR_TIMELINE',
-    nextPriority: 'timeline',
+    replyText: relocationSmsText.areaPreferenceCaptured(
+      area,
+      areaNextQuestionText(nextStep, teamLabel)
+    ),
+    nextState: stateForNextStep(nextStep),
+    nextPriority,
     temperature: 'hot',
-    bestNextStep: 'none',
+    bestNextStep: nextStep === 'appointment' ? 'agent_call' : 'none',
     confidence: 'high',
-    currentObjective: 'location_timeline',
-    appointmentReadiness: 2,
+    currentObjective: nextStep === 'location_timeline' ? 'location_timeline' : nextStep,
+    appointmentReadiness: readinessForNextStep(nextStep),
     conversationTone: 'warm',
     sentiment,
     shouldEscalate: false,
-    debugReason: 'deterministic_area_answer_ask_timeline',
-    lastQuestion: 'timeline',
-    lpmamaCurrentStep: 'location_timeline',
-    lpmamaNextStep: 'price',
-    resumeStep: 'location_timeline',
+    debugReason: `deterministic_area_answer_ask_${nextPriority}`,
+    lastQuestion: nextQuestion,
+    lpmamaCurrentStep: nextStep,
+    lpmamaNextStep: nextStepAfter(nextStep),
+    resumeStep: nextStep,
     detourReason: null,
     extractedFields: {
       preferred_areas: area,
       area_answered: true,
+      preferred_next_step: nextStep === 'appointment' ? 'appointment' : null,
       notes_append: inboundText,
     },
-    aiSummary: 'Area preference captured, asked timeline',
+    aiSummary: `Area preference captured, asked next missing step: ${nextStep}`,
   }
 }
-
 function outOfMarketAreaClarificationResult(
   area: string,
   inboundText: string,
@@ -534,34 +606,42 @@ function outOfMarketReferralResult(
 }
 
 function outOfMarketKeepBoiseResult(
+  lead: RelocationLead,
   inboundText: string,
-  sentiment: BrainResult['sentiment']
+  sentiment: BrainResult['sentiment'],
+  teamLabel: string
 ): BrainResult {
+  const nextStep = nextMissingStep(lead)
+  const nextPriority = priorityForNextStep(nextStep)
+  const nextQuestion = questionForNextStep(nextStep)
+
   return {
-    replyText: relocationSmsText.outOfMarketKeepBoise(),
-    nextState: 'WAITING_FOR_TIMELINE',
-    nextPriority: 'timeline',
+    replyText: relocationSmsText.outOfMarketKeepBoise(
+      areaNextQuestionText(nextStep, teamLabel)
+    ),
+    nextState: stateForNextStep(nextStep),
+    nextPriority,
     temperature: 'hot',
-    bestNextStep: 'none',
+    bestNextStep: nextStep === 'appointment' ? 'agent_call' : 'none',
     confidence: 'high',
-    currentObjective: 'location_timeline',
-    appointmentReadiness: 2,
+    currentObjective: nextStep === 'location_timeline' ? 'location_timeline' : nextStep,
+    appointmentReadiness: readinessForNextStep(nextStep),
     conversationTone: 'warm',
     sentiment,
     shouldEscalate: false,
-    debugReason: 'out_of_market_but_still_considering_boise',
-    lastQuestion: 'timeline',
-    lpmamaCurrentStep: 'location_timeline',
-    lpmamaNextStep: 'price',
-    resumeStep: 'location_timeline',
+    debugReason: `out_of_market_but_still_considering_boise_ask_${nextPriority}`,
+    lastQuestion: nextQuestion,
+    lpmamaCurrentStep: nextStep,
+    lpmamaNextStep: nextStepAfter(nextStep),
+    resumeStep: nextStep,
     detourReason: null,
     extractedFields: {
+      preferred_next_step: nextStep === 'appointment' ? 'appointment' : null,
       notes_append: inboundText,
     },
-    aiSummary: 'Lead confirmed Boise is still in consideration, continued flow',
+    aiSummary: `Lead confirmed Boise is still in consideration, asked next missing step: ${nextStep}`,
   }
 }
-
 function nextMissingStep(
   lead: RelocationLead,
   extracted?: {
@@ -651,7 +731,7 @@ async function fallbackReply(
     const referralArea = lead.preferred_areas || outOfMarketArea || 'that area'
 
     if (isStillConsideringBoise(inboundText)) {
-      return outOfMarketKeepBoiseResult(inboundText, sentiment)
+      return outOfMarketKeepBoiseResult(lead, inboundText, sentiment, market.teamLabel)
     }
 
     if (isMainlyOutOfMarket(inboundText)) {
@@ -664,7 +744,7 @@ async function fallbackReply(
   }
 
   if (isWaitingForAreaPreference(lead) && preferredArea && !hasHardStop(inboundText)) {
-    return areaPreferenceCapturedResult(preferredArea, inboundText, sentiment)
+    return areaPreferenceCapturedResult(lead, preferredArea, inboundText, sentiment, market.teamLabel)
   }
 
 if (lead.sms_state === 'WAITING_FOR_LOCAL_LENDER_STATUS') {
@@ -1353,7 +1433,7 @@ export async function runRelocationSmsBrain(args: {
     const referralArea = lead.preferred_areas || outOfMarketArea || 'that area'
 
     if (isStillConsideringBoise(inboundText)) {
-      return outOfMarketKeepBoiseResult(inboundText, inboundSentiment)
+      return outOfMarketKeepBoiseResult(lead, inboundText, inboundSentiment, market.teamLabel)
     }
 
     if (isMainlyOutOfMarket(inboundText)) {
@@ -1366,7 +1446,7 @@ export async function runRelocationSmsBrain(args: {
   }
 
   if (isWaitingForAreaPreference(lead) && preferredArea && !hasHardStop(inboundText)) {
-    return areaPreferenceCapturedResult(preferredArea, inboundText, inboundSentiment)
+    return areaPreferenceCapturedResult(lead, preferredArea, inboundText, inboundSentiment, market.teamLabel)
   }
 
   const normalizedRecentBodies = recentMessages.map((m) =>
@@ -1412,7 +1492,7 @@ Use TRUE TPMAMA for relocation:
 Important:
 - Sound human, conversational, helpful, and warm. Do not sound abrupt, robotic, or like a form.
 - Start by confirming whether they received the relocation guide.
-- After they confirm they received it, ask for TIMELINE first.
+- After they confirm they received it, ask their area preference first. After area is answered, ask the next missing TPMAMA step. Do not re-ask timeline or price if they are already saved on the lead from the landing page.
 - Do not assume facts the lead has not explicitly given in the current active thread or saved lead fields.
 - Do not repeat the same question twice in a row.
 - When referring to agent help, always keep it in-house with ${market.brandName}. Say things like "our team here at ${market.brandName}" or "someone on our team here at ${market.brandName}".

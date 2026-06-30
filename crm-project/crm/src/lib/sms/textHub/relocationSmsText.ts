@@ -252,7 +252,7 @@ export const relocationSmsText = {
     return `Great question. ${brandName} helps relocation buyers cut through the online noise and make smarter decisions faster. We help you understand how different areas actually feel, which neighborhoods fit your lifestyle, where the value is, and what to avoid. Then we help with the strategy and execution too - search setup, pricing, offer strategy, inspections, negotiation, and keeping the move clear through closing. When you are ready, you can still reply A or B for a quick strategy call.`
   },
 
-  areaPreferenceCaptured(area: string) {
+  areaPreferenceCaptured(area: string, nextQuestion?: string | null) {
     const lowerArea = area.toLowerCase()
 
     const leadIn =
@@ -262,7 +262,11 @@ export const relocationSmsText = {
           ? 'Got it - that helps narrow the search.'
           : `Great - ${area} is a solid area to focus on.`
 
-    return `${leadIn} Are you thinking of moving soon, 3-6 months out, or more like next year?`
+    const question =
+      String(nextQuestion || '').trim() ||
+      'Are you thinking of moving soon, 3-6 months out, or more like next year?'
+
+    return `${leadIn} ${question}`
   },
 
   outOfMarketAreaClarification(area: string) {
@@ -273,8 +277,12 @@ export const relocationSmsText = {
     return `Got it - I'll flag this for our team so they can help point you in the right direction for ${area}.`
   },
 
-  outOfMarketKeepBoise() {
-    return `Perfect - we can keep Boise in the mix. Are you thinking of moving soon, 3-6 months out, or more like next year?`
+  outOfMarketKeepBoise(nextQuestion?: string | null) {
+    const question =
+      String(nextQuestion || '').trim() ||
+      'Are you thinking of moving soon, 3-6 months out, or more like next year?'
+
+    return `Perfect - we can keep Boise in the mix. ${question}`
   },
   catchAllError() {
     return `Thanks for your message. We received it and will follow up as soon as possible.`
