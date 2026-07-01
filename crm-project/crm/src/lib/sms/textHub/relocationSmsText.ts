@@ -206,7 +206,7 @@ export const relocationSmsText = {
 
   guideVerificationCheck(name: string, _email?: string | null, ctx?: RelocationSmsContext | null) {
     const cleaned = cleanName(name) || 'there'
-    return `Hi ${cleaned}, this is Samantha with ${ctxBrand(ctx)}. Just checking â€” did you receive the ${ctxGuide(ctx)} okay?`
+    return `Hi ${cleaned}, this is Samantha with ${ctxBrand(ctx)}. Just checking — did you receive the ${ctxGuide(ctx)} okay?`
   },
 
   guideEmailConfirmAsk(_name: string, email?: string | null, ctx?: RelocationSmsContext | null) {
@@ -254,26 +254,26 @@ export const relocationSmsText = {
 
   nextQuestionForLpmamaStep(step: string, teamLabel: string) {
     if (step === 'location_timeline') {
-      return 'Are you thinking of moving soon, 3-6 months out, or more like next year?'
+      return relocationSmsText.askTimeline('')
     }
 
     if (step === 'price') {
-      return 'What price range are you hoping to stay around?'
+      return relocationSmsText.askPrice()
     }
 
     if (step === 'motivation') {
-      return 'What is the main reason behind the move - work, family, lifestyle, retirement, or something else?'
+      return relocationSmsText.askMotivation()
     }
 
     if (step === 'agent_status') {
-      return `Are you already working with an agent, or would you like help from ${teamLabel}?`
+      return relocationSmsText.askAgentStatus(teamLabel)
     }
 
     if (step === 'mortgage_or_cash') {
-      return 'Are you thinking this will be a cash purchase, or will you probably want financing?'
+      return relocationSmsText.askMortgageOrCash()
     }
 
-    return `The next best step would be a quick strategy call with ${teamLabel} so we can answer questions and help you map out the move. Want me to send you two good time options?`
+    return relocationSmsText.offerAppointment(teamLabel)
   },
   areaPreferenceCaptured(area: string, nextQuestion?: string | null) {
     const lowerArea = area.toLowerCase()
