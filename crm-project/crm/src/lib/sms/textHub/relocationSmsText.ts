@@ -124,6 +124,26 @@ export const relocationSmsText = {
     return `Just so I know how best to help, are you already working with an agent, or would you like help from ${teamLabel}?`
   },
 
+  askAgentAgreementClarification(teamLabel: string) {
+    return `Got it - are you actually under a buyer agreement with that agent, or have you just talked with them so far? If you are not under agreement, ${teamLabel} can still help with Boise-area strategy.`
+  },
+
+  agentAgreementSignedNurture(name: string) {
+    return `Got it${withName(name)} - totally respect that. If you are already under a buyer agreement, I will not push a call. If you want general Boise-area info from the guide later, just text me back.`
+  },
+
+  agentNotUnderAgreementValueBridge(teamLabel: string) {
+    return `Got it - that helps. If you are not under a buyer agreement, ${teamLabel} can still be a local resource for Boise-area strategy, neighborhoods, search setup, pricing, and offer guidance. One other planning question - are you thinking this will be cash, or will you probably want financing?`
+  },
+
+  outOfAreaAgentClarification(teamLabel: string) {
+    return `Got it - are you under a buyer agreement with that agent, or have you just talked with them so far? If they are not local to Boise, ${teamLabel} can still help with Boise-specific guidance.`
+  },
+
+  spouseDelayResponse() {
+    return `Totally understand. A move like this is usually a joint decision. Would it be helpful if I sent over two quick strategy-call options for both of you, or would you rather I circle back in a few days?`
+  },
+
   askMortgageOrCash() {
     return `Perfect. One other planning question - are you thinking this will be a cash purchase, or will you probably want financing?`
   },

@@ -6,6 +6,9 @@ import {
   detectOutOfMarketArea,
   isStillConsideringBoise,
   isMainlyOutOfMarket,
+  detectAgentStatusIntent,
+  detectAgentAgreementIntent,
+  detectSpouseOrDelayIntent,
 } from './textHub/relocationSmsIntent'
 
 type SmsDirection = 'incoming' | 'outgoing'
@@ -125,6 +128,7 @@ const VALID_STATES = new Set([
   'WAITING_FOR_BUDGET',
   'WAITING_FOR_MOTIVATION',
   'WAITING_FOR_AGENT_STATUS',
+  'WAITING_FOR_AGENT_AGREEMENT_CLARIFICATION',
   'WAITING_FOR_MORTGAGE_OR_CASH',
   'WAITING_FOR_LOCAL_LENDER_STATUS',
   'WAITING_FOR_LENDER_PERMISSION',
@@ -363,34 +367,14 @@ function extractMotivation(text: string) {
 }
 
 function extractAgentStatus(text: string) {
-  const t = text.toLowerCase()
+  const intent = detectAgentStatusIntent(text)
 
-  if (/signed buyer agreement|under contract with an agent|signed with an agent/.test(t)) {
-    return 'signed_agent'
-  }
-
-  if (
-    /working with your team|working with mpre|mpre is helping me|already working with mpre|your team is helping/i.test(t)
-  ) {
-    return 'local_agent'
-  }
-
-  if (
-    /out of state agent|agent from california|agent from out of state|not local|not in boise/.test(t)
-  ) {
-    return 'out_of_area_agent'
-  }
-
-  if (
-    /have an agent|working with an agent|already have a realtor|already have an agent/.test(t)
-  ) {
-    return 'has_agent_unspecified'
-  }
-
-  if (
-    /no agent|not working with an agent|dont have an agent|don't have an agent|need an agent|need someone|need help|need assistance|assistance please|help please|need help from mpre|need someone from mpre|assign me someone|you can assign me someone|someone from mpre|mpre please|want help from your team|would like assistance from your team|assistance from your team|your team please/i.test(t)
-  ) {
-    return 'no_agent'
+  if (intent === 'under_buyer_agreement') return 'signed_agent'
+  if (intent === 'wants_mpre_help') return 'no_agent'
+  if (intent === 'out_of_area_agent') return 'out_of_area_agent'
+  if (intent === 'not_committed_agent') return 'not_committed_agent'
+  if (intent === 'has_agent_needs_agreement_clarification') {
+    return 'has_agent_needs_agreement_clarification'
   }
 
   return null
@@ -433,6 +417,23 @@ function isWaitingForAreaPreference(lead: RelocationLead) {
   )
 }
 
+
+function isWaitingForAgentStatusResponse(lead: RelocationLead) {
+  return (
+    lead.sms_state === 'WAITING_FOR_AGENT_STATUS' ||
+    lead.sms_current_objective === 'agent_status' ||
+    lead.sms_last_question === 'agent_status' ||
+    lead.sms_lpmama_current_step === 'agent_status'
+  )
+}
+
+function isWaitingForAgentAgreementClarification(lead: RelocationLead) {
+  return (
+    lead.sms_state === 'WAITING_FOR_AGENT_AGREEMENT_CLARIFICATION' ||
+    lead.sms_last_question === 'agent_agreement_clarification' ||
+    lead.sms_detour_reason === 'agent_agreement_clarification'
+  )
+}
 function isWaitingForOutOfMarketAreaClarification(lead: RelocationLead) {
   return lead.sms_state === 'WAITING_FOR_OUT_OF_MARKET_AREA_CLARIFICATION'
 }
@@ -654,6 +655,8 @@ function requiredStepAfterReply(
   const price = extractBudget(inboundText)
   const motivation = extractMotivation(inboundText)
   const agentStatus = extractAgentStatus(inboundText)
+  const agentAgreementIntent = detectAgentAgreementIntent(inboundText)
+  const spouseOrDelayIntent = detectSpouseOrDelayIntent(inboundText)
   const mortgageOrCash = extractMortgageOrCash(inboundText)
 
   return nextMissingStep(lead, {
@@ -686,6 +689,8 @@ async function fallbackReply(
   const price = extractBudget(inboundText)
   const motivation = extractMotivation(inboundText)
   const agentStatus = extractAgentStatus(inboundText)
+  const agentAgreementIntent = detectAgentAgreementIntent(inboundText)
+  const spouseOrDelayIntent = detectSpouseOrDelayIntent(inboundText)
   const mortgageOrCash = extractMortgageOrCash(inboundText)
   const localLenderStatus = extractLocalLenderStatus(inboundText)
   const lenderPermission = extractLenderPermission(inboundText)
@@ -879,6 +884,216 @@ if (lead.sms_state === 'WAITING_FOR_LENDER_PERMISSION') {
     }
   }
 
+  if (isWaitingForAgentAgreementClarification(lead) && agentAgreementIntent === 'under_agreement') {
+    return {
+      replyText: relocationSmsText.agentAgreementSignedNurture(name),
+      nextState: 'EXIT_ALREADY_HAS_LOCAL_AGENT',
+      nextPriority: 'nurture',
+      temperature: 'warm',
+      bestNextStep: 'nurture',
+      confidence: 'high',
+      currentObjective: 'stop',
+      appointmentReadiness: 0,
+      conversationTone: 'warm',
+      sentiment,
+      shouldEscalate: false,
+      debugReason: 'fallback_agent_agreement_signed_exit',
+      lastQuestion: null,
+      lpmamaCurrentStep: 'agent_status',
+      lpmamaNextStep: 'agent_status',
+      resumeStep: 'agent_status',
+      detourReason: 'agent_agreement_signed',
+      extractedFields: {
+        agent_status: 'signed_agent',
+        agent_status_answered: true,
+        preferred_next_step: 'nurture',
+        notes_append: inboundText,
+      },
+      aiSummary: 'Lead confirmed signed buyer agreement; moved to nurture.',
+    }
+  }
+
+  if (isWaitingForAgentAgreementClarification(lead) && agentAgreementIntent === 'not_under_agreement') {
+    return {
+      replyText: relocationSmsText.agentNotUnderAgreementValueBridge(market.teamLabel),
+      nextState: 'WAITING_FOR_MORTGAGE_OR_CASH',
+      nextPriority: 'mortgage_or_cash',
+      temperature: 'hot',
+      bestNextStep: 'none',
+      confidence: 'high',
+      currentObjective: 'mortgage_or_cash',
+      appointmentReadiness: 4,
+      conversationTone: 'warm',
+      sentiment,
+      shouldEscalate: false,
+      debugReason: 'fallback_agent_not_under_agreement_ask_mortgage',
+      lastQuestion: 'mortgage_or_cash',
+      lpmamaCurrentStep: 'mortgage_or_cash',
+      lpmamaNextStep: 'appointment',
+      resumeStep: 'mortgage_or_cash',
+      detourReason: null,
+      extractedFields: {
+        agent_status: 'not_under_agreement',
+        agent_status_answered: true,
+        notes_append: inboundText,
+      },
+      aiSummary: 'Lead is not under buyer agreement; value bridge and moved to mortgage/cash.',
+    }
+  }
+
+  if (isWaitingForAgentStatusResponse(lead) && agentStatus === 'signed_agent') {
+    return {
+      replyText: relocationSmsText.agentAgreementSignedNurture(name),
+      nextState: 'EXIT_ALREADY_HAS_LOCAL_AGENT',
+      nextPriority: 'nurture',
+      temperature: 'warm',
+      bestNextStep: 'nurture',
+      confidence: 'high',
+      currentObjective: 'stop',
+      appointmentReadiness: 0,
+      conversationTone: 'warm',
+      sentiment,
+      shouldEscalate: false,
+      debugReason: 'fallback_agent_status_signed_exit',
+      lastQuestion: null,
+      lpmamaCurrentStep: 'agent_status',
+      lpmamaNextStep: 'agent_status',
+      resumeStep: 'agent_status',
+      detourReason: 'agent_agreement_signed',
+      extractedFields: {
+        agent_status: 'signed_agent',
+        agent_status_answered: true,
+        preferred_next_step: 'nurture',
+        notes_append: inboundText,
+      },
+      aiSummary: 'Lead has signed agent agreement; moved to nurture.',
+    }
+  }
+
+  if (
+    isWaitingForAgentStatusResponse(lead) &&
+    (agentStatus === 'has_agent_needs_agreement_clarification' ||
+      agentStatus === 'out_of_area_agent')
+  ) {
+    return {
+      replyText:
+        agentStatus === 'out_of_area_agent'
+          ? relocationSmsText.outOfAreaAgentClarification(market.teamLabel)
+          : relocationSmsText.askAgentAgreementClarification(market.teamLabel),
+      nextState: 'WAITING_FOR_AGENT_AGREEMENT_CLARIFICATION',
+      nextPriority: 'agent_agreement_clarification',
+      temperature: 'hot',
+      bestNextStep: 'none',
+      confidence: 'high',
+      currentObjective: 'agent_status',
+      appointmentReadiness: 3,
+      conversationTone: 'warm',
+      sentiment,
+      shouldEscalate: false,
+      debugReason:
+        agentStatus === 'out_of_area_agent'
+          ? 'fallback_out_of_area_agent_clarify_agreement'
+          : 'fallback_agent_status_clarify_agreement',
+      lastQuestion: 'agent_agreement_clarification',
+      lpmamaCurrentStep: 'agent_status',
+      lpmamaNextStep: 'mortgage_or_cash',
+      resumeStep: 'agent_status',
+      detourReason: 'agent_agreement_clarification',
+      extractedFields: {
+        agent_status: agentStatus,
+        agent_status_answered: false,
+        notes_append: inboundText,
+      },
+      aiSummary: 'Lead mentioned an agent/realtor; asked whether they are under buyer agreement.',
+    }
+  }
+
+  if (isWaitingForAgentStatusResponse(lead) && agentStatus === 'not_committed_agent') {
+    return {
+      replyText: relocationSmsText.agentNotUnderAgreementValueBridge(market.teamLabel),
+      nextState: 'WAITING_FOR_MORTGAGE_OR_CASH',
+      nextPriority: 'mortgage_or_cash',
+      temperature: 'hot',
+      bestNextStep: 'none',
+      confidence: 'high',
+      currentObjective: 'mortgage_or_cash',
+      appointmentReadiness: 4,
+      conversationTone: 'warm',
+      sentiment,
+      shouldEscalate: false,
+      debugReason: 'fallback_agent_not_committed_ask_mortgage',
+      lastQuestion: 'mortgage_or_cash',
+      lpmamaCurrentStep: 'mortgage_or_cash',
+      lpmamaNextStep: 'appointment',
+      resumeStep: 'mortgage_or_cash',
+      detourReason: null,
+      extractedFields: {
+        agent_status: 'not_under_agreement',
+        agent_status_answered: true,
+        notes_append: inboundText,
+      },
+      aiSummary: 'Lead has only talked with someone/not committed; value bridge and moved to mortgage/cash.',
+    }
+  }
+
+  if (isWaitingForAgentStatusResponse(lead) && agentStatus === 'no_agent') {
+    return {
+      replyText: relocationSmsText.askMortgageOrCashWithName(name),
+      nextState: 'WAITING_FOR_MORTGAGE_OR_CASH',
+      nextPriority: 'mortgage_or_cash',
+      temperature: 'hot',
+      bestNextStep: 'none',
+      confidence: 'high',
+      currentObjective: 'mortgage_or_cash',
+      appointmentReadiness: 4,
+      conversationTone: 'warm',
+      sentiment,
+      shouldEscalate: false,
+      debugReason: 'fallback_agent_status_needs_mpre_help',
+      lastQuestion: 'mortgage_or_cash',
+      lpmamaCurrentStep: 'mortgage_or_cash',
+      lpmamaNextStep: 'appointment',
+      resumeStep: 'mortgage_or_cash',
+      detourReason: null,
+      extractedFields: {
+        agent_status: 'no_agent',
+        agent_status_answered: true,
+        notes_append: inboundText,
+      },
+      aiSummary: 'Lead wants MPRE help; moved to mortgage/cash.',
+    }
+  }
+
+  if (spouseOrDelayIntent) {
+    return {
+      replyText: relocationSmsText.spouseDelayResponse(),
+      nextState: 'OFFER_AGENT_CALL',
+      nextPriority: spouseOrDelayIntent === 'needs_spouse' ? 'spouse_delay' : 'callback_later',
+      temperature: 'warm',
+      bestNextStep: 'nurture',
+      confidence: 'high',
+      currentObjective: 'appointment',
+      appointmentReadiness: 3,
+      conversationTone: 'warm',
+      sentiment,
+      shouldEscalate: false,
+      debugReason:
+        spouseOrDelayIntent === 'needs_spouse'
+          ? 'fallback_spouse_delay'
+          : 'fallback_timing_delay',
+      lastQuestion: 'appointment_offer',
+      lpmamaCurrentStep: 'appointment',
+      lpmamaNextStep: 'appointment',
+      resumeStep: 'appointment',
+      detourReason: spouseOrDelayIntent,
+      extractedFields: {
+        primary_objection: spouseOrDelayIntent,
+        preferred_next_step: 'appointment_or_callback',
+        notes_append: inboundText,
+      },
+      aiSummary: 'Lead delayed for spouse/timing; offered joint strategy call or circle back.',
+    }
+  }
   if (isCompanyOrValueQuestion(inboundText)) {
     return {
       replyText: relocationSmsText.companyValueAnswer(market.brandName),
@@ -1066,7 +1281,7 @@ if (lead.sms_state === 'WAITING_FOR_LENDER_PERMISSION') {
     }
   }
 
-  if (agentStatus === 'local_agent' || agentStatus === 'signed_agent') {
+  if (agentStatus === 'signed_agent') {
     return {
       replyText: relocationSmsText.alreadyWorkingWithLocalAgent(name, market.teamLabel),
       nextState: 'EXIT_ALREADY_HAS_LOCAL_AGENT',
@@ -1395,6 +1610,8 @@ export async function runRelocationSmsBrain(args: {
   const price = extractBudget(inboundText)
   const motivation = extractMotivation(inboundText)
   const agentStatus = extractAgentStatus(inboundText)
+  const agentAgreementIntent = detectAgentAgreementIntent(inboundText)
+  const spouseOrDelayIntent = detectSpouseOrDelayIntent(inboundText)
   const mortgageOrCash = extractMortgageOrCash(inboundText)
   const nextStep = nextMissingStep(lead, {
     timeline,
@@ -1511,7 +1728,9 @@ Important:
 - Do not repeat the same question twice in a row.
 - When referring to agent help, always keep it in-house with ${market.brandName}. Say things like "our team here at ${market.brandName}" or "someone on our team here at ${market.brandName}".
 - Never suggest some random outside local agent.
-- If they already have a local agent and it is not your team, politely acknowledge it and exit.
+- If they say they have an agent/realtor but do not clearly say they signed a buyer agreement, ask whether they are under a buyer agreement or have just talked with that agent.
+- If they are signed/under buyer agreement, respectfully stop the appointment push and move to nurture.
+- If they have only talked with someone, know a realtor, have a friend/cousin realtor, or are not committed, explain 's Boise-local relocation value and continue to the next missing TPMAMA step.
 - Answer off-topic questions, objections, value questions, ${market.brandName}/company questions, process questions, and local area questions as fully as needed.
 - Then return exactly to the NEXT MISSING TPMAMA STEP.
 - If the core TPMAMA/appointment flow is already complete, do not stop replying. Stay available as a helpful post-flow Q&A assistant.
@@ -1528,6 +1747,7 @@ Important:
 - If they have not, offer a no-pressure, no-obligation local lender introduction through ${market.brandName}.
 - Ask permission before lender handoff.
 - If they approve lender handoff, mark lender intro requested and then continue toward appointment.
+- If they need to talk with a spouse/partner, say you understand and offer either two strategy-call options for both of them or a circle-back.
 - Do not move to appointment until timeline, price, motivation, agent status, and mortgage/cash are all clearly answered.
 
 Return only JSON:
@@ -1618,6 +1838,190 @@ ${inboundText}
 
     const localLenderStatus = extractLocalLenderStatus(inboundText)
     const lenderPermission = extractLenderPermission(inboundText)
+
+    if (isWaitingForAgentAgreementClarification(lead) && agentAgreementIntent === 'under_agreement') {
+      return {
+        replyText: relocationSmsText.agentAgreementSignedNurture(firstNameOf(lead)),
+        nextState: 'EXIT_ALREADY_HAS_LOCAL_AGENT',
+        nextPriority: 'nurture',
+        temperature: 'warm',
+        bestNextStep: 'nurture',
+        confidence: 'high',
+        currentObjective: 'stop',
+        appointmentReadiness: 0,
+        conversationTone: 'warm',
+        sentiment: sanitizeSentiment(parsed.sentiment),
+        shouldEscalate: false,
+        debugReason: 'state_override_agent_agreement_signed_exit',
+        lastQuestion: null,
+        lpmamaCurrentStep: 'agent_status',
+        lpmamaNextStep: 'agent_status',
+        resumeStep: 'agent_status',
+        detourReason: 'agent_agreement_signed',
+        extractedFields: {
+          agent_status: 'signed_agent',
+          agent_status_answered: true,
+          preferred_next_step: 'nurture',
+          notes_append: inboundText,
+        },
+        aiSummary: 'Lead confirmed signed buyer agreement; moved to nurture.',
+      }
+    }
+
+    if (isWaitingForAgentAgreementClarification(lead) && agentAgreementIntent === 'not_under_agreement') {
+      return {
+        replyText: relocationSmsText.agentNotUnderAgreementValueBridge(market.teamLabel),
+        nextState: 'WAITING_FOR_MORTGAGE_OR_CASH',
+        nextPriority: 'mortgage_or_cash',
+        temperature: 'hot',
+        bestNextStep: 'none',
+        confidence: 'high',
+        currentObjective: 'mortgage_or_cash',
+        appointmentReadiness: 4,
+        conversationTone: 'warm',
+        sentiment: sanitizeSentiment(parsed.sentiment),
+        shouldEscalate: false,
+        debugReason: 'state_override_agent_not_under_agreement_ask_mortgage',
+        lastQuestion: 'mortgage_or_cash',
+        lpmamaCurrentStep: 'mortgage_or_cash',
+        lpmamaNextStep: 'appointment',
+        resumeStep: 'mortgage_or_cash',
+        detourReason: null,
+        extractedFields: {
+          agent_status: 'not_under_agreement',
+          agent_status_answered: true,
+          notes_append: inboundText,
+        },
+        aiSummary: 'Lead is not under buyer agreement; value bridge and moved to mortgage/cash.',
+      }
+    }
+
+    if (isWaitingForAgentStatusResponse(lead) && agentStatus === 'signed_agent') {
+      return {
+        replyText: relocationSmsText.agentAgreementSignedNurture(firstNameOf(lead)),
+        nextState: 'EXIT_ALREADY_HAS_LOCAL_AGENT',
+        nextPriority: 'nurture',
+        temperature: 'warm',
+        bestNextStep: 'nurture',
+        confidence: 'high',
+        currentObjective: 'stop',
+        appointmentReadiness: 0,
+        conversationTone: 'warm',
+        sentiment: sanitizeSentiment(parsed.sentiment),
+        shouldEscalate: false,
+        debugReason: 'state_override_agent_status_signed_exit',
+        lastQuestion: null,
+        lpmamaCurrentStep: 'agent_status',
+        lpmamaNextStep: 'agent_status',
+        resumeStep: 'agent_status',
+        detourReason: 'agent_agreement_signed',
+        extractedFields: {
+          agent_status: 'signed_agent',
+          agent_status_answered: true,
+          preferred_next_step: 'nurture',
+          notes_append: inboundText,
+        },
+        aiSummary: 'Lead has signed agent agreement; moved to nurture.',
+      }
+    }
+
+    if (
+      isWaitingForAgentStatusResponse(lead) &&
+      (agentStatus === 'has_agent_needs_agreement_clarification' ||
+        agentStatus === 'out_of_area_agent')
+    ) {
+      return {
+        replyText:
+          agentStatus === 'out_of_area_agent'
+            ? relocationSmsText.outOfAreaAgentClarification(market.teamLabel)
+            : relocationSmsText.askAgentAgreementClarification(market.teamLabel),
+        nextState: 'WAITING_FOR_AGENT_AGREEMENT_CLARIFICATION',
+        nextPriority: 'agent_agreement_clarification',
+        temperature: 'hot',
+        bestNextStep: 'none',
+        confidence: 'high',
+        currentObjective: 'agent_status',
+        appointmentReadiness: 3,
+        conversationTone: 'warm',
+        sentiment: sanitizeSentiment(parsed.sentiment),
+        shouldEscalate: false,
+        debugReason:
+          agentStatus === 'out_of_area_agent'
+            ? 'state_override_out_of_area_agent_clarify_agreement'
+            : 'state_override_agent_status_clarify_agreement',
+        lastQuestion: 'agent_agreement_clarification',
+        lpmamaCurrentStep: 'agent_status',
+        lpmamaNextStep: 'mortgage_or_cash',
+        resumeStep: 'agent_status',
+        detourReason: 'agent_agreement_clarification',
+        extractedFields: {
+          agent_status: agentStatus,
+          agent_status_answered: false,
+          notes_append: inboundText,
+        },
+        aiSummary: 'Lead mentioned an agent/realtor; asked whether they are under buyer agreement.',
+      }
+    }
+
+    if (isWaitingForAgentStatusResponse(lead) && agentStatus === 'not_committed_agent') {
+      return {
+        replyText: relocationSmsText.agentNotUnderAgreementValueBridge(market.teamLabel),
+        nextState: 'WAITING_FOR_MORTGAGE_OR_CASH',
+        nextPriority: 'mortgage_or_cash',
+        temperature: 'hot',
+        bestNextStep: 'none',
+        confidence: 'high',
+        currentObjective: 'mortgage_or_cash',
+        appointmentReadiness: 4,
+        conversationTone: 'warm',
+        sentiment: sanitizeSentiment(parsed.sentiment),
+        shouldEscalate: false,
+        debugReason: 'state_override_agent_not_committed_ask_mortgage',
+        lastQuestion: 'mortgage_or_cash',
+        lpmamaCurrentStep: 'mortgage_or_cash',
+        lpmamaNextStep: 'appointment',
+        resumeStep: 'mortgage_or_cash',
+        detourReason: null,
+        extractedFields: {
+          agent_status: 'not_under_agreement',
+          agent_status_answered: true,
+          notes_append: inboundText,
+        },
+        aiSummary: 'Lead has only talked with someone/not committed; value bridge and moved to mortgage/cash.',
+      }
+    }
+
+    if (spouseOrDelayIntent) {
+      return {
+        replyText: relocationSmsText.spouseDelayResponse(),
+        nextState: 'OFFER_AGENT_CALL',
+        nextPriority: spouseOrDelayIntent === 'needs_spouse' ? 'spouse_delay' : 'callback_later',
+        temperature: 'warm',
+        bestNextStep: 'nurture',
+        confidence: 'high',
+        currentObjective: 'appointment',
+        appointmentReadiness: 3,
+        conversationTone: 'warm',
+        sentiment: sanitizeSentiment(parsed.sentiment),
+        shouldEscalate: false,
+        debugReason:
+          spouseOrDelayIntent === 'needs_spouse'
+            ? 'state_override_spouse_delay'
+            : 'state_override_timing_delay',
+        lastQuestion: 'appointment_offer',
+        lpmamaCurrentStep: 'appointment',
+        lpmamaNextStep: 'appointment',
+        resumeStep: 'appointment',
+        detourReason: spouseOrDelayIntent,
+        extractedFields: {
+          primary_objection: spouseOrDelayIntent,
+          preferred_next_step: 'appointment_or_callback',
+          notes_append: inboundText,
+        },
+        aiSummary: 'Lead delayed for spouse/timing; offered joint strategy call or circle back.',
+      }
+    }
+
 
         if (
       (
