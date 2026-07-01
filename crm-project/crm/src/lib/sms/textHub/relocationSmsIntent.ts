@@ -99,7 +99,7 @@ export function detectOutOfMarketArea(text?: string | null) {
     'twin falls',
     'idaho falls',
     'coeur d alene',
-    'coeur d’alene',
+    'coeur dâ€™alene',
     "coeur d'alene",
     'cda',
     'mccall',

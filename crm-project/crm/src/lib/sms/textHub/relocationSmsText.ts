@@ -226,7 +226,7 @@ export const relocationSmsText = {
 
   guideVerificationCheck(name: string, _email?: string | null, ctx?: RelocationSmsContext | null) {
     const cleaned = cleanName(name) || 'there'
-    return `Hi ${cleaned}, this is Samantha with ${ctxBrand(ctx)}. Just checking — did you receive the ${ctxGuide(ctx)} okay?`
+    return `Hi ${cleaned}, this is Samantha with ${ctxBrand(ctx)}. Just checking â€” did you receive the ${ctxGuide(ctx)} okay?`
   },
 
   guideEmailConfirmAsk(_name: string, email?: string | null, ctx?: RelocationSmsContext | null) {

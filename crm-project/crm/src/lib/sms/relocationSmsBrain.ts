@@ -323,7 +323,7 @@ function getUnclearCount(recentMessages: SmsMessage[]) {
   return recentMessages.filter(
     (m) =>
       m.direction === 'outgoing' &&
-      /want to make sure i understood|let's keep it simple|lets keep it simple|didnÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢t quite catch that|didn't quite catch that/i.test(
+      /want to make sure i understood|let's keep it simple|lets keep it simple|didnÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢t quite catch that|didn't quite catch that/i.test(
         String(m.body || '')
       )
   ).length
@@ -333,8 +333,8 @@ function extractTimeline(text: string) {
   const t = text.toLowerCase()
   const monthMatch = t.match(/(\d+)\s*(month|months)/)
   if (monthMatch) return `${monthMatch[1]} months`
-  if (/3\s*[-ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“]\s*6\s*months|3 to 6 months/.test(t)) return '3-6 months'
-  if (/6\s*[-ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“]\s*12\s*months|6 to 12 months/.test(t)) return '6-12 months'
+  if (/3\s*[-ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ]\s*6\s*months|3 to 6 months/.test(t)) return '3-6 months'
+  if (/6\s*[-ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ]\s*12\s*months|6 to 12 months/.test(t)) return '6-12 months'
   if (/asap|right away|immediately|right now/.test(t)) return 'ASAP'
   if (/next month/.test(t)) return 'next month'
   if (/this year/.test(t)) return 'this year'
