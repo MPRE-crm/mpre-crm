@@ -1,11 +1,11 @@
 import { supabaseServer } from "../../../lib/supabaseServer";
 
 type PageProps = {
-  params: Promise<{ code: string }> | { code: string };
+  params: Promise<{ code: string }>;
 };
 
 export default async function AppointmentReviewPage({ params }: PageProps) {
-  const resolvedParams = await Promise.resolve(params);
+  const resolvedParams = await params;
   const code = String(resolvedParams?.code || "").trim();
 
   const { data: approval, error } = await supabaseServer
