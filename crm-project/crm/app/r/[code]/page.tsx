@@ -10,7 +10,7 @@ export default async function AppointmentReviewPage({ params }: PageProps) {
 
   const { data: approval, error } = await supabaseServer
     .from("appointment_approvals")
-    .select("id, action_token, status")
+    .select("id, action_token, status, slot_human")
     .eq("short_code", code)
     .maybeSingle();
 
@@ -59,6 +59,15 @@ export default async function AppointmentReviewPage({ params }: PageProps) {
             <p className="mt-4 text-slate-200">
               Please accept or decline this appointment request.
             </p>
+
+            <div className="mt-6 rounded-2xl border border-white/10 bg-white/10 p-4">
+              <p className="text-sm uppercase tracking-[0.18em] text-blue-200">
+                Requested time
+              </p>
+              <p className="mt-2 text-xl font-semibold text-white">
+                {approval.slot_human || "Time not available"}
+              </p>
+            </div>
 
             <div className="mt-8 space-y-6">
               <a
