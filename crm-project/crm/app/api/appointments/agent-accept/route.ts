@@ -335,17 +335,24 @@ export async function GET(req: NextRequest) {
     const eventId = createdEvent.data.id || null;
     const eventLink = createdEvent.data.htmlLink || null;
 
-    const { error: approvalUpdateError } = await supabaseAdmin
+    const { data: acceptedApproval, error: approvalUpdateError } = await supabaseAdmin
       .from("appointment_approvals")
       .update({
         status: "accepted",
         accepted_at: nowIso,
         updated_at: nowIso,
       })
-      .eq("id", approval.id);
+      .eq("id", approval.id)
+      .eq("status", "pending")
+      .select("id")
+      .maybeSingle();
 
     if (approvalUpdateError) {
       return html(`Failed to update approval row: ${approvalUpdateError.message}`);
+    }
+
+    if (!acceptedApproval) {
+      return html("This appointment request was already accepted or is no longer actionable.");
     }
 
     const existingNotes = typeof lead.notes === "string" ? lead.notes.trim() : "";
