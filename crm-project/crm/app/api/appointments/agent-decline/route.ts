@@ -419,8 +419,20 @@ export async function GET(req: NextRequest) {
 
           const nextApprovalToken = nextApproval.action_token || nextActionToken;
 
-          const acceptUrl = `${appBaseUrl}/a/${encodeURIComponent(nextApproval.id)}/${encodeURIComponent(nextApprovalToken)}`;
-          const declineUrl = `${appBaseUrl}/d/${encodeURIComponent(nextApproval.id)}/${encodeURIComponent(nextApprovalToken)}`;
+          const reviewCode =
+            String(nextApproval.id || "").replace(/-/g, "").slice(0, 12) ||
+            String(nextApprovalToken || "").replace(/[^a-zA-Z0-9]/g, "").slice(0, 12);
+
+          const { error: reviewCodeError } = await supabaseAdmin
+            .from("appointment_approvals")
+            .update({ short_code: reviewCode })
+            .eq("id", nextApproval.id);
+
+          if (reviewCodeError) {
+            console.error("appointment approval short code update error", reviewCodeError);
+          }
+
+          const reviewUrl = `${appBaseUrl}/r/${encodeURIComponent(reviewCode)}`;
 
           const leadName =
             String(lead.first_name || "").trim() ||
@@ -428,10 +440,9 @@ export async function GET(req: NextRequest) {
             "Lead";
 
           const agentText =
-            `New appointment request from ${leadName}.\n` +
-            `Requested time: ${requestedSlotHuman}\n` +
-            `Accept: ${acceptUrl}\n` +
-            `Decline: ${declineUrl}`;
+            `New appointment request from ${leadName}.\n\n` +
+            `Requested time:\n${requestedSlotHuman}\n\n` +
+            `Review appointment:\n${reviewUrl}`;
 
           await twilioClient.messages.create({
             from: fromNumber,
