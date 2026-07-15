@@ -71,8 +71,6 @@ export async function middleware(req: NextRequest) {
   const {
     data: { session },
   } = await supabase.auth.getSession();
-
-  const isLogin = pathname === '/login';
   const isCallback = pathname.startsWith('/auth/callback');
   const publicPath = isPublicPath(pathname);
 
@@ -89,23 +87,10 @@ export async function middleware(req: NextRequest) {
     return res;
   }
 
-  // Public routes
+  // Public routes must stay reachable even when an old
+  // Supabase server cookie exists. Dashboard authentication
+  // is handled by the browser client through MfaGate.
   if (publicPath) {
-    if (isLogin && session) {
-      res.cookies.set({
-        name: BROWSER_SESSION_COOKIE,
-        value: '1',
-        path: '/',
-        httpOnly: true,
-        sameSite: 'lax',
-        secure: true,
-      });
-
-      const url = req.nextUrl.clone();
-      const target = url.searchParams.get('redirect') || '/dashboard/leads';
-      return NextResponse.redirect(new URL(target, req.url));
-    }
-
     return res;
   }
 
@@ -122,3 +107,4 @@ export async function middleware(req: NextRequest) {
 export const config = {
   matcher: '/:path*',
 };
+
