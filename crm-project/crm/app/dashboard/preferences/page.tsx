@@ -1,7 +1,9 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
+import MarketingIdentityCard from "./MarketingIdentityCard";
+import OrganizationComplianceCard from "./OrganizationComplianceCard";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string;
@@ -147,7 +149,7 @@ function localDateTimeToIso(value?: string | null) {
 }
 
 function formatDateTimeBoise(value?: string | null) {
-  if (!value) return "—";
+  if (!value) return "â€”";
 
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
@@ -817,6 +819,10 @@ return (
         </div>
       ) : null}
 
+            <MarketingIdentityCard />
+
+      <OrganizationComplianceCard />
+
       <div className="rounded border p-4">
         <h2 className="mb-4 text-lg font-semibold">Calendar Preferences</h2>
 
@@ -915,10 +921,10 @@ return (
                   {calendarConnections.map((connection) => (
                     <div key={connection.id} className="rounded border p-3">
                       <div className="font-medium">
-                        {connection.provider} {connection.is_default ? "• Default" : ""}
+                        {connection.provider} {connection.is_default ? "â€¢ Default" : ""}
                       </div>
                       <div className="mt-1 text-sm text-gray-600">
-                        {connection.account_email || "No account email"} •{" "}
+                        {connection.account_email || "No account email"} â€¢{" "}
                         {connection.calendar_connected ? "Connected" : "Not connected"}
                       </div>
                       <div className="text-sm text-gray-600">
@@ -1576,7 +1582,7 @@ return (
                   <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                     <div>
                       <div className="font-medium">
-                        {formatBlockType(block.block_type)} {block.is_active ? "" : "• Inactive"}
+                        {formatBlockType(block.block_type)} {block.is_active ? "" : "â€¢ Inactive"}
                       </div>
                       <div className="mt-1 text-sm text-gray-600">
                         Title: {block.title || "N/A"}
@@ -1592,7 +1598,7 @@ return (
                             {WEEKDAY_OPTIONS.find((d) => d.value === block.weekday)?.label || "N/A"}
                           </div>
                           <div className="text-sm text-gray-600">
-                            Time: {block.start_time || "—"} to {block.end_time || "—"}
+                            Time: {block.start_time || "â€”"} to {block.end_time || "â€”"}
                           </div>
                         </>
                       ) : (
@@ -1684,7 +1690,7 @@ return (
                       <div className="font-medium">{lender.name}</div>
                       <div className="text-sm text-gray-600">
                         {lender.email || "No email"}{" "}
-                        {lender.phone ? `• ${lender.phone}` : ""}
+                        {lender.phone ? `â€¢ ${lender.phone}` : ""}
                       </div>
                     </div>
 
@@ -1732,7 +1738,7 @@ return (
                       </div>
                       <div className="text-sm text-gray-600">
                         {lender.email || "No email"}{" "}
-                        {lender.phone ? `• ${lender.phone}` : ""}
+                        {lender.phone ? `â€¢ ${lender.phone}` : ""}
                       </div>
                     </div>
 
@@ -1783,3 +1789,4 @@ return (
     </div>
   );
 }
+
