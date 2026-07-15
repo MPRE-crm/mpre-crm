@@ -137,7 +137,7 @@ export default function LoginClient() {
           disabled={loading || resetLoading}
           className="text-sm text-blue-700 hover:underline mb-4 disabled:opacity-60"
         >
-          {resetLoading ? 'Sending reset emailâ€¦' : 'Forgot password?'}
+          {resetLoading ? 'Sending reset email...' : 'Forgot password?'}
         </button>
 
         {err && <div className="text-red-600 text-sm mb-3">{err}</div>}
@@ -148,7 +148,7 @@ export default function LoginClient() {
           disabled={loading || resetLoading}
           className="w-full rounded-md border px-3 py-2 disabled:opacity-60 mb-3 bg-blue-600 text-white"
         >
-          {loading ? 'Logging inâ€¦' : 'Sign in'}
+          {loading ? 'Logging in...' : 'Sign in'}
         </button>
 
         <p className="text-xs text-neutral-500 text-center">

@@ -1096,7 +1096,7 @@ export async function POST(req: NextRequest) {
 
           const twiml = new twilio.twiml.MessagingResponse()
           twiml.message(
-            `Iâ€™m sorry â€” I hit a snag checking that appointment request. Please try that one more time.`
+            `I'm sorry — I hit a snag checking that appointment request. Please try that one more time.`
           )
 
           return new NextResponse(twiml.toString(), {
@@ -1207,7 +1207,7 @@ export async function POST(req: NextRequest) {
 
           const twiml = new twilio.twiml.MessagingResponse()
           twiml.message(
-            `Iâ€™m sorry - I hit a snag saving that appointment request. Please try that one more time.`
+            `I'm sorry - I hit a snag saving that appointment request. Please try that one more time.`
           )
 
           return new NextResponse(twiml.toString(), {
@@ -1261,7 +1261,7 @@ export async function POST(req: NextRequest) {
 
             const twiml = new twilio.twiml.MessagingResponse()
             twiml.message(
-              `Iâ€™m sorry â€” I hit a snag saving that appointment request. Please try that one more time.`
+              `I'm sorry — I hit a snag saving that appointment request. Please try that one more time.`
             )
 
             return new NextResponse(twiml.toString(), {

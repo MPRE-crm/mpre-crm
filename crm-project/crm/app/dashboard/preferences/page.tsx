@@ -149,7 +149,7 @@ function localDateTimeToIso(value?: string | null) {
 }
 
 function formatDateTimeBoise(value?: string | null) {
-  if (!value) return "â€”";
+  if (!value) return "—";
 
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
@@ -921,10 +921,10 @@ return (
                   {calendarConnections.map((connection) => (
                     <div key={connection.id} className="rounded border p-3">
                       <div className="font-medium">
-                        {connection.provider} {connection.is_default ? "â€¢ Default" : ""}
+                        {connection.provider} {connection.is_default ? "• Default" : ""}
                       </div>
                       <div className="mt-1 text-sm text-gray-600">
-                        {connection.account_email || "No account email"} â€¢{" "}
+                        {connection.account_email || "No account email"} •{" "}
                         {connection.calendar_connected ? "Connected" : "Not connected"}
                       </div>
                       <div className="text-sm text-gray-600">
@@ -1582,7 +1582,7 @@ return (
                   <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                     <div>
                       <div className="font-medium">
-                        {formatBlockType(block.block_type)} {block.is_active ? "" : "â€¢ Inactive"}
+                        {formatBlockType(block.block_type)} {block.is_active ? "" : "• Inactive"}
                       </div>
                       <div className="mt-1 text-sm text-gray-600">
                         Title: {block.title || "N/A"}
@@ -1598,7 +1598,7 @@ return (
                             {WEEKDAY_OPTIONS.find((d) => d.value === block.weekday)?.label || "N/A"}
                           </div>
                           <div className="text-sm text-gray-600">
-                            Time: {block.start_time || "â€”"} to {block.end_time || "â€”"}
+                            Time: {block.start_time || "—"} to {block.end_time || "—"}
                           </div>
                         </>
                       ) : (
@@ -1690,7 +1690,7 @@ return (
                       <div className="font-medium">{lender.name}</div>
                       <div className="text-sm text-gray-600">
                         {lender.email || "No email"}{" "}
-                        {lender.phone ? `â€¢ ${lender.phone}` : ""}
+                        {lender.phone ? `• ${lender.phone}` : ""}
                       </div>
                     </div>
 
@@ -1738,7 +1738,7 @@ return (
                       </div>
                       <div className="text-sm text-gray-600">
                         {lender.email || "No email"}{" "}
-                        {lender.phone ? `â€¢ ${lender.phone}` : ""}
+                        {lender.phone ? `• ${lender.phone}` : ""}
                       </div>
                     </div>
 
