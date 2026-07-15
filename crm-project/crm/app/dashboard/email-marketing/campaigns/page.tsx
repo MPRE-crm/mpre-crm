@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import {
   useEffect,
@@ -1137,19 +1137,17 @@ export default function CampaignsPage() {
   const professionalFooterReady =
     Boolean(
       profile
-        ?.marketing_phone &&
+        ?.marketing_phone
+        ?.trim() &&
         profile
-          ?.marketing_title &&
+          ?.marketing_title
+          ?.trim() &&
         profile
-          ?.marketing_brokerage &&
-        (
-          profile
-            ?.marketing_signature_image_url ||
-          profile
-            ?.marketing_signature_text
-        ) &&
+          ?.marketing_brokerage
+          ?.trim() &&
         profile
           ?.marketing_headshot_url
+          ?.trim()
     );
 
   const organizationComplianceReady =
@@ -2707,7 +2705,7 @@ export default function CampaignsPage() {
             {!professionalFooterReady && (
               <div className="mt-4 rounded-xl border border-amber-300 bg-white p-3 text-sm text-amber-800">
                 Your professional email footer is incomplete. Add your headshot,
-                phone, title, brokerage and signature through{' '}
+                phone, title and brokerage through{' '}
                 <Link
                   href="/dashboard/preferences"
                   className="font-bold underline"
