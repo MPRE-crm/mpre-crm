@@ -24,6 +24,8 @@ import {
   getSupabaseBrowser,
 } from '../../../lib/supabase-browser';
 
+import RulePacksPanel from './RulePacksPanel';
+
 const supabase =
   getSupabaseBrowser();
 
@@ -72,7 +74,7 @@ const complianceSections = [
     description:
       'Manage versioned requirements, official sources, effective dates, and review history.',
     icon: BookOpenCheck,
-    connected: false,
+    connected: true,
   },
   {
     title: 'License Validation',
@@ -423,7 +425,9 @@ export default function CompliancePage() {
 
                 {section.connected ? (
                   <div className="mt-5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">
-                    {loadingOverview
+                    {section.title === 'Rule Packs'
+                      ? 'Live read-only rule-pack data connected'
+                      : loadingOverview
                       ? 'Loading live Supabase data...'
                       : overview
                       ? `${overview.summary.states} states • ${overview.summary.approved} approved • ${overview.summary.enabled} enabled`
@@ -680,6 +684,10 @@ export default function CompliancePage() {
           </>
         ) : null}
       </section>
+
+      <RulePacksPanel />
     </div>
   );
 }
+
+
