@@ -25,6 +25,7 @@ import {
 } from '../../../lib/supabase-browser';
 
 import RulePacksPanel from './RulePacksPanel';
+import LicenseValidationPanel from './LicenseValidationPanel';
 
 const supabase =
   getSupabaseBrowser();
@@ -81,7 +82,7 @@ const complianceSections = [
     description:
       'Review organization brokerage licenses, responsible brokers, and agent state licenses.',
     icon: BadgeCheck,
-    connected: false,
+    connected: true,
   },
   {
     title: 'MLS Profiles',
@@ -427,6 +428,8 @@ export default function CompliancePage() {
                   <div className="mt-5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">
                     {section.title === 'Rule Packs'
                       ? 'Live read-only rule-pack data connected'
+                      : section.title === 'License Validation'
+                      ? 'Live read-only license data connected'
                       : loadingOverview
                       ? 'Loading live Supabase data...'
                       : overview
@@ -686,8 +689,11 @@ export default function CompliancePage() {
       </section>
 
       <RulePacksPanel />
+
+      <LicenseValidationPanel />
     </div>
   );
 }
+
 
 
