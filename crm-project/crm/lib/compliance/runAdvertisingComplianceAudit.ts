@@ -175,7 +175,10 @@ const MAX_ALLOWED_SOURCES =
   50;
 
 const FETCH_TIMEOUT_MS =
-  20_000;
+  45_000;
+
+const FETCH_MAX_ATTEMPTS =
+  3;
 
 const MAX_RESPONSE_BYTES =
   3_000_000;
@@ -1346,6 +1349,77 @@ async function fetchOfficialSource(
   };
 }
 
+async function fetchOfficialSourceWithRetry(
+  sourceUrl: string
+): Promise<FetchResult> {
+  let lastError:
+    unknown =
+    null;
+
+  for (
+    let attempt =
+      1;
+    attempt <=
+      FETCH_MAX_ATTEMPTS;
+    attempt +=
+      1
+  ) {
+    try {
+      return await fetchOfficialSource(
+        sourceUrl
+      );
+    }
+    catch (
+      error:
+        unknown
+    ) {
+      lastError =
+        error;
+
+      const retryable =
+        error instanceof
+          SourceAuditError &&
+        [
+          "unavailable",
+          "error",
+        ].includes(
+          error.status
+        );
+
+      if (
+        !retryable ||
+        attempt >=
+          FETCH_MAX_ATTEMPTS
+      ) {
+        throw error;
+      }
+
+      await new Promise<void>(
+        (
+          resolve
+        ) => {
+          setTimeout(
+            resolve,
+            attempt *
+              1500
+          );
+        }
+      );
+    }
+  }
+
+  if (
+    lastError instanceof
+    Error
+  ) {
+    throw lastError;
+  }
+
+  throw new SourceAuditError(
+    "The official source could not be retrieved after repeated attempts.",
+    "error"
+  );
+}
 function calculateNextCheck(
   frequency:
     SourceRow["monitor_frequency"],
@@ -2358,7 +2432,7 @@ async function processSource(
     }
 
     const fetched =
-      await fetchOfficialSource(
+      await fetchOfficialSourceWithRetry(
         context.source.source_url
       );
 

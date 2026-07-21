@@ -1370,6 +1370,49 @@ This records your decision and reviewer identity. It will not silently change an
                             }
                           />
 
+                          {[
+                            'source_unavailable',
+                            'source_moved',
+                            'manual_review',
+                          ].includes(
+                            finding.finding_type
+                          ) ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const source =
+                                  data.sources.find(
+                                    (
+                                      item
+                                    ) =>
+                                      item.id ===
+                                      finding.source_id
+                                  );
+
+                                void runOneSourceTest(
+                                  finding.source_id,
+                                  source?.title ||
+                                    'the unavailable official source',
+                                  finding.title.startsWith(
+                                    'US-FED:'
+                                  )
+                                    ? 'US-FED'
+                                    : 'US-ID'
+                                );
+                              }}
+                              disabled={
+                                running
+                              }
+                              className="mt-3 inline-flex items-center gap-2 rounded-xl border border-blue-300 bg-white px-3 py-2 text-sm font-semibold text-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              <RefreshCw className="h-4 w-4" />
+
+                              {running
+                                ? 'Retrying Source...'
+                                : 'Retry This Source'}
+                            </button>
+                          ) : null}
+
                           <div className="mt-2 text-xs text-amber-700">
                             {formatStatus(
                               finding.finding_type
