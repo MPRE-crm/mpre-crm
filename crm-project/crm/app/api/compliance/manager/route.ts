@@ -1642,6 +1642,74 @@ async function finalizeRoutineRuleSet(
       "approved" &&
     ruleSet.is_active
   ) {
+    const now =
+      new Date()
+        .toISOString();
+
+    const nextReviewDue =
+      ruleSet
+        .next_review_due ||
+      addMonthsToIsoDate(
+        ruleSet
+          .effective_date ||
+          now.slice(
+            0,
+            10
+          ),
+        Number(
+          jurisdiction
+            .review_cycle_months ||
+          12
+        )
+      );
+
+    const {
+      error:
+        jurisdictionRepairError,
+    } =
+      await supabaseAdmin
+        .from(
+          "marketing_jurisdictions"
+        )
+        .update({
+          launch_status:
+            "approved",
+
+          marketing_enabled:
+            true,
+
+          current_rule_version:
+            ruleSet.version,
+
+          approved_by:
+            ruleSet
+              .approved_by ||
+            reviewerId,
+
+          approved_at:
+            ruleSet
+              .approved_at ||
+            now,
+
+          last_reviewed_at:
+            ruleSet
+              .last_reviewed_at ||
+            now,
+
+          next_review_due:
+            nextReviewDue,
+        })
+        .eq(
+          "id",
+          ruleSet
+            .jurisdiction_id
+        );
+
+    throwIfError(
+      jurisdictionRepairError,
+      `Could not repair ${jurisdiction.name} marketing activation.`
+    );
+
     return loadRuleSetDetails(
       ruleSetId
     );
