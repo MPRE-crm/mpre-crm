@@ -520,7 +520,7 @@ async function getAgentAvailabilityBlocks(args: {
     .from("agent_availability_blocks")
     .select("*")
     .eq("org_id", org_id)
-    .eq("agent_id", agent_id)
+    .or(`agent_id.eq.${agent_id},block_scope.eq.team`)
     .eq("is_active", true)
     .order("created_at", { ascending: false });
 

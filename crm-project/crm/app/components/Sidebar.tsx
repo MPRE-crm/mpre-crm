@@ -98,6 +98,11 @@ const AGENT_NAV: NavItem[] = [
     href: '/dashboard/analytics',
     icon: <BarChart3 className="h-4 w-4" />,
   },
+  {
+    label: 'Preferences',
+    href: '/dashboard/preferences',
+    icon: <Settings className="h-4 w-4" />,
+  },
 ]
 
 const ADMIN_NAV: NavItem[] = [
@@ -141,11 +146,6 @@ const ADMIN_NAV: NavItem[] = [
     label: 'Security',
     href: '/dashboard/security',
     icon: <ShieldAlert className="h-4 w-4" />,
-  },
-  {
-    label: 'Preferences',
-    href: '/dashboard/preferences',
-    icon: <Settings className="h-4 w-4" />,
   },
 ]
 

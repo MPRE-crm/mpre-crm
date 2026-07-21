@@ -1,4 +1,4 @@
-﻿import {
+import {
   NextResponse,
 } from 'next/server';
 
@@ -9,9 +9,14 @@ import {
 export const dynamic =
   'force-dynamic';
 
+const MASTER_BRAND_KEY = 'mpre';
+
 const ORGANIZATION_FIELDS = `
   id,
   name,
+  org_display,
+  market_name,
+  brokerage_name,
   marketing_licensed_business_name,
   marketing_broker_license_number,
   marketing_license_state,
@@ -37,9 +42,7 @@ function bearerToken(
     return '';
   }
 
-  return header
-    .slice(7)
-    .trim();
+  return header.slice(7).trim();
 }
 
 function cleanText(
@@ -49,14 +52,8 @@ function cleanText(
   const result =
     String(value ?? '').trim();
 
-  if (!result) {
-    return null;
-  }
-
-  return result.slice(
-    0,
-    maxLength
-  );
+  if (!result) return null;
+  return result.slice(0, maxLength);
 }
 
 function serverSettings() {
@@ -95,8 +92,7 @@ function serverSettings() {
 async function authenticatedProfile(
   request: Request
 ) {
-  const token =
-    bearerToken(request);
+  const token = bearerToken(request);
 
   if (!token) {
     return {
@@ -113,34 +109,28 @@ async function authenticatedProfile(
     serviceRoleKey,
   } = serverSettings();
 
-  const authClient =
-    createClient(
-      supabaseUrl,
-      anonKey,
-      {
-        auth: {
-          persistSession:
-            false,
-          autoRefreshToken:
-            false,
+  const authClient = createClient(
+    supabaseUrl,
+    anonKey,
+    {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+      global: {
+        headers: {
+          Authorization: `Bearer ${token}`,
         },
-
-        global: {
-          headers: {
-            Authorization:
-              `Bearer ${token}`,
-          },
-        },
-      }
-    );
+      },
+    }
+  );
 
   const {
     data: userResult,
     error: userError,
-  } =
-    await authClient.auth.getUser(
-      token
-    );
+  } = await authClient.auth.getUser(
+    token
+  );
 
   if (
     userError ||
@@ -155,34 +145,24 @@ async function authenticatedProfile(
     };
   }
 
-  const admin =
-    createClient(
-      supabaseUrl,
-      serviceRoleKey,
-      {
-        auth: {
-          persistSession:
-            false,
-          autoRefreshToken:
-            false,
-        },
-      }
-    );
+  const admin = createClient(
+    supabaseUrl,
+    serviceRoleKey,
+    {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+    }
+  );
 
   const {
     data: profile,
     error: profileError,
   } = await admin
     .from('profiles')
-    .select(`
-      id,
-      org_id,
-      role
-    `)
-    .eq(
-      'id',
-      userResult.user.id
-    )
+    .select('id, org_id, role')
+    .eq('id', userResult.user.id)
     .single();
 
   if (
@@ -216,10 +196,8 @@ function adminClient() {
     serviceRoleKey,
     {
       auth: {
-        persistSession:
-          false,
-        autoRefreshToken:
-          false,
+        persistSession: false,
+        autoRefreshToken: false,
       },
     }
   );
@@ -228,11 +206,102 @@ function adminClient() {
 function canEditOrganization(
   role: string | null
 ) {
+  return [
+    'platform_admin',
+    'admin',
+    'org_admin',
+  ].includes(String(role || ''));
+}
+
+async function masterBrandName(
+  admin: ReturnType<typeof adminClient>
+) {
+  const {
+    data,
+    error,
+  } = await admin
+    .from('platform_brand_settings')
+    .select('brand_name')
+    .eq('brand_key', MASTER_BRAND_KEY)
+    .maybeSingle();
+
+  if (error) throw error;
+
   return (
-    role === 'platform_admin' ||
-    role === 'admin' ||
-    role === 'org_admin'
+    cleanText(
+      data?.brand_name,
+      120
+    ) || 'MPRE'
   );
+}
+
+function normalizeMarketName(
+  value: unknown,
+  brandName: string
+) {
+  const marketName =
+    cleanText(value, 120);
+
+  if (!marketName) return null;
+
+  if (
+    marketName.toLowerCase() ===
+    brandName.toLowerCase()
+  ) {
+    return null;
+  }
+
+  const prefix = `${brandName} `;
+
+  if (
+    marketName
+      .toLowerCase()
+      .startsWith(
+        prefix.toLowerCase()
+      )
+  ) {
+    return (
+      cleanText(
+        marketName.slice(
+          prefix.length
+        ),
+        120
+      ) || null
+    );
+  }
+
+  return marketName;
+}
+
+async function latestLicense(
+  admin: ReturnType<typeof adminClient>,
+  organizationId: string
+) {
+  const {
+    data,
+    error,
+  } = await admin
+    .from(
+      'organization_real_estate_licenses'
+    )
+    .select(`
+      id,
+      brokerage_logo_url,
+      office_address,
+      compliance_mailing_address
+    `)
+    .eq(
+      'organization_id',
+      organizationId
+    )
+    .order('created_at', {
+      ascending: false,
+    })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
 }
 
 export async function GET(
@@ -256,42 +325,65 @@ export async function GET(
       );
     }
 
-    const admin =
-      adminClient();
+    if (
+      !canEditOrganization(
+        auth.profile.role
+      )
+    ) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            'Administrator access is required to view organization compliance settings.',
+        },
+        {
+          status: 403,
+        }
+      );
+    }
+
+    const admin = adminClient();
 
     const {
       data: organization,
       error,
     } = await admin
       .from('organizations')
-      .select(
-        ORGANIZATION_FIELDS
-      )
-      .eq(
-        'id',
-        auth.profile.org_id
-      )
+      .select(ORGANIZATION_FIELDS)
+      .eq('id', auth.profile.org_id)
       .single();
 
-    if (
-      error ||
-      !organization
-    ) {
+    if (error || !organization) {
       throw new Error(
         error?.message ||
           'Organization not found.'
       );
     }
 
+    const license = await latestLicense(
+      admin,
+      auth.profile.org_id
+    );
+
+    const brandName =
+      await masterBrandName(admin);
+
     return NextResponse.json({
       ok: true,
-
-      can_edit:
-        canEditOrganization(
-          auth.profile.role
-        ),
-
-      organization,
+      can_edit: true,
+      master_brand_name: brandName,
+      organization: {
+        ...organization,
+        brokerage_logo_url:
+          license?.brokerage_logo_url ||
+          null,
+        brokerage_office_address:
+          license?.office_address || null,
+        brokerage_compliance_mailing_address:
+          license
+            ?.compliance_mailing_address ||
+          null,
+      },
     });
   } catch (error: any) {
     return NextResponse.json(
@@ -346,52 +438,69 @@ export async function PATCH(
       );
     }
 
-    const body =
-      await request.json();
+    const body = await request.json();
+
+    const admin = adminClient();
+
+    const brandName =
+      await masterBrandName(admin);
+
+    const marketName =
+      normalizeMarketName(
+        body.market_name,
+        brandName
+      );
+
+    const organizationDisplay =
+      marketName
+        ? `${brandName} ${marketName}`
+        : brandName;
 
     const payload = {
+      market_name: marketName,
+      org_display:
+        organizationDisplay,
+      brokerage_name:
+        cleanText(
+          body.brokerage_name,
+          180
+        ),
       marketing_licensed_business_name:
         cleanText(
           body
             .marketing_licensed_business_name,
           250
         ),
-
       marketing_broker_license_number:
         cleanText(
           body
             .marketing_broker_license_number,
           150
         ),
-
       marketing_license_state:
         cleanText(
           body
             .marketing_license_state,
           100
         ) || 'Idaho',
-
       marketing_privacy_policy_url:
         cleanText(
           body
             .marketing_privacy_policy_url,
           500
         ),
-
       marketing_mls_attribution:
         cleanText(
           body
             .marketing_mls_attribution,
           2000
         ),
-
       marketing_standard_disclaimer:
         cleanText(
           body
             .marketing_standard_disclaimer,
           4000
         ),
-
       marketing_advertisement_label:
         cleanText(
           body
@@ -400,37 +509,65 @@ export async function PATCH(
         ) || 'Advertisement',
     };
 
-    const admin =
-      adminClient();
-
     const {
       data: organization,
       error,
     } = await admin
       .from('organizations')
       .update(payload)
-      .eq(
-        'id',
-        auth.profile.org_id
-      )
-      .select(
-        ORGANIZATION_FIELDS
-      )
+      .eq('id', auth.profile.org_id)
+      .select(ORGANIZATION_FIELDS)
       .single();
 
-    if (
-      error ||
-      !organization
-    ) {
+    if (error || !organization) {
       throw new Error(
         error?.message ||
           'Organization compliance settings were not returned after saving.'
       );
     }
 
+    const license = await latestLicense(
+      admin,
+      auth.profile.org_id
+    );
+
+    if (license?.id) {
+      const {
+        error: licenseUpdateError,
+      } = await admin
+        .from(
+          'organization_real_estate_licenses'
+        )
+        .update({
+          licensed_business_name:
+            payload
+              .marketing_licensed_business_name,
+          brokerage_license_number:
+            payload
+              .marketing_broker_license_number,
+        })
+        .eq('id', license.id);
+
+      if (licenseUpdateError) {
+        throw licenseUpdateError;
+      }
+    }
+
     return NextResponse.json({
       ok: true,
-      organization,
+      master_brand_name: brandName,
+      organization: {
+        ...organization,
+        brokerage_logo_url:
+          license?.brokerage_logo_url ||
+          null,
+        brokerage_office_address:
+          license?.office_address || null,
+        brokerage_compliance_mailing_address:
+          license
+            ?.compliance_mailing_address ||
+          null,
+      },
     });
   } catch (error: any) {
     return NextResponse.json(

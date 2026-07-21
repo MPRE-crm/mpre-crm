@@ -1,4 +1,4 @@
-﻿export type MarketingIdentityForEmail = {
+export type MarketingIdentityForEmail = {
   marketing_from_name: string | null;
   marketing_from_email: string | null;
   marketing_reply_to_email: string | null;
@@ -105,36 +105,42 @@ function socialLinks(
   const links = [
     {
       label: 'Facebook',
+      icon: 'f',
       url:
         profile
           .marketing_facebook_url,
     },
     {
       label: 'Instagram',
+      icon: 'IG',
       url:
         profile
           .marketing_instagram_url,
     },
     {
       label: 'LinkedIn',
+      icon: 'in',
       url:
         profile
           .marketing_linkedin_url,
     },
     {
       label: 'YouTube',
+      icon: 'YT',
       url:
         profile
           .marketing_youtube_url,
     },
     {
       label: 'TikTok',
+      icon: 'TT',
       url:
         profile
           .marketing_tiktok_url,
     },
     {
       label: 'X',
+      icon: 'X',
       url:
         profile
           .marketing_x_url,
@@ -144,6 +150,7 @@ function socialLinks(
       item
     ): item is {
       label: string;
+      icon: string;
       url: string;
     } =>
       Boolean(
@@ -158,26 +165,39 @@ function socialLinks(
   }
 
   return `
-    <div
-      style="margin-top:13px;font-size:12px;line-height:1.8;"
+    <table
+      role="presentation"
+      cellpadding="0"
+      cellspacing="0"
+      border="0"
+      style="margin-top:15px;"
     >
-      ${links
-        .map(
-          (item) => `
-            <a
-              href="${escapeHtml(
-                webUrl(item.url)
-              )}"
-              style="color:#2563eb;text-decoration:none;margin-right:10px;"
-            >
-              ${escapeHtml(
-                item.label
-              )}
-            </a>
-          `
-        )
-        .join('')}
-    </div>
+      <tr>
+        ${links
+          .map(
+            (item) => `
+              <td
+                style="padding-right:7px;"
+              >
+                <a
+                  href="${escapeHtml(
+                    webUrl(item.url)
+                  )}"
+                  title="${escapeHtml(
+                    item.label
+                  )}"
+                  style="display:inline-block;min-width:31px;height:31px;padding:0 5px;border-radius:999px;background:#0f172a;color:#ffffff;text-align:center;text-decoration:none;font-size:10px;font-weight:bold;line-height:31px;"
+                >
+                  ${escapeHtml(
+                    item.icon
+                  )}
+                </a>
+              </td>
+            `
+          )
+          .join('')}
+      </tr>
+    </table>
   `;
 }
 
@@ -341,7 +361,7 @@ export function buildMarketingFooterHtml(
                       .marketing_logo_url
                   )}"
                   alt="Brokerage or team logo"
-                  style="display:inline-block;max-width:210px;max-height:75px;width:auto;height:auto;"
+                  style="display:inline-block;max-width:260px;max-height:92px;width:auto;height:auto;"
                 />
               </div>
             `
@@ -712,8 +732,8 @@ export function buildMarketingFooterHtml(
                 <img
                   src="${EQUAL_HOUSING_LOGO_URL}"
                   alt="Equal Housing Opportunity"
-                  width="72"
-                  style="display:inline-block;width:72px;height:auto;"
+                  width="42"
+                  style="display:inline-block;width:42px;height:auto;"
                 />
               </div>
 
@@ -724,7 +744,7 @@ export function buildMarketingFooterHtml(
               </div>
 
               <div
-                style="margin-top:15px;font-size:10px;line-height:1.6;color:#64748b;"
+                style="margin:11px auto 0;max-width:540px;font-size:9px;line-height:1.55;color:#64748b;"
               >
                 ${escapeHtml(
                   propertyDisclaimer
@@ -819,7 +839,7 @@ export function buildMarketingFooterHtml(
           <img
             src="${PLATFORM_LOGO_URL}"
             alt="easyrealtor.homes"
-            style="display:inline-block;max-width:115px;max-height:34px;width:auto;height:auto;"
+            style="display:inline-block;max-width:190px;max-height:58px;width:auto;height:auto;"
           />
         </div>
 

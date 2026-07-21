@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import {
   useEffect,
@@ -8,6 +8,7 @@ import {
 
 import {
   Building2,
+  Camera,
   CheckCircle2,
   Loader2,
   Save,
@@ -25,6 +26,9 @@ const supabase =
 type OrganizationCompliance = {
   id: string;
   name: string | null;
+  org_display: string | null;
+  market_name: string | null;
+  brokerage_name: string | null;
 
   marketing_licensed_business_name:
     | string
@@ -53,9 +57,117 @@ type OrganizationCompliance = {
   marketing_advertisement_label:
     | string
     | null;
+
+  brokerage_logo_url:
+    | string
+    | null;
 };
 
+type JurisdictionOption = {
+  id: string;
+  code: string;
+  state_code: string | null;
+  name: string;
+  launch_status: string;
+  marketing_enabled: boolean;
+  current_rule_version: string | null;
+};
+
+type CompliancePackageItem = {
+  jurisdiction_id: string;
+  code: string;
+  state_code: string | null;
+  name: string;
+  launch_status: string;
+  marketing_enabled: boolean;
+  current_rule_version: string | null;
+
+  rule_set: {
+    id: string;
+    name: string;
+    version: string;
+    status: string;
+    is_active: boolean;
+    approved_at: string | null;
+  } | null;
+};
+
+type CompliancePackage = {
+  federal:
+    | CompliancePackageItem
+    | null;
+
+  state:
+    | CompliancePackageItem
+    | null;
+};
+
+const US_TIME_ZONE_OPTIONS = [
+  {
+    value: 'America/New_York',
+    label: 'Eastern Time',
+  },
+  {
+    value: 'America/Detroit',
+    label: 'Eastern Time — Michigan',
+  },
+  {
+    value: 'America/Indiana/Indianapolis',
+    label: 'Eastern Time — Indiana',
+  },
+  {
+    value: 'America/Kentucky/Louisville',
+    label: 'Eastern Time — Kentucky',
+  },
+  {
+    value: 'America/Chicago',
+    label: 'Central Time',
+  },
+  {
+    value: 'America/Menominee',
+    label: 'Central Time — Michigan',
+  },
+  {
+    value: 'America/Denver',
+    label: 'Mountain Time',
+  },
+  {
+    value: 'America/Boise',
+    label: 'Mountain Time — Idaho',
+  },
+  {
+    value: 'America/Phoenix',
+    label: 'Arizona Time — No DST',
+  },
+  {
+    value: 'America/Los_Angeles',
+    label: 'Pacific Time',
+  },
+  {
+    value: 'America/Anchorage',
+    label: 'Alaska Time',
+  },
+  {
+    value: 'America/Adak',
+    label: 'Aleutian Time',
+  },
+  {
+    value: 'America/Juneau',
+    label: 'Alaska Time — Juneau',
+  },
+  {
+    value: 'America/Nome',
+    label: 'Alaska Time — Nome',
+  },
+  {
+    value: 'Pacific/Honolulu',
+    label: 'Hawaii Time',
+  },
+];
 type ComplianceForm = {
+  market_name: string;
+  brokerage_name: string;
+
   marketing_licensed_business_name:
     string;
 
@@ -63,6 +175,12 @@ type ComplianceForm = {
     string;
 
   marketing_license_state:
+    string;
+
+  state_jurisdiction_id:
+    string;
+
+  timezone:
     string;
 
   marketing_privacy_policy_url:
@@ -76,13 +194,15 @@ type ComplianceForm = {
 
   marketing_advertisement_label:
     string;
-};
 
-const DEFAULT_DISCLAIMER =
-  'Information is deemed reliable but not guaranteed. Property information, price, availability, features and measurements are subject to change. Buyers should independently verify all information.';
+  brokerage_logo_url: string;
+};
 
 const EMPTY_FORM:
   ComplianceForm = {
+    market_name: '',
+    brokerage_name: '',
+
     marketing_licensed_business_name:
       '',
 
@@ -90,7 +210,13 @@ const EMPTY_FORM:
       '',
 
     marketing_license_state:
-      'Idaho',
+      '',
+
+    state_jurisdiction_id:
+      '',
+
+    timezone:
+      '',
 
     marketing_privacy_policy_url:
       '',
@@ -99,17 +225,40 @@ const EMPTY_FORM:
       '',
 
     marketing_standard_disclaimer:
-      DEFAULT_DISCLAIMER,
+      '',
 
     marketing_advertisement_label:
-      'Advertisement',
+      '',
+
+    brokerage_logo_url:
+      '',
   };
 
 function formFromOrganization(
   organization:
-    OrganizationCompliance
+    OrganizationCompliance,
+  setup?: {
+    organization?: {
+      state_jurisdiction_id?:
+        string | null;
+
+      timezone?:
+        string | null;
+    };
+
+    compliance_package?:
+      CompliancePackage | null;
+  }
 ): ComplianceForm {
   return {
+    market_name:
+      organization.market_name ||
+      '',
+
+    brokerage_name:
+      organization.brokerage_name ||
+      '',
+
     marketing_licensed_business_name:
       organization
         .marketing_licensed_business_name ||
@@ -121,9 +270,25 @@ function formFromOrganization(
       '',
 
     marketing_license_state:
+      setup
+        ?.compliance_package
+        ?.state
+        ?.name ||
       organization
         .marketing_license_state ||
-      'Idaho',
+      '',
+
+    state_jurisdiction_id:
+      setup
+        ?.organization
+        ?.state_jurisdiction_id ||
+      '',
+
+    timezone:
+      setup
+        ?.organization
+        ?.timezone ||
+      '',
 
     marketing_privacy_policy_url:
       organization
@@ -138,12 +303,17 @@ function formFromOrganization(
     marketing_standard_disclaimer:
       organization
         .marketing_standard_disclaimer ||
-      DEFAULT_DISCLAIMER,
+      '',
 
     marketing_advertisement_label:
       organization
         .marketing_advertisement_label ||
-      'Advertisement',
+      '',
+
+    brokerage_logo_url:
+      organization
+        .brokerage_logo_url ||
+      '',
   };
 }
 
@@ -159,9 +329,33 @@ export default function OrganizationComplianceCard() {
   ] = useState(false);
 
   const [
+    uploadingLogo,
+    setUploadingLogo,
+  ] = useState(false);
+
+  const [
     canEdit,
     setCanEdit,
   ] = useState(false);
+
+  const [
+    masterBrandName,
+    setMasterBrandName,
+  ] = useState('MPRE');
+
+  const [
+    jurisdictions,
+    setJurisdictions,
+  ] = useState<
+    JurisdictionOption[]
+  >([]);
+
+  const [
+    compliancePackage,
+    setCompliancePackage,
+  ] = useState<
+    CompliancePackage | null
+  >(null);
 
   const [
     form,
@@ -213,43 +407,97 @@ export default function OrganizationComplianceCard() {
       const token =
         await accessToken();
 
-      const response =
-        await fetch(
+      const [
+        complianceResponse,
+        setupResponse,
+      ] = await Promise.all([
+        fetch(
           '/api/preferences/organization-compliance',
           {
             method: 'GET',
-
             headers: {
               Authorization:
                 `Bearer ${token}`,
             },
-
             cache: 'no-store',
           }
-        );
+        ),
 
-      const result =
-        await response.json();
+        fetch(
+          '/api/preferences/organization-compliance/setup',
+          {
+            method: 'GET',
+            headers: {
+              Authorization:
+                `Bearer ${token}`,
+            },
+            cache: 'no-store',
+          }
+        ),
+      ]);
+
+      const [
+        complianceResult,
+        setupResult,
+      ] = await Promise.all([
+        complianceResponse.json(),
+        setupResponse.json(),
+      ]);
 
       if (
-        !response.ok ||
-        !result.ok
+        !complianceResponse.ok ||
+        !complianceResult.ok
       ) {
         throw new Error(
-          result.error ||
+          complianceResult.error ||
             'Could not load organization compliance settings.'
+        );
+      }
+
+      if (
+        !setupResponse.ok ||
+        !setupResult.ok
+      ) {
+        throw new Error(
+          setupResult.error ||
+            'Could not load organization state and timezone settings.'
         );
       }
 
       setCanEdit(
         Boolean(
-          result.can_edit
+          complianceResult.can_edit &&
+          setupResult.can_edit
         )
+      );
+
+      setMasterBrandName(
+        String(
+          complianceResult
+            .master_brand_name ||
+          'MPRE'
+        )
+      );
+
+      setJurisdictions(
+        Array.isArray(
+          setupResult.jurisdictions
+        )
+          ? setupResult
+              .jurisdictions
+          : []
+      );
+
+      setCompliancePackage(
+        setupResult
+          .compliance_package ||
+        null
       );
 
       setForm(
         formFromOrganization(
-          result.organization
+          complianceResult.organization,
+          setupResult
         )
       );
     } catch (err: any) {
@@ -280,6 +528,37 @@ export default function OrganizationComplianceCard() {
     );
   }
 
+  const organizationDisplay =
+    useMemo(() => {
+      const marketName =
+        form.market_name.trim();
+
+      if (!marketName) {
+        return masterBrandName;
+      }
+
+      const prefix =
+        `${masterBrandName} `;
+
+      const normalizedMarketName =
+        marketName
+          .toLowerCase()
+          .startsWith(
+            prefix.toLowerCase()
+          )
+          ? marketName
+              .slice(prefix.length)
+              .trim()
+          : marketName;
+
+      return normalizedMarketName
+        ? `${masterBrandName} ${normalizedMarketName}`
+        : masterBrandName;
+    }, [
+      form.market_name,
+      masterBrandName,
+    ]);
+
   const readiness =
     useMemo(() => {
       const requirements = [
@@ -296,15 +575,25 @@ export default function OrganizationComplianceCard() {
 
         {
           label:
-            'License state',
+            'Organization state',
           ready:
             Boolean(
               form
-                .marketing_license_state
+                .state_jurisdiction_id
                 .trim()
             ),
         },
 
+        {
+          label:
+            'Organization timezone',
+          ready:
+            Boolean(
+              form
+                .timezone
+                .trim()
+            ),
+        },
         {
           label:
             'Privacy policy URL',
@@ -345,27 +634,166 @@ export default function OrganizationComplianceCard() {
       setError(null);
       setNotice(null);
 
+      if (
+        !form
+          .state_jurisdiction_id
+          .trim()
+      ) {
+        throw new Error(
+          'Select the organization state before saving.'
+        );
+      }
+
+      if (
+        !form.timezone.trim()
+      ) {
+        throw new Error(
+          'Select the organization timezone before saving.'
+        );
+      }
+
       const token =
         await accessToken();
 
-      const response =
+      const setupResponse =
+        await fetch(
+          '/api/preferences/organization-compliance/setup',
+          {
+            method: 'PATCH',
+            headers: {
+              Authorization:
+                `Bearer ${token}`,
+              'Content-Type':
+                'application/json',
+            },
+            body: JSON.stringify({
+              state_jurisdiction_id:
+                form
+                  .state_jurisdiction_id,
+              timezone:
+                form.timezone,
+            }),
+          }
+        );
+
+      const setupResult =
+        await setupResponse.json();
+
+      if (
+        !setupResponse.ok ||
+        !setupResult.ok
+      ) {
+        throw new Error(
+          setupResult.error ||
+            'Could not save organization state and timezone.'
+        );
+      }
+
+      const selectedStateName =
+        setupResult
+          .compliance_package
+          ?.state
+          ?.name ||
+        form
+          .marketing_license_state;
+
+      const complianceResponse =
         await fetch(
           '/api/preferences/organization-compliance',
           {
             method: 'PATCH',
-
             headers: {
               Authorization:
                 `Bearer ${token}`,
-
               'Content-Type':
                 'application/json',
             },
-
-            body:
-              JSON.stringify(form),
+            body: JSON.stringify({
+              ...form,
+              marketing_license_state:
+                selectedStateName,
+            }),
           }
         );
+
+      const complianceResult =
+        await complianceResponse.json();
+
+      if (
+        !complianceResponse.ok ||
+        !complianceResult.ok
+      ) {
+        throw new Error(
+          complianceResult.error ||
+            'Could not save organization compliance settings.'
+        );
+      }
+
+      setJurisdictions(
+        Array.isArray(
+          setupResult.jurisdictions
+        )
+          ? setupResult
+              .jurisdictions
+          : []
+      );
+
+      setCompliancePackage(
+        setupResult
+          .compliance_package ||
+        null
+      );
+
+      setForm(
+        formFromOrganization(
+          complianceResult.organization,
+          setupResult
+        )
+      );
+
+      setNotice(
+        'Organization settings saved. Federal and state compliance packages were attached automatically.'
+      );
+    } catch (err: any) {
+      setError(
+        err?.message ||
+          'Could not save organization compliance settings.'
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function uploadBrokerageLogo(
+    file: File
+  ) {
+    try {
+      setUploadingLogo(true);
+      setError(null);
+      setNotice(null);
+
+      const token =
+        await accessToken();
+
+      const formData =
+        new FormData();
+
+      formData.append(
+        'file',
+        file
+      );
+
+      const response = await fetch(
+        '/api/preferences/organization-compliance/logo',
+        {
+          method: 'POST',
+          headers: {
+            Authorization:
+              `Bearer ${token}`,
+          },
+          body: formData,
+        }
+      );
 
       const result =
         await response.json();
@@ -376,26 +804,25 @@ export default function OrganizationComplianceCard() {
       ) {
         throw new Error(
           result.error ||
-            'Could not save organization compliance settings.'
+            'Could not upload the brokerage logo.'
         );
       }
 
-      setForm(
-        formFromOrganization(
-          result.organization
-        )
+      updateField(
+        'brokerage_logo_url',
+        result.url
       );
 
       setNotice(
-        'Brokerage and email compliance settings saved successfully.'
+        'Brokerage logo uploaded successfully.'
       );
     } catch (err: any) {
       setError(
         err?.message ||
-          'Could not save organization compliance settings.'
+          'Could not upload the brokerage logo.'
       );
     } finally {
-      setSaving(false);
+      setUploadingLogo(false);
     }
   }
 
@@ -423,8 +850,9 @@ export default function OrganizationComplianceCard() {
           </div>
 
           <p className="mt-2 max-w-3xl text-sm text-slate-600">
-            Organization-wide legal identity and disclosure settings used
-            automatically in every marketing email.
+            Organization identity and setup. The administrator selects only
+            the state and timezone; Federal and state rule packages are
+            controlled by platform administration and attached automatically.
           </p>
         </div>
 
@@ -475,6 +903,189 @@ export default function OrganizationComplianceCard() {
         </div>
       )}
 
+      <div className="mt-5 rounded-2xl border border-blue-200 bg-white p-4">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-900">
+            Organization Market Identity
+          </h3>
+          <p className="mt-1 text-xs leading-5 text-slate-500">
+            Enter only the market name, such as Boise or Twin Falls. The MPRE
+            master brand remains controlled by the platform admin.
+          </p>
+        </div>
+
+        <div className="mt-4 grid gap-4 md:grid-cols-3">
+          <label>
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Organization Market Name
+            </span>
+            <input
+              value={form.market_name}
+              disabled={!canEdit}
+              onChange={(event) =>
+                updateField(
+                  'market_name',
+                  event.target.value
+                )
+              }
+              placeholder="Boise"
+              className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 text-sm disabled:bg-slate-100"
+            />
+          </label>
+
+          <label>
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Organization Display
+            </span>
+            <input
+              value={organizationDisplay}
+              readOnly
+              className="w-full rounded-2xl border border-slate-200 bg-slate-100 px-3 py-2.5 text-sm text-slate-700"
+            />
+          </label>
+
+          <label>
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Brokerage Display Name
+            </span>
+            <input
+              value={form.brokerage_name}
+              disabled={!canEdit}
+              onChange={(event) =>
+                updateField(
+                  'brokerage_name',
+                  event.target.value
+                )
+              }
+              placeholder="Homes of Idaho"
+              className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 text-sm disabled:bg-slate-100"
+            />
+          </label>
+        </div>
+      </div>
+
+      <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50 p-4">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="h-5 w-5 text-blue-700" />
+
+          <h3 className="font-semibold text-blue-950">
+            Read-Only Compliance Package
+          </h3>
+        </div>
+
+        <p className="mt-2 text-sm text-blue-900">
+          The organization administrator selects the state only. Federal and
+          state rules are researched, edited, approved, activated and retired
+          exclusively by platform administration.
+        </p>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          {[
+            compliancePackage?.federal,
+            compliancePackage?.state,
+          ].map((item, index) => (
+            <div
+              key={
+                item?.jurisdiction_id ||
+                `missing-${index}`
+              }
+              className="rounded-xl border border-blue-200 bg-white p-3"
+            >
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                {index === 0
+                  ? 'Federal Rules'
+                  : 'State Rules'}
+              </div>
+
+              <div className="mt-1 font-semibold text-slate-900">
+                {item?.name ||
+                  (index === 0
+                    ? 'United States Federal'
+                    : 'Select a state')}
+              </div>
+
+              <div className="mt-1 text-sm text-slate-600">
+                {item?.rule_set?.is_active &&
+                item?.rule_set?.status === 'approved'
+                  ? 'Approved and active'
+                  : item?.rule_set
+                  ? `Platform review pending — ${item.rule_set.status}`
+                  : 'Rule package not yet populated'}
+              </div>
+
+              {item?.rule_set ? (
+                <div className="mt-1 text-xs text-slate-500">
+                  {item.rule_set.name}
+                  {' • '}
+                  {item.rule_set.version}
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-5 rounded-2xl border border-amber-200 bg-white p-4">
+        <div className="grid gap-5 md:grid-cols-[240px_minmax(0,1fr)]">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Licensed Brokerage Logo
+            </div>
+            <div className="mt-2 flex min-h-32 items-center justify-center overflow-hidden rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4">
+              {form.brokerage_logo_url ? (
+                <img
+                  src={form.brokerage_logo_url}
+                  alt="Licensed brokerage logo"
+                  className="max-h-28 max-w-full object-contain"
+                />
+              ) : (
+                <span className="text-center text-xs text-slate-500">
+                  No brokerage logo uploaded
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900">
+              Organization Brokerage Branding
+            </h3>
+            <p className="mt-1 text-xs leading-5 text-slate-500">
+              This may differ between MPRE Boise, MPRE Twin Falls, MPRE Atlanta
+              and other markets. The shared MPRE logo remains controlled by the
+              platform admin.
+            </p>
+
+            {canEdit && (
+              <label className="mt-4 inline-flex cursor-pointer items-center gap-2 rounded-2xl bg-amber-600 px-4 py-2.5 text-sm font-semibold text-white">
+                {uploadingLogo ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Camera className="h-4 w-4" />
+                )}
+                {uploadingLogo
+                  ? 'Uploading...'
+                  : 'Replace Brokerage Logo'}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="hidden"
+                  disabled={uploadingLogo}
+                  onChange={(event) => {
+                    const file =
+                      event.target.files?.[0];
+                    if (file) {
+                      uploadBrokerageLogo(file);
+                    }
+                    event.target.value = '';
+                  }}
+                />
+              </label>
+            )}
+          </div>
+        </div>
+      </div>
+
       <div className="mt-5 grid gap-4 md:grid-cols-2">
         <label>
           <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -521,23 +1132,129 @@ export default function OrganizationComplianceCard() {
 
         <label>
           <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-            License State
+            Organization State
           </span>
 
-          <input
+          <select
             value={
               form
-                .marketing_license_state
+                .state_jurisdiction_id
             }
+            disabled={!canEdit}
+            onChange={(event) => {
+              const jurisdictionId =
+                event.target.value;
+
+              const selected =
+                jurisdictions.find(
+                  (item) =>
+                    item.id ===
+                    jurisdictionId
+                );
+
+              setForm(
+                (previous) => ({
+                  ...previous,
+                  state_jurisdiction_id:
+                    jurisdictionId,
+                  marketing_license_state:
+                    selected?.name ||
+                    '',
+                })
+              );
+
+              setCompliancePackage(
+                (previous) => ({
+                  federal:
+                    previous?.federal ||
+                    null,
+                  state:
+                    selected
+                      ? {
+                          jurisdiction_id:
+                            selected.id,
+                          code:
+                            selected.code,
+                          state_code:
+                            selected
+                              .state_code,
+                          name:
+                            selected.name,
+                          launch_status:
+                            selected
+                              .launch_status,
+                          marketing_enabled:
+                            selected
+                              .marketing_enabled,
+                          current_rule_version:
+                            selected
+                              .current_rule_version,
+                          rule_set:
+                            null,
+                        }
+                      : null,
+                })
+              );
+            }}
+            className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 text-sm disabled:bg-slate-100"
+          >
+            <option value="">
+              Select state
+            </option>
+
+            {jurisdictions.map(
+              (jurisdiction) => (
+                <option
+                  key={
+                    jurisdiction.id
+                  }
+                  value={
+                    jurisdiction.id
+                  }
+                >
+                  {jurisdiction.name}
+                  {jurisdiction.state_code
+                    ? ` (${jurisdiction.state_code})`
+                    : ''}
+                </option>
+              )
+            )}
+          </select>
+        </label>
+
+        <label>
+          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Organization Timezone
+          </span>
+
+          <select
+            value={form.timezone}
             disabled={!canEdit}
             onChange={(event) =>
               updateField(
-                'marketing_license_state',
+                'timezone',
                 event.target.value
               )
             }
             className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 text-sm disabled:bg-slate-100"
-          />
+          >
+            <option value="">
+              Select timezone
+            </option>
+
+            {US_TIME_ZONE_OPTIONS.map(
+              (option) => (
+                <option
+                  key={option.value}
+                  value={option.value}
+                >
+                  {option.label}
+                  {' — '}
+                  {option.value}
+                </option>
+              )
+            )}
+          </select>
         </label>
 
         <label>

@@ -270,7 +270,7 @@ async function isAgentAvailableNow(
           is_active
         `)
         .eq("org_id", orgId)
-        .eq("agent_id", profileId)
+        .or(`agent_id.eq.${profileId},block_scope.eq.team`)
         .eq("is_active", true),
       getAgentScheduleSettings(profileId, orgId),
       hasPendingAppointmentApproval(profileId, orgId),

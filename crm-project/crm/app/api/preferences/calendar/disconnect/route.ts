@@ -1,24 +1,21 @@
 // crm/app/api/preferences/calendar/disconnect/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
+import {
+  requireAuthenticatedProfile,
+  requestErrorStatus,
+} from "../../../../../lib/server/authenticatedProfile";
 
 export const runtime = "nodejs";
 
-const supabase = createClient(
-  process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
 export async function POST(req: NextRequest) {
   try {
+    const profile =
+      await requireAuthenticatedProfile(req);
     const body = await req.json();
-    const { profileId, provider = "google" } = body;
+    const { provider = "google" } = body;
 
-    if (!profileId) {
-      return NextResponse.json({ error: "Missing profileId" }, { status: 400 });
-    }
-
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from("calendar_connections")
       .update({
         account_email: null,
@@ -27,14 +24,29 @@ export async function POST(req: NextRequest) {
         token_expires_at: null,
         scope: null,
         calendar_connected: false,
+        is_active: false,
         is_default: false,
         default_calendar_id: null,
         updated_at: new Date().toISOString(),
       })
-      .eq("agent_id", profileId)
+      .eq("agent_id", profile.id)
       .eq("provider", provider)
       .eq("is_active", true)
-      .select();
+      .select(`
+        id,
+        agent_id,
+        organization_id,
+        provider,
+        account_email,
+        token_expires_at,
+        scope,
+        calendar_connected,
+        is_active,
+        is_default,
+        default_calendar_id,
+        created_at,
+        updated_at
+      `);
 
     if (error) throw new Error(error.message);
 
@@ -42,7 +54,7 @@ export async function POST(req: NextRequest) {
   } catch (err: any) {
     return NextResponse.json(
       { error: err.message || "Failed to disconnect calendar" },
-      { status: 500 }
+      { status: requestErrorStatus(err) }
     );
   }
 }

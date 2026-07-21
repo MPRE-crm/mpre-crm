@@ -1,25 +1,30 @@
-﻿// crm/app/api/preferences/calendar/calendars/route.ts
+// crm/app/api/preferences/calendar/calendars/route.ts
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
 import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 import { getAuthorizedGoogleOAuthClient } from "../../../../../lib/calendar/getAuthorizedGoogleOAuthClient";
+import {
+  requireAuthenticatedProfile,
+  requestErrorStatus,
+} from "../../../../../lib/server/authenticatedProfile";
 
 export async function GET(req: NextRequest) {
   try {
-    const profileId = req.nextUrl.searchParams.get("profileId");
-
-    if (!profileId) {
-      return NextResponse.json({ error: "Missing profileId" }, { status: 400 });
-    }
+    const profile =
+      await requireAuthenticatedProfile(req);
 
     const { data: connection, error } = await supabaseAdmin
       .from("calendar_connections")
       .select("*")
-      .eq("agent_id", profileId)
+      .eq("agent_id", profile.id)
       .eq("provider", "google")
       .eq("is_active", true)
+      .eq("calendar_connected", true)
+      .order("is_default", { ascending: false })
+      .order("updated_at", { ascending: false })
+      .limit(1)
       .maybeSingle();
 
     if (error) throw new Error(error.message);
@@ -52,7 +57,7 @@ export async function GET(req: NextRequest) {
   } catch (err: any) {
     return NextResponse.json(
       { error: err.message || "Failed to load Google calendars" },
-      { status: 500 }
+      { status: requestErrorStatus(err) }
     );
   }
 }

@@ -1,9 +1,10 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import MarketingIdentityCard from "./MarketingIdentityCard";
 import OrganizationComplianceCard from "./OrganizationComplianceCard";
+import PlatformBrandCard from "./PlatformBrandCard";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string;
@@ -31,6 +32,12 @@ type CalendarProfile = {
   org_id: string;
   email: string | null;
 };
+
+type Role =
+  | "agent"
+  | "admin"
+  | "org_admin"
+  | "platform_admin";
 
 type CalendarConnection = {
   id: string;
@@ -170,6 +177,7 @@ function formatDateTime(value?: string | null) {
 
 export default function PreferencesPage() {
   const [sessionProfileId, setSessionProfileId] = useState<string | null>(null);
+  const [sessionRole, setSessionRole] = useState<Role | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
 
   const [lenders, setLenders] = useState<LenderUser[]>([]);
@@ -204,7 +212,7 @@ export default function PreferencesPage() {
   const [scheduleSaving, setScheduleSaving] = useState(false);
   const [scheduleMessage, setScheduleMessage] = useState("");
   const [scheduleSettings, setScheduleSettings] = useState<ScheduleSettings | null>(null);
-  const [weeklyHours, setWeeklyHours] = useState<WeeklyHour[]>(DEFAULT_WEEKLY_HOURS);
+  const [weeklyHours, setWeeklyHours] = useState<WeeklyHour[]>([]);
 
   const [oneTimeTitle, setOneTimeTitle] = useState("");
   const [oneTimeNotes, setOneTimeNotes] = useState("");
@@ -213,7 +221,7 @@ export default function PreferencesPage() {
 
   const [recurringTitle, setRecurringTitle] = useState("");
   const [recurringNotes, setRecurringNotes] = useState("");
-  const [recurringBlockScope, setRecurringBlockScope] = useState<"personal" | "team">("team");
+  const [recurringBlockScope, setRecurringBlockScope] = useState<"personal" | "team">("personal");
   const [recurringWeekday, setRecurringWeekday] = useState("1");
   const [recurringStartTime, setRecurringStartTime] = useState("09:00");
   const [recurringEndTime, setRecurringEndTime] = useState("10:00");
@@ -234,12 +242,12 @@ export default function PreferencesPage() {
   const [oooEndAt, setOooEndAt] = useState("");
 
   useEffect(() => {
-    loadData();
     loadSessionProfileId();
   }, []);
 
   useEffect(() => {
     if (sessionLoading) return;
+    loadData();
     loadCalendarData();
     loadAvailabilityData();
     loadScheduleData();
@@ -253,15 +261,47 @@ export default function PreferencesPage() {
 
       if (userErr || !userRes?.user?.id) {
         setSessionProfileId(null);
+        setSessionRole(null);
         return;
       }
 
-      setSessionProfileId(userRes.user.id);
+      const { data: profile, error: profileErr } = await supabase
+        .from("profiles")
+        .select("id, role")
+        .eq("id", userRes.user.id)
+        .single();
+
+      if (profileErr || !profile?.id) {
+        throw new Error(profileErr?.message || "Profile not found.");
+      }
+
+      const role: Role =
+        profile.role === "platform_admin"
+          ? "platform_admin"
+          : profile.role === "org_admin"
+          ? "org_admin"
+          : profile.role === "admin"
+          ? "admin"
+          : "agent";
+
+      setSessionProfileId(profile.id);
+      setSessionRole(role);
     } catch {
       setSessionProfileId(null);
+      setSessionRole(null);
     } finally {
       setSessionLoading(false);
     }
+  }
+
+  async function accessToken() {
+    const { data, error } = await supabase.auth.getSession();
+
+    if (error || !data.session) {
+      throw new Error(error?.message || "Your CRM session expired.");
+    }
+
+    return data.session.access_token;
   }
 
   async function loadData() {
@@ -269,8 +309,13 @@ export default function PreferencesPage() {
       setLoading(true);
       setMessage("");
 
+      const token = await accessToken();
+
       const res = await fetch("/api/preferences/lenders", {
         method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
         cache: "no-store",
       });
 
@@ -315,10 +360,15 @@ export default function PreferencesPage() {
         return;
       }
 
+      const token = await accessToken();
+
       const res = await fetch(
-        `/api/preferences/calendar?profileId=${encodeURIComponent(sessionProfileId)}`,
+        "/api/preferences/calendar",
         {
           method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
           cache: "no-store",
         }
       );
@@ -361,10 +411,15 @@ export default function PreferencesPage() {
         return;
       }
 
+      const token = await accessToken();
+
       const res = await fetch(
-        `/api/preferences/availability?profileId=${encodeURIComponent(sessionProfileId)}`,
+        "/api/preferences/availability",
         {
           method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
           cache: "no-store",
         }
       );
@@ -394,10 +449,15 @@ export default function PreferencesPage() {
         return;
       }
 
+      const token = await accessToken();
+
       const res = await fetch(
-        `/api/preferences/schedule?profileId=${encodeURIComponent(sessionProfileId)}`,
+        "/api/preferences/schedule",
         {
           method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
           cache: "no-store",
         }
       );
@@ -410,7 +470,8 @@ export default function PreferencesPage() {
 
       setScheduleSettings(json.settings || null);
 setWeeklyHours(
-  Array.isArray(json.weekly_hours) && json.weekly_hours.length === 7
+  Array.isArray(json.weekly_hours) &&
+  json.weekly_hours.length === 7
     ? json.weekly_hours
         .map((row: WeeklyHour) => ({
           weekday: Number(row.weekday),
@@ -418,8 +479,11 @@ setWeeklyHours(
           start_hour: Number(row.start_hour),
           end_hour: Number(row.end_hour),
         }))
-        .sort((a: WeeklyHour, b: WeeklyHour) => a.weekday - b.weekday)
-    : DEFAULT_WEEKLY_HOURS
+        .sort(
+          (a: WeeklyHour, b: WeeklyHour) =>
+            a.weekday - b.weekday
+        )
+    : []
 );
     } catch (err: any) {
       setScheduleMessage(err.message || "Failed to load schedule settings");
@@ -428,10 +492,6 @@ setWeeklyHours(
     }
   }
 
-  function addLender(lenderId: number) {
-    if (selectedLenderIds.includes(lenderId)) return;
-    setSelectedLenderIds((prev) => [...prev, lenderId]);
-  }
 
   function moveUp(index: number) {
     if (index === 0) return;
@@ -454,9 +514,12 @@ setWeeklyHours(
       setSaving(true);
       setMessage("");
 
+      const token = await accessToken();
+
       const res = await fetch("/api/preferences/lenders", {
         method: "POST",
         headers: {
+          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -488,9 +551,12 @@ setWeeklyHours(
         throw new Error("Lender name is required");
       }
 
+      const token = await accessToken();
+
       const res = await fetch("/api/preferences/lenders", {
         method: "PUT",
         headers: {
+          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -509,7 +575,7 @@ setWeeklyHours(
       setNewLenderName("");
       setNewLenderEmail("");
       setNewLenderPhone("");
-      setMessage("Lender added.");
+      setMessage("Lender added to your personal rotation.");
       await loadData();
     } catch (err: any) {
       setMessage(err.message || "Failed to create lender");
@@ -530,9 +596,12 @@ setWeeklyHours(
 
       if (!ok) return;
 
+      const token = await accessToken();
+
       const res = await fetch("/api/preferences/lenders", {
         method: "DELETE",
         headers: {
+          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -565,13 +634,15 @@ setWeeklyHours(
         throw new Error("No logged-in profile ID found.");
       }
 
+      const token = await accessToken();
+
       const res = await fetch("/api/preferences/calendar", {
         method: "PATCH",
         headers: {
+          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          profileId: sessionProfileId,
           provider: calendarProvider,
         }),
       });
@@ -600,14 +671,15 @@ setWeeklyHours(
         throw new Error("No logged-in profile ID found.");
       }
 
+      const token = await accessToken();
+
       const res = await fetch("/api/calendar/google/sync", {
         method: "POST",
         headers: {
+          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          profileId: sessionProfileId,
-        }),
+        body: JSON.stringify({}),
       });
 
       const json = await res.json();
@@ -638,13 +710,15 @@ setWeeklyHours(
         throw new Error("Schedule settings are not loaded yet.");
       }
 
+      const token = await accessToken();
+
       const res = await fetch("/api/preferences/schedule", {
         method: "POST",
         headers: {
+          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          profileId: sessionProfileId,
           workday_start_hour: scheduleSettings.workday_start_hour,
           workday_end_hour: scheduleSettings.workday_end_hour,
           saturday_enabled: scheduleSettings.saturday_enabled,
@@ -692,15 +766,15 @@ setWeeklyHours(
         throw new Error("No logged-in profile ID found.");
       }
 
+      const token = await accessToken();
+
       const res = await fetch("/api/preferences/availability", {
         method: "POST",
         headers: {
+          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          profileId: sessionProfileId,
-          ...payload,
-        }),
+        body: JSON.stringify(payload),
       });
 
       const json = await res.json();
@@ -730,14 +804,16 @@ setWeeklyHours(
       const ok = window.confirm("Delete this availability block?");
       if (!ok) return;
 
+      const token = await accessToken();
+
       const res = await fetch("/api/preferences/availability", {
         method: "DELETE",
         headers: {
+          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
           id,
-          profileId: sessionProfileId,
         }),
       });
 
@@ -756,24 +832,46 @@ setWeeklyHours(
     }
   }
 
-  function connectGoogleCalendar() {
-    if (!sessionProfileId) {
-      setCalendarMessage("Missing logged-in profile ID.");
-      return;
-    }
+  async function connectGoogleCalendar() {
+    try {
+      setCalendarMessage("");
 
-    window.location.href = `/api/calendar/google/connect?profileId=${encodeURIComponent(
-      sessionProfileId
-    )}`;
+      if (!sessionProfileId) {
+        throw new Error("Missing logged-in profile ID.");
+      }
+
+      const token = await accessToken();
+
+      const response = await fetch(
+        "/api/calendar/google/connect",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok || !result.url) {
+        throw new Error(
+          result.error || "Failed to start Google Calendar connection."
+        );
+      }
+
+      window.location.href = result.url;
+    } catch (err: any) {
+      setCalendarMessage(
+        err?.message || "Failed to start Google Calendar connection."
+      );
+    }
   }
 
   const selectedLenders = selectedLenderIds
     .map((id) => lenders.find((lender) => lender.id === id))
     .filter(Boolean) as LenderUser[];
 
-  const availableLenders = lenders.filter(
-    (lender) => !selectedLenderIds.includes(lender.id)
-  );
 
 const sortedAvailabilityBlocks = useMemo(
   () =>
@@ -803,13 +901,21 @@ function updateWeeklyHour(
   );
 }
 
+const canManageOrganization =
+  sessionRole === "admin" ||
+  sessionRole === "org_admin" ||
+  sessionRole === "platform_admin";
+
+const canManagePlatformBrand =
+  sessionRole === "platform_admin";
+
 return (
     <div className="p-6 space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Preferences</h1>
         <p className="mt-1 text-sm text-gray-600">
-          Set your preferred lender order here. Samantha will use this list first,
-          then fall back to the organization lender pool if needed.
+          This is your private lender rotation. Samantha will use only the lenders
+          listed here when one of your assigned leads requests financing help.
         </p>
       </div>
 
@@ -819,9 +925,19 @@ return (
         </div>
       ) : null}
 
-            <MarketingIdentityCard />
+      {sessionLoading ? (
+        <div className="rounded border px-4 py-3 text-sm text-gray-600">
+          Loading account permissions...
+        </div>
+      ) : (
+        <>
+          {canManagePlatformBrand ? <PlatformBrandCard /> : null}
 
-      <OrganizationComplianceCard />
+          <MarketingIdentityCard />
+
+          {canManageOrganization ? <OrganizationComplianceCard /> : null}
+        </>
+      )}
 
       <div className="rounded border p-4">
         <h2 className="mb-4 text-lg font-semibold">Calendar Preferences</h2>
@@ -948,8 +1064,53 @@ return (
           </div>
         ) : null}
 
-        {scheduleLoading || !scheduleSettings ? (
-          <div className="text-sm text-gray-600">Loading schedule settings...</div>
+        {scheduleLoading ? (
+          <div className="text-sm text-gray-600">
+            Loading schedule settings...
+          </div>
+        ) : !scheduleSettings ? (
+          <div className="rounded border border-dashed p-5">
+            <div className="font-semibold">
+              Schedule not configured
+            </div>
+
+            <p className="mt-2 text-sm text-gray-600">
+              Samantha will not offer appointment times for this account
+              until working hours and specific-day availability are saved.
+            </p>
+
+            <button
+              type="button"
+              onClick={() => {
+                setScheduleSettings({
+                  agent_id: sessionProfileId || "",
+                  org_id: "",
+                  workday_start_hour: 9,
+                  workday_end_hour: 18,
+                  saturday_enabled: false,
+                  sunday_enabled: false,
+                  travel_buffer_minutes: 30,
+                  daily_appointment_cap: 6,
+                  allow_after_hours_appointments: false,
+                  after_hours_start_hour: null,
+                  after_hours_end_hour: null,
+                  is_active: true,
+                });
+
+                setWeeklyHours(
+                  DEFAULT_WEEKLY_HOURS.map((row) => ({
+                    ...row,
+                    is_enabled:
+                      row.weekday >= 1 &&
+                      row.weekday <= 5,
+                  }))
+                );
+              }}
+              className="mt-4 rounded bg-black px-4 py-2 text-sm text-white"
+            >
+              Configure My Schedule
+            </button>
+          </div>
         ) : (
           <>
             <div className="grid gap-3 md:grid-cols-2">
@@ -1333,7 +1494,7 @@ return (
           </div>
 
           <div className="rounded border p-4">
-            <h3 className="mb-3 text-base font-semibold">Team Meeting / Weekly Block</h3>
+            <h3 className="mb-3 text-base font-semibold">{sessionRole === "agent" ? "Recurring Weekly Block" : "Team Meeting / Weekly Block"}</h3>
               <div className="space-y-3">
               <input
                 type="text"
@@ -1354,8 +1515,10 @@ return (
                 onChange={(e) => setRecurringBlockScope(e.target.value as "personal" | "team")}
                 className="w-full rounded border px-3 py-2 text-sm"
               >
-              <option value="team">Team / Org Block</option>
               <option value="personal">Personal Agent Block</option>
+              {canManageOrganization ? (
+                <option value="team">Team / Org Block</option>
+              ) : null}
             </select>
               <select
                 value={recurringWeekday}
@@ -1384,12 +1547,16 @@ return (
                 type="button"
                 disabled={availabilitySaving}
                 onClick={async () => {
+                const blockScope = canManageOrganization
+                  ? recurringBlockScope
+                  : "personal";
+
                 await createAvailabilityBlock({
                   block_type: "recurring_weekly",
-                  block_scope: recurringBlockScope,
+                  block_scope: blockScope,
                   title:
                     recurringTitle ||
-                    (recurringBlockScope === "team" ? "Team Meeting" : "Recurring Weekly Block"),
+                    (blockScope === "team" ? "Team Meeting" : "Recurring Weekly Block"),
                   notes: recurringNotes || null,
                   weekday: Number(recurringWeekday),
                   start_time: recurringStartTime,
@@ -1397,7 +1564,7 @@ return (
                 });
                   setRecurringTitle("");
                   setRecurringNotes("");
-                  setRecurringBlockScope("team");
+                  setRecurringBlockScope("personal");
                   setRecurringWeekday("1");
                   setRecurringStartTime("09:00");
                   setRecurringEndTime("10:00");
@@ -1630,7 +1797,7 @@ return (
       </div>
 
       <div className="rounded border p-4">
-        <h2 className="mb-4 text-lg font-semibold">Add New Lender</h2>
+        <h2 className="mb-4 text-lg font-semibold">Add a Lender to My Rotation</h2>
 
         <div className="grid gap-3 md:grid-cols-3">
           <input
@@ -1658,72 +1825,31 @@ return (
           />
         </div>
 
-        <div className="mt-4">
-          <button
-            type="button"
-            onClick={createLender}
-            disabled={creatingLender}
-            className="rounded bg-black px-4 py-2 text-sm text-white disabled:opacity-60"
-          >
-            {creatingLender ? "Adding..." : "Add Lender"}
-          </button>
-        </div>
+          <div className="mt-4">
+            <button
+              type="button"
+              onClick={createLender}
+              disabled={creatingLender}
+              className="rounded bg-black px-4 py-2 text-sm text-white disabled:opacity-60"
+            >
+              {creatingLender ? "Adding..." : "Add Lender"}
+            </button>
+          </div>
       </div>
 
       {loading ? (
         <div className="text-sm text-gray-600">Loading preferences...</div>
       ) : (
-        <div className="grid gap-6 md:grid-cols-2">
+        <div>
           <div className="rounded border p-4">
-            <h2 className="mb-4 text-lg font-semibold">Available Lenders</h2>
-
-            {availableLenders.length === 0 ? (
-              <p className="text-sm text-gray-600">No more lenders available.</p>
-            ) : (
-              <div className="space-y-3">
-                {availableLenders.map((lender) => (
-                  <div
-                    key={lender.id}
-                    className="flex items-center justify-between rounded border p-3"
-                  >
-                    <div>
-                      <div className="font-medium">{lender.name}</div>
-                      <div className="text-sm text-gray-600">
-                        {lender.email || "No email"}{" "}
-                        {lender.phone ? `• ${lender.phone}` : ""}
-                      </div>
-                    </div>
-
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => addLender(lender.id)}
-                        className="rounded bg-black px-3 py-2 text-sm text-white"
-                      >
-                        Add
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => deleteLender(lender.id)}
-                        disabled={deletingLenderId === lender.id}
-                        className="rounded border px-3 py-2 text-sm"
-                      >
-                        {deletingLenderId === lender.id ? "Removing..." : "Remove from My List"}
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="rounded border p-4">
-            <h2 className="mb-4 text-lg font-semibold">My Preferred Lender Order</h2>
+            <h2 className="text-lg font-semibold">My Lender Rotation</h2>
+            <p className="mb-4 mt-1 text-sm text-gray-600">
+              One lender receives every referral. With multiple lenders, Samantha rotates through this order.
+            </p>
 
             {selectedLenders.length === 0 ? (
               <p className="text-sm text-gray-600">
-                No preferred lenders selected yet.
+                No lenders have been added to your personal rotation yet.
               </p>
             ) : (
               <div className="space-y-3">
@@ -1780,7 +1906,7 @@ return (
                 disabled={saving}
                 className="rounded bg-black px-4 py-2 text-sm text-white disabled:opacity-60"
               >
-                {saving ? "Saving..." : "Save Preferences"}
+                {saving ? "Saving..." : "Save Lender Order"}
               </button>
             </div>
           </div>

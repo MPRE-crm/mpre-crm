@@ -1,19 +1,26 @@
 export const runtime = "nodejs";
+
 import { NextRequest, NextResponse } from "next/server";
-import { getGoogleOAuthClient, GOOGLE_CALENDAR_SCOPES } from "../../../../../lib/googleCalendar";
+import {
+  getGoogleOAuthClient,
+  GOOGLE_CALENDAR_SCOPES,
+} from "../../../../../lib/googleCalendar";
+import {
+  requireAuthenticatedProfile,
+  requestErrorStatus,
+} from "../../../../../lib/server/authenticatedProfile";
+import {
+  createGoogleOAuthState,
+} from "../../../../../lib/calendar/googleOAuthState";
 
-export async function GET(req: NextRequest) {
+export async function POST(req: NextRequest) {
   try {
-    const { searchParams, origin } = new URL(req.url);
-    const profileId = searchParams.get("profileId");
-
-    if (!profileId) {
-      return NextResponse.json({ error: "Missing profileId" }, { status: 400 });
-    }
+    const profile =
+      await requireAuthenticatedProfile(req);
 
     const oauth2Client = getGoogleOAuthClient();
-
-    const state = Buffer.from(JSON.stringify({ profileId, origin })).toString("base64");
+    const state =
+      createGoogleOAuthState(profile.id);
 
     const authUrl = oauth2Client.generateAuthUrl({
       access_type: "offline",
@@ -22,11 +29,17 @@ export async function GET(req: NextRequest) {
       state,
     });
 
-    return NextResponse.redirect(authUrl);
+    return NextResponse.json({
+      ok: true,
+      url: authUrl,
+    });
   } catch (error: any) {
     return NextResponse.json(
-      { error: "Failed to start Google OAuth", details: error.message },
-      { status: 500 }
+      {
+        error: "Failed to start Google OAuth",
+        details: error.message,
+      },
+      { status: requestErrorStatus(error) }
     );
   }
 }

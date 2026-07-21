@@ -7,6 +7,9 @@ import {
   fetchGoogleAccountEmail,
   fetchGoogleCalendars,
 } from "../../../../../lib/googleCalendar";
+import {
+  readGoogleOAuthState,
+} from "../../../../../lib/calendar/googleOAuthState";
 
 async function getProfile(profileId: string) {
   const { data, error } = await supabaseAdmin
@@ -19,67 +22,6 @@ async function getProfile(profileId: string) {
   if (!data) throw new Error("Profile not found");
 
   return data;
-}
-
-async function resolveCalendarTargetProfile(profile: {
-  id: string;
-  org_id: string;
-  role: string;
-  email: string | null;
-}) {
-  if (profile.role === "agent") return profile;
-
-  if (profile.role === "admin" || profile.role === "platform_admin") {
-    const { data: rotationMember, error: rotationError } = await supabaseAdmin
-      .from("rotation_members")
-      .select("user_id")
-      .eq("org_id", profile.org_id)
-      .eq("is_active", true)
-      .order("last_assigned_at", { ascending: true, nullsFirst: true })
-      .limit(1)
-      .maybeSingle();
-
-    if (rotationError) throw new Error(rotationError.message);
-
-    if (rotationMember?.user_id) {
-      const { data: routedUser, error: routedUserError } = await supabaseAdmin
-        .from("users")
-        .select("user_id, email, org_id")
-        .eq("id", rotationMember.user_id)
-        .eq("org_id", profile.org_id)
-        .maybeSingle();
-
-      if (routedUserError) throw new Error(routedUserError.message);
-
-      if (routedUser?.user_id) {
-        const { data: routedProfile, error: routedProfileError } =
-          await supabaseAdmin
-            .from("profiles")
-            .select("id, org_id, role, email")
-            .eq("id", routedUser.user_id)
-            .eq("org_id", profile.org_id)
-            .maybeSingle();
-
-        if (routedProfileError) throw new Error(routedProfileError.message);
-        if (routedProfile?.id) return routedProfile;
-      }
-    }
-
-    const { data: fallbackAgent, error: fallbackAgentError } =
-      await supabaseAdmin
-        .from("profiles")
-        .select("id, org_id, role, email")
-        .eq("org_id", profile.org_id)
-        .eq("role", "agent")
-        .order("email", { ascending: true })
-        .limit(1)
-        .maybeSingle();
-
-    if (fallbackAgentError) throw new Error(fallbackAgentError.message);
-    if (fallbackAgent?.id) return fallbackAgent;
-  }
-
-  return profile;
 }
 
 export async function GET(req: NextRequest) {
@@ -96,18 +38,11 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Missing state" }, { status: 400 });
     }
 
-    const parsedState = JSON.parse(Buffer.from(state, "base64").toString("utf8"));
-    const profileId = parsedState?.profileId;
-
-    if (!profileId) {
-      return NextResponse.json(
-        { error: "Invalid state / missing profileId" },
-        { status: 400 }
-      );
-    }
-
-    const profile = await getProfile(profileId);
-    const targetProfile = await resolveCalendarTargetProfile(profile);
+    const parsedState =
+      readGoogleOAuthState(state);
+    const profile =
+      await getProfile(parsedState.profileId);
+    const targetProfile = profile;
 
     const oauth2Client = getGoogleOAuthClient();
     const { tokens } = await oauth2Client.getToken(code);
@@ -164,7 +99,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    await supabaseAdmin
+    const { error: defaultResetError } = await supabaseAdmin
       .from("calendar_connections")
       .update({
         is_default: false,
@@ -173,6 +108,12 @@ export async function GET(req: NextRequest) {
       .eq("agent_id", targetProfile.id)
       .eq("provider", "google")
       .neq("id", connection.id);
+
+    if (defaultResetError) {
+      throw new Error(
+        `Failed to update the default Google connection: ${defaultResetError.message}`
+      );
+    }
 
     if (calendars.length > 0) {
       const rows = calendars.map((cal) => ({
@@ -203,9 +144,16 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.redirect(`${origin}/dashboard/preferences?calendar=google_connected`);
   } catch (error: any) {
+    const status =
+      String(error?.message || "")
+        .toLowerCase()
+        .includes("state")
+        ? 400
+        : 500;
+
     return NextResponse.json(
       { error: "Google callback failed", details: error.message },
-      { status: 500 }
+      { status }
     );
   }
 }

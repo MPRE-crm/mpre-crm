@@ -392,11 +392,6 @@ export default function MarketingIdentityCard() {
   ] = useState(false);
 
   const [
-    uploadingLogo,
-    setUploadingLogo,
-  ] = useState(false);
-
-  const [
     error,
     setError,
   ] = useState<
@@ -754,70 +749,6 @@ export default function MarketingIdentityCard() {
       setUploadingSignature(false);
     }
   }
-  async function uploadLogo(
-    file: File
-  ) {
-    try {
-      setUploadingLogo(true);
-      setError(null);
-      setNotice(null);
-
-      const token =
-        await accessToken();
-
-      const formData =
-        new FormData();
-
-      formData.append(
-        'file',
-        file
-      );
-
-      const response =
-        await fetch(
-          '/api/preferences/marketing-identity/logo',
-          {
-            method: 'POST',
-
-            headers: {
-              Authorization:
-                `Bearer ${token}`,
-            },
-
-            body: formData,
-          }
-        );
-
-      const result =
-        await response.json();
-
-      if (
-        !response.ok ||
-        !result.ok
-      ) {
-        throw new Error(
-          result.error ||
-            'Could not upload brokerage or team logo.'
-        );
-      }
-
-      updateField(
-        'marketing_logo_url',
-        result.url
-      );
-
-      setNotice(
-        'Brokerage or team logo uploaded successfully.'
-      );
-    } catch (err: any) {
-      setError(
-        err?.message ||
-          'Could not upload brokerage or team logo.'
-      );
-    } finally {
-      setUploadingLogo(false);
-    }
-  }
   if (loading) {
     return (
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -1126,76 +1057,6 @@ export default function MarketingIdentityCard() {
               className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 text-sm"
             />
           </label>
-
-          <div className="rounded-2xl border border-slate-200 bg-white p-4">
-            <div className="grid gap-5 md:grid-cols-[220px_minmax(0,1fr)]">
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Brokerage / Team Logo
-                </div>
-
-                <div className="mt-2 flex min-h-28 items-center justify-center overflow-hidden rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4">
-                  {form
-                    .marketing_logo_url ? (
-                    <img
-                      src={
-                        form
-                          .marketing_logo_url
-                      }
-                      alt="Brokerage or team logo"
-                      className="max-h-24 max-w-full object-contain"
-                    />
-                  ) : (
-                    <span className="text-center text-xs text-slate-500">
-                      No logo uploaded
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <h3 className="text-sm font-semibold text-slate-900">
-                  Upload Brokerage or Team Logo
-                </h3>
-
-                <p className="mt-1 text-xs leading-5 text-slate-500">
-                  This logo can appear above your professional contact card
-                  in marketing emails. A transparent PNG works best.
-                </p>
-
-                <label className="mt-4 inline-flex cursor-pointer items-center gap-2 rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white">
-                  {uploadingLogo ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Camera className="h-4 w-4" />
-                  )}
-
-                  {uploadingLogo
-                    ? 'Uploading...'
-                    : 'Upload Logo'}
-
-                  <input
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp"
-                    className="hidden"
-                    disabled={uploadingLogo}
-                    onChange={(event) => {
-                      const file =
-                        event.target
-                          .files?.[0];
-
-                      if (file) {
-                        uploadLogo(file);
-                      }
-
-                      event.target.value =
-                        '';
-                    }}
-                  />
-                </label>
-              </div>
-            </div>
-          </div>
 
           <div className="rounded-2xl border border-slate-200 bg-white p-4">
             <h3 className="text-base font-semibold text-slate-900">

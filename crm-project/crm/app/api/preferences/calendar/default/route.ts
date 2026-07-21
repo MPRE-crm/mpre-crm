@@ -1,32 +1,37 @@
 // crm/app/api/preferences/calendar/default/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
+import {
+  requireAuthenticatedProfile,
+  requestErrorStatus,
+} from "../../../../../lib/server/authenticatedProfile";
 
 export const runtime = "nodejs";
 
-const supabase = createClient(
-  process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
 export async function POST(req: NextRequest) {
   try {
+    const profile =
+      await requireAuthenticatedProfile(req);
     const body = await req.json();
-    const { profileId, calendarId } = body;
+    const { calendarId } = body;
 
-    if (!profileId || !calendarId) {
+    if (!calendarId) {
       return NextResponse.json(
-        { error: "Missing profileId or calendarId" },
+        { error: "Missing calendarId" },
         { status: 400 }
       );
     }
 
-    const { data: connection, error: findError } = await supabase
+    const { data: connection, error: findError } = await supabaseAdmin
       .from("calendar_connections")
       .select("*")
-      .eq("agent_id", profileId)
+      .eq("agent_id", profile.id)
       .eq("provider", "google")
       .eq("is_active", true)
+      .eq("calendar_connected", true)
+      .order("is_default", { ascending: false })
+      .order("updated_at", { ascending: false })
+      .limit(1)
       .maybeSingle();
 
     if (findError) throw new Error(findError.message);
@@ -37,7 +42,31 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { data, error } = await supabase
+    const {
+      data: selectedCalendar,
+      error: selectedCalendarError,
+    } = await supabaseAdmin
+      .from("calendar_calendars")
+      .select("id")
+      .eq("calendar_connection_id", connection.id)
+      .eq("provider_calendar_id", String(calendarId))
+      .maybeSingle();
+
+    if (selectedCalendarError) {
+      throw new Error(selectedCalendarError.message);
+    }
+
+    if (!selectedCalendar) {
+      return NextResponse.json(
+        {
+          error:
+            "The selected calendar does not belong to this Google connection.",
+        },
+        { status: 400 }
+      );
+    }
+
+    const { data, error } = await supabaseAdmin
       .from("calendar_connections")
       .update({
         default_calendar_id: calendarId,
@@ -45,7 +74,21 @@ export async function POST(req: NextRequest) {
         updated_at: new Date().toISOString(),
       })
       .eq("id", connection.id)
-      .select()
+      .select(`
+        id,
+        agent_id,
+        organization_id,
+        provider,
+        account_email,
+        token_expires_at,
+        scope,
+        calendar_connected,
+        is_active,
+        is_default,
+        default_calendar_id,
+        created_at,
+        updated_at
+      `)
       .single();
 
     if (error) throw new Error(error.message);
@@ -54,7 +97,7 @@ export async function POST(req: NextRequest) {
   } catch (err: any) {
     return NextResponse.json(
       { error: err.message || "Failed to save default calendar" },
-      { status: 500 }
+      { status: requestErrorStatus(err) }
     );
   }
 }

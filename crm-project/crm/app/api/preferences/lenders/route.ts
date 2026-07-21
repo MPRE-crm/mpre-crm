@@ -1,277 +1,591 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import {
+  requireAuthenticatedProfile,
+  requestErrorStatus,
+} from "../../../../lib/server/authenticatedProfile";
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-async function getCurrentAgentUserId(request: Request) {
-  const raw = request.headers.get("x-user-id");
-  if (!raw) return 1; // temp fallback for your user
-  const id = Number(raw);
-  return Number.isFinite(id) ? id : 1;
-}
+async function currentPreferenceOwner(
+  request: Request
+) {
+  const profile =
+    await requireAuthenticatedProfile(request);
 
-async function getCurrentOrgId(agentUserId: number) {
-  const { data, error } = await supabase
+  const {
+    data: userById,
+    error: userByIdError,
+  } = await supabase
     .from("users")
-    .select("org_id")
-    .eq("id", agentUserId)
+    .select("id, org_id")
+    .eq("org_id", profile.org_id)
+    .eq("user_id", profile.id)
     .maybeSingle();
 
-  if (error) throw new Error(error.message);
-  if (!data?.org_id) throw new Error("No org_id found for agent");
+  if (userByIdError) {
+    throw new Error(userByIdError.message);
+  }
 
-  return data.org_id as string;
+  let user = userById;
+
+  if (!user && profile.email) {
+    const {
+      data: userByEmail,
+      error: userByEmailError,
+    } = await supabase
+      .from("users")
+      .select("id, org_id")
+      .eq("org_id", profile.org_id)
+      .ilike("email", profile.email)
+      .limit(1)
+      .maybeSingle();
+
+    if (userByEmailError) {
+      throw new Error(userByEmailError.message);
+    }
+
+    user = userByEmail;
+  }
+
+  if (!user?.id || !user.org_id) {
+    throw new Error(
+      "No CRM user record is linked to the authenticated profile."
+    );
+  }
+
+  return {
+    agentUserId: Number(user.id),
+    orgId: String(user.org_id),
+  };
 }
 
 export async function GET(request: Request) {
   try {
-    const agentUserId = await getCurrentAgentUserId(request);
-    const orgId = await getCurrentOrgId(agentUserId);
+    const {
+      agentUserId,
+      orgId,
+    } = await currentPreferenceOwner(request);
 
-    const { data: lenders, error: lendersError } = await supabase
+    const {
+      data: preferences,
+      error: prefsError,
+    } = await supabase
+      .from("agent_lender_preferences")
+      .select("lender_user_id, position, is_active")
+      .eq("org_id", orgId)
+      .eq("agent_user_id", agentUserId)
+      .eq("is_active", true)
+      .order("position", { ascending: true });
+
+    if (prefsError) {
+      throw new Error(prefsError.message);
+    }
+
+    const lenderIds = (preferences || []).map(
+      (row) => Number(row.lender_user_id)
+    );
+
+    if (lenderIds.length === 0) {
+      return NextResponse.json({
+        lenders: [],
+        preferences: [],
+      });
+    }
+
+    const {
+      data: lenderRows,
+      error: lendersError,
+    } = await supabase
       .from("users")
       .select("id, name, email, phone")
       .eq("org_id", orgId)
       .eq("role", "lender")
       .eq("is_active", true)
-      .order("name", { ascending: true });
+      .in("id", lenderIds);
 
     if (lendersError) {
-      return NextResponse.json(
-        { error: lendersError.message },
-        { status: 500 }
-      );
+      throw new Error(lendersError.message);
     }
 
-    const { data: preferences, error: prefsError } = await supabase
-      .from("agent_lender_preferences")
-      .select("lender_user_id, position, is_active")
-      .eq("org_id", orgId)
-      .eq("agent_user_id", agentUserId)
-      .order("position", { ascending: true });
+    const lenderById = new Map(
+      (lenderRows || []).map(
+        (lender) => [Number(lender.id), lender]
+      )
+    );
 
-    if (prefsError) {
-      return NextResponse.json(
-        { error: prefsError.message },
-        { status: 500 }
-      );
-    }
+    const lenders = lenderIds
+      .map((id) => lenderById.get(id))
+      .filter(Boolean);
 
     return NextResponse.json({
-      lenders: lenders || [],
+      lenders,
       preferences: preferences || [],
     });
   } catch (err: any) {
     return NextResponse.json(
-      { error: err?.message || "Failed to load lender preferences" },
-      { status: 500 }
+      {
+        error:
+          err?.message ||
+          "Failed to load lender preferences",
+      },
+      { status: requestErrorStatus(err) }
     );
   }
 }
 
 export async function POST(request: Request) {
   try {
-    const agentUserId = await getCurrentAgentUserId(request);
-    const orgId = await getCurrentOrgId(agentUserId);
+    const {
+      agentUserId,
+      orgId,
+    } = await currentPreferenceOwner(request);
 
     const body = await request.json();
-    const lenderIds = Array.isArray(body?.lenderIds) ? body.lenderIds : [];
 
-    const normalizedLenderIds = lenderIds
-      .map((id: unknown) => Number(id))
-      .filter((id: number) => Number.isFinite(id));
+    const lenderIds = Array.isArray(body?.lenderIds)
+      ? body.lenderIds
+      : [];
 
-    const { error: deleteError } = await supabase
+    const normalizedLenderIds: number[] = Array.from(
+      new Set<number>(
+        lenderIds
+          .map((id: unknown) => Number(id))
+          .filter(
+            (id: number) =>
+              Number.isFinite(id)
+          )
+      )
+    );
+
+    const {
+      data: currentPreferences,
+      error: currentPreferencesError,
+    } = await supabase
       .from("agent_lender_preferences")
-      .delete()
+      .select("lender_user_id")
       .eq("org_id", orgId)
       .eq("agent_user_id", agentUserId);
 
-    if (deleteError) {
-      return NextResponse.json(
-        { error: deleteError.message },
-        { status: 500 }
+    if (currentPreferencesError) {
+      throw new Error(
+        currentPreferencesError.message
       );
     }
 
-    if (normalizedLenderIds.length > 0) {
-      const rows = normalizedLenderIds.map(
-        (lenderUserId: number, index: number) => ({
-          org_id: orgId,
-          agent_user_id: agentUserId,
-          lender_user_id: lenderUserId,
-          position: index + 1,
-          is_active: true,
-        })
+    const currentLenderIds = new Set(
+      (currentPreferences || []).map(
+        (row) => Number(row.lender_user_id)
+      )
+    );
+
+    const containsForeignLender =
+      normalizedLenderIds.some(
+        (id) => !currentLenderIds.has(id)
       );
 
-      const { error: insertError } = await supabase
+    if (containsForeignLender) {
+      return NextResponse.json(
+        {
+          error:
+            "You can reorder only lenders already attached to your personal list.",
+        },
+        { status: 403 }
+      );
+    }
+
+    const { error: deleteError } =
+      await supabase
         .from("agent_lender_preferences")
-        .insert(rows);
+        .delete()
+        .eq("org_id", orgId)
+        .eq(
+          "agent_user_id",
+          agentUserId
+        );
+
+    if (deleteError) {
+      throw new Error(deleteError.message);
+    }
+
+    if (normalizedLenderIds.length > 0) {
+      const rows =
+        normalizedLenderIds.map(
+          (
+            lenderUserId: number,
+            index: number
+          ) => ({
+            org_id: orgId,
+            agent_user_id:
+              agentUserId,
+            lender_user_id:
+              lenderUserId,
+            position: index + 1,
+            is_active: true,
+          })
+        );
+
+      const { error: insertError } =
+        await supabase
+          .from(
+            "agent_lender_preferences"
+          )
+          .insert(rows);
 
       if (insertError) {
-        return NextResponse.json(
-          { error: insertError.message },
-          { status: 500 }
+        throw new Error(
+          insertError.message
         );
       }
     }
 
-    const { error: stateError } = await supabase
-      .from("agent_lender_rotation_state")
-      .upsert({
-        org_id: orgId,
-        agent_user_id: agentUserId,
-        last_lender_user_id: null,
-        updated_at: new Date().toISOString(),
-      });
+    const { error: stateError } =
+      await supabase
+        .from(
+          "agent_lender_rotation_state"
+        )
+        .upsert({
+          org_id: orgId,
+          agent_user_id: agentUserId,
+          last_lender_user_id: null,
+          updated_at:
+            new Date().toISOString(),
+        });
 
     if (stateError) {
-      return NextResponse.json(
-        { error: stateError.message },
-        { status: 500 }
-      );
+      throw new Error(stateError.message);
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({
+      success: true,
+    });
   } catch (err: any) {
     return NextResponse.json(
-      { error: err?.message || "Failed to save lender preferences" },
-      { status: 500 }
+      {
+        error:
+          err?.message ||
+          "Failed to save lender preferences",
+      },
+      { status: requestErrorStatus(err) }
     );
   }
 }
 
 export async function PUT(request: Request) {
   try {
-    const agentUserId = await getCurrentAgentUserId(request);
-    const orgId = await getCurrentOrgId(agentUserId);
+    const {
+      agentUserId,
+      orgId,
+    } = await currentPreferenceOwner(request);
 
     const body = await request.json();
 
-    const name = String(body?.name || "").trim();
-    const email = body?.email ? String(body.email).trim() : null;
-    const phone = body?.phone ? String(body.phone).trim() : null;
+    const name =
+      String(body?.name || "").trim();
+
+    const email = body?.email
+      ? String(body.email)
+          .trim()
+          .toLowerCase()
+      : null;
+
+    const phone = body?.phone
+      ? String(body.phone).trim()
+      : null;
 
     if (!name) {
       return NextResponse.json(
-        { error: "Lender name is required" },
+        {
+          error:
+            "Lender name is required",
+        },
         { status: 400 }
       );
     }
 
-    const insertPayload: any = {
-      name,
-      email,
-      phone,
-      org_id: orgId,
-      role: "lender",
-      is_active: true,
-      updated_at: new Date().toISOString(),
-    };
+    let lender:
+      | {
+          id: number;
+          name: string;
+          email: string | null;
+          phone: string | null;
+        }
+      | null = null;
 
-    const { data, error } = await supabase
-      .from("users")
-      .insert(insertPayload)
-      .select("id, name, email, phone")
-      .single();
+    if (email) {
+      const {
+        data: existingLender,
+        error: existingLenderError,
+      } = await supabase
+        .from("users")
+        .select(
+          "id, name, email, phone"
+        )
+        .eq("org_id", orgId)
+        .eq("role", "lender")
+        .ilike("email", email)
+        .limit(1)
+        .maybeSingle();
 
-    if (error) {
-      return NextResponse.json(
-        { error: error.message },
-        { status: 500 }
+      if (existingLenderError) {
+        throw new Error(
+          existingLenderError.message
+        );
+      }
+
+      lender = existingLender;
+    }
+
+    if (!lender) {
+      const {
+        data: createdLender,
+        error: createError,
+      } = await supabase
+        .from("users")
+        .insert({
+          name,
+          email,
+          phone,
+          org_id: orgId,
+          role: "lender",
+          is_active: true,
+          updated_at:
+            new Date().toISOString(),
+        })
+        .select(
+          "id, name, email, phone"
+        )
+        .single();
+
+      if (createError) {
+        throw new Error(
+          createError.message
+        );
+      }
+
+      lender = createdLender;
+    }
+
+    const {
+      data: existingPreference,
+      error: existingPreferenceError,
+    } = await supabase
+      .from("agent_lender_preferences")
+      .select("id")
+      .eq("org_id", orgId)
+      .eq(
+        "agent_user_id",
+        agentUserId
+      )
+      .eq(
+        "lender_user_id",
+        lender.id
+      )
+      .maybeSingle();
+
+    if (existingPreferenceError) {
+      throw new Error(
+        existingPreferenceError.message
+      );
+    }
+
+    if (!existingPreference) {
+      const {
+        data: finalPreference,
+        error: finalPreferenceError,
+      } = await supabase
+        .from(
+          "agent_lender_preferences"
+        )
+        .select("position")
+        .eq("org_id", orgId)
+        .eq(
+          "agent_user_id",
+          agentUserId
+        )
+        .order("position", {
+          ascending: false,
+        })
+        .limit(1)
+        .maybeSingle();
+
+      if (finalPreferenceError) {
+        throw new Error(
+          finalPreferenceError.message
+        );
+      }
+
+      const nextPosition =
+        Number(
+          finalPreference?.position ||
+            0
+        ) + 1;
+
+      const {
+        error: preferenceInsertError,
+      } = await supabase
+        .from(
+          "agent_lender_preferences"
+        )
+        .insert({
+          org_id: orgId,
+          agent_user_id:
+            agentUserId,
+          lender_user_id:
+            lender.id,
+          position: nextPosition,
+          is_active: true,
+        });
+
+      if (preferenceInsertError) {
+        throw new Error(
+          preferenceInsertError.message
+        );
+      }
+    }
+
+    const {
+      error: rotationStateError,
+    } = await supabase
+      .from(
+        "agent_lender_rotation_state"
+      )
+      .upsert({
+        org_id: orgId,
+        agent_user_id: agentUserId,
+        last_lender_user_id: null,
+        updated_at:
+          new Date().toISOString(),
+      });
+
+    if (rotationStateError) {
+      throw new Error(
+        rotationStateError.message
       );
     }
 
     return NextResponse.json({
       success: true,
-      lender: data,
+      lender,
+      added_to_personal_rotation: true,
     });
   } catch (err: any) {
     return NextResponse.json(
-      { error: err?.message || "Failed to create lender" },
-      { status: 500 }
+      {
+        error:
+          err?.message ||
+          "Failed to add lender",
+      },
+      { status: requestErrorStatus(err) }
     );
   }
 }
 
 export async function DELETE(request: Request) {
   try {
-    const agentUserId = await getCurrentAgentUserId(request);
-    const orgId = await getCurrentOrgId(agentUserId);
+    const {
+      agentUserId,
+      orgId,
+    } = await currentPreferenceOwner(request);
 
     const body = await request.json();
-    const lenderUserId = Number(body?.lenderUserId);
+
+    const lenderUserId =
+      Number(body?.lenderUserId);
 
     if (!Number.isFinite(lenderUserId)) {
       return NextResponse.json(
-        { error: "Valid lenderUserId is required" },
+        {
+          error:
+            "Valid lenderUserId is required",
+        },
         { status: 400 }
       );
     }
 
-    const { data: lender, error: lenderLookupError } = await supabase
-      .from("users")
-      .select("id, org_id, role, is_active")
-      .eq("id", lenderUserId)
+    const {
+      data: personalPreference,
+      error: preferenceLookupError,
+    } = await supabase
+      .from("agent_lender_preferences")
+      .select("id")
       .eq("org_id", orgId)
-      .eq("role", "lender")
-      .eq("is_active", true)
+      .eq(
+        "agent_user_id",
+        agentUserId
+      )
+      .eq(
+        "lender_user_id",
+        lenderUserId
+      )
       .maybeSingle();
 
-    if (lenderLookupError) {
-      return NextResponse.json(
-        { error: lenderLookupError.message },
-        { status: 500 }
+    if (preferenceLookupError) {
+      throw new Error(
+        preferenceLookupError.message
       );
     }
 
-    if (!lender) {
+    if (!personalPreference) {
       return NextResponse.json(
-        { error: "Lender not found" },
+        {
+          error:
+            "Lender is not attached to your personal list.",
+        },
         { status: 404 }
       );
     }
 
-    const { error: prefDeleteError } = await supabase
+    const {
+      error: preferenceDeleteError,
+    } = await supabase
       .from("agent_lender_preferences")
       .delete()
-      .eq("org_id", orgId)
-      .eq("agent_user_id", agentUserId)
-      .eq("lender_user_id", lenderUserId);
+      .eq("id", personalPreference.id);
 
-    if (prefDeleteError) {
-      return NextResponse.json(
-        { error: prefDeleteError.message },
-        { status: 500 }
+    if (preferenceDeleteError) {
+      throw new Error(
+        preferenceDeleteError.message
       );
     }
 
-    const { error: agentRotationResetError } = await supabase
-      .from("agent_lender_rotation_state")
+    const {
+      error: rotationResetError,
+    } = await supabase
+      .from(
+        "agent_lender_rotation_state"
+      )
       .update({
         last_lender_user_id: null,
-        updated_at: new Date().toISOString(),
+        updated_at:
+          new Date().toISOString(),
       })
       .eq("org_id", orgId)
-      .eq("agent_user_id", agentUserId)
-      .eq("last_lender_user_id", lenderUserId);
+      .eq(
+        "agent_user_id",
+        agentUserId
+      );
 
-    if (agentRotationResetError) {
-      return NextResponse.json(
-        { error: agentRotationResetError.message },
-        { status: 500 }
+    if (rotationResetError) {
+      throw new Error(
+        rotationResetError.message
       );
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({
+      success: true,
+    });
   } catch (err: any) {
     return NextResponse.json(
-      { error: err?.message || "Failed to delete lender" },
-      { status: 500 }
+      {
+        error:
+          err?.message ||
+          "Failed to remove lender",
+      },
+      { status: requestErrorStatus(err) }
     );
   }
 }

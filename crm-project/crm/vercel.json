@@ -1,36 +1,44 @@
 {
-  "crons": [
-    {
-      "path": "/api/internal/idx/schedule",
-      "schedule": "*/10 * * * *"
-    },
-    {
-      "path": "/api/internal/follow-up/schedule",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/internal/missed-calls/process",
-      "schedule": "*/10 * * * *"
-    },
-    {
-      "path": "/api/internal/appointments/schedule-reminders",
-      "schedule": "*/10 * * * *"
-    },
-    {
-      "path": "/api/internal/appointments/process-reminders",
-      "schedule": "*/10 * * * *"
-    },
-    {
-      "path": "/api/internal/appointments/process-pending-approvals",
-      "schedule": "*/10 * * * *"
-    },
-    {
-      "path": "/api/internal/appointments/schedule-missed-followups",
-      "schedule": "*/10 * * * *"
-    },
-    {
-      "path": "/api/internal/appointments/process-missed-followups",
-      "schedule": "*/10 * * * *"
-    }
-  ]
+    "crons":  [
+                  {
+                      "path":  "/api/internal/idx/schedule",
+                      "schedule":  "*/10 * * * *"
+                  },
+                  {
+                      "path":  "/api/internal/follow-up/schedule",
+                      "schedule":  "* * * * *"
+                  },
+                  {
+                      "path":  "/api/internal/missed-calls/process",
+                      "schedule":  "*/10 * * * *"
+                  },
+                  {
+                      "path":  "/api/internal/appointments/schedule-reminders",
+                      "schedule":  "*/10 * * * *"
+                  },
+                  {
+                      "path":  "/api/internal/appointments/process-reminders",
+                      "schedule":  "*/10 * * * *"
+                  },
+                  {
+                      "path":  "/api/internal/appointments/process-pending-approvals",
+                      "schedule":  "*/10 * * * *"
+                  },
+                  {
+                      "path":  "/api/internal/appointments/schedule-missed-followups",
+                      "schedule":  "*/10 * * * *"
+                  },
+                  {
+                      "path":  "/api/internal/appointments/process-missed-followups",
+                      "schedule":  "*/10 * * * *"
+                  },
+                  {
+                      "path":  "/api/internal/compliance/change-scan",
+                      "schedule":  "0 14 * * *"
+                  },
+                  {
+                      "path":  "/api/internal/compliance/full-audit",
+                      "schedule":  "0 15 1 1,7 *"
+                  }
+              ]
 }

@@ -2,6 +2,10 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
+import {
+  requireAuthenticatedProfile,
+  requestErrorStatus,
+} from "../../../../lib/server/authenticatedProfile";
 
 type WeeklyHourInput = {
   weekday: number;
@@ -9,88 +13,6 @@ type WeeklyHourInput = {
   start_hour: number;
   end_hour: number;
 };
-
-async function getProfile(profileId: string) {
-  const { data, error } = await supabaseAdmin
-    .from("profiles")
-    .select("id, org_id, role, email")
-    .eq("id", profileId)
-    .single();
-
-  if (error) throw new Error(error.message);
-  if (!data) throw new Error("Profile not found");
-
-  return data;
-}
-
-async function resolveScheduleTargetProfile(profile: {
-  id: string;
-  org_id: string;
-  role: string;
-  email: string | null;
-}) {
-  if (profile.role === "agent") {
-    return profile;
-  }
-
-  if (profile.role === "admin" || profile.role === "platform_admin") {
-    const { data: rotationMember, error: rotationError } = await supabaseAdmin
-      .from("rotation_members")
-      .select("user_id")
-      .eq("org_id", profile.org_id)
-      .eq("is_active", true)
-      .order("last_assigned_at", { ascending: true, nullsFirst: true })
-      .limit(1)
-      .maybeSingle();
-
-    if (rotationError) throw new Error(rotationError.message);
-
-    if (rotationMember?.user_id) {
-      const { data: routedUser, error: routedUserError } = await supabaseAdmin
-        .from("users")
-        .select("user_id, email, org_id")
-        .eq("id", rotationMember.user_id)
-        .eq("org_id", profile.org_id)
-        .maybeSingle();
-
-      if (routedUserError) throw new Error(routedUserError.message);
-
-      if (routedUser?.user_id) {
-        const { data: routedProfile, error: routedProfileError } =
-          await supabaseAdmin
-            .from("profiles")
-            .select("id, org_id, role, email")
-            .eq("id", routedUser.user_id)
-            .eq("org_id", profile.org_id)
-            .maybeSingle();
-
-        if (routedProfileError) throw new Error(routedProfileError.message);
-
-        if (routedProfile?.id) {
-          return routedProfile;
-        }
-      }
-    }
-
-    const { data: fallbackAgent, error: fallbackAgentError } =
-      await supabaseAdmin
-        .from("profiles")
-        .select("id, org_id, role, email")
-        .eq("org_id", profile.org_id)
-        .eq("role", "agent")
-        .order("email", { ascending: true })
-        .limit(1)
-        .maybeSingle();
-
-    if (fallbackAgentError) throw new Error(fallbackAgentError.message);
-
-    if (fallbackAgent?.id) {
-      return fallbackAgent;
-    }
-  }
-
-  return profile;
-}
 
 function buildDefaultWeeklyHours(args: {
   agent_id: string;
@@ -168,14 +90,9 @@ function normalizeNullableHour(value: any) {
 
 export async function GET(req: NextRequest) {
   try {
-    const profileId = req.nextUrl.searchParams.get("profileId");
-
-    if (!profileId) {
-      return NextResponse.json({ error: "Missing profileId" }, { status: 400 });
-    }
-
-    const profile = await getProfile(profileId);
-    const targetProfile = await resolveScheduleTargetProfile(profile);
+    const profile =
+      await requireAuthenticatedProfile(req);
+    const targetProfile = profile;
 
     const { data: settingsData, error: settingsError } = await supabaseAdmin
       .from("agent_schedule_settings")
@@ -185,21 +102,7 @@ export async function GET(req: NextRequest) {
 
     if (settingsError) throw new Error(settingsError.message);
 
-    const settings =
-      settingsData || {
-        agent_id: targetProfile.id,
-        org_id: targetProfile.org_id,
-        workday_start_hour: 9,
-        workday_end_hour: 18,
-        saturday_enabled: true,
-        sunday_enabled: false,
-        travel_buffer_minutes: 30,
-        daily_appointment_cap: 6,
-        allow_after_hours_appointments: false,
-        after_hours_start_hour: null,
-        after_hours_end_hour: null,
-        is_active: true,
-      };
+    const settings = settingsData || null;
 
     const { data: weeklyHoursData, error: weeklyHoursError } =
       await supabaseAdmin
@@ -212,16 +115,11 @@ export async function GET(req: NextRequest) {
     if (weeklyHoursError) throw new Error(weeklyHoursError.message);
 
     const weeklyHours =
-      weeklyHoursData && weeklyHoursData.length === 7
+      settings &&
+      weeklyHoursData &&
+      weeklyHoursData.length === 7
         ? weeklyHoursData
-        : buildDefaultWeeklyHours({
-            agent_id: targetProfile.id,
-            org_id: targetProfile.org_id,
-            workday_start_hour: settings.workday_start_hour,
-            workday_end_hour: settings.workday_end_hour,
-            saturday_enabled: settings.saturday_enabled,
-            sunday_enabled: settings.sunday_enabled,
-          });
+        : [];
 
     return NextResponse.json({
       profile: {
@@ -236,13 +134,18 @@ export async function GET(req: NextRequest) {
         role: targetProfile.role,
         email: targetProfile.email,
       },
+      configured:
+        Boolean(
+          settings &&
+          weeklyHours.length === 7
+        ),
       settings,
       weekly_hours: weeklyHours,
     });
   } catch (err: any) {
     return NextResponse.json(
       { error: err.message || "Failed to load schedule settings" },
-      { status: 500 }
+      { status: requestErrorStatus(err) }
     );
   }
 }
@@ -252,7 +155,6 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
 
     const {
-      profileId,
       workday_start_hour,
       workday_end_hour,
       saturday_enabled,
@@ -265,10 +167,6 @@ export async function POST(req: NextRequest) {
       is_active,
       weekly_hours,
     } = body;
-
-    if (!profileId) {
-      return NextResponse.json({ error: "Missing profileId" }, { status: 400 });
-    }
 
     if (
       typeof workday_start_hour !== "number" ||
@@ -348,8 +246,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const profile = await getProfile(profileId);
-    const targetProfile = await resolveScheduleTargetProfile(profile);
+    const profile =
+      await requireAuthenticatedProfile(req);
+    const targetProfile = profile;
 
     const payload = {
       agent_id: targetProfile.id,
@@ -410,7 +309,7 @@ export async function POST(req: NextRequest) {
   } catch (err: any) {
     return NextResponse.json(
       { error: err.message || "Failed to save schedule settings" },
-      { status: 500 }
+      { status: requestErrorStatus(err) }
     );
   }
 }

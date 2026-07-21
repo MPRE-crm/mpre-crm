@@ -1,26 +1,30 @@
-﻿export const runtime = "nodejs";
+export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 import { fetchGoogleCalendars } from "../../../../../lib/googleCalendar";
 import { getAuthorizedGoogleOAuthClient } from "../../../../../lib/calendar/getAuthorizedGoogleOAuthClient";
+import {
+  requireAuthenticatedProfile,
+  requestErrorStatus,
+} from "../../../../../lib/server/authenticatedProfile";
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    const { profileId } = body;
-
-    if (!profileId) {
-      return NextResponse.json({ error: "Missing profileId" }, { status: 400 });
-    }
+    const profile =
+      await requireAuthenticatedProfile(req);
 
     const { data: connection, error: connectionError } = await supabaseAdmin
       .from("calendar_connections")
       .select("*")
-      .eq("agent_id", profileId)
+      .eq("agent_id", profile.id)
       .eq("provider", "google")
       .eq("is_active", true)
-      .single();
+      .eq("calendar_connected", true)
+      .order("is_default", { ascending: false })
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
     if (connectionError || !connection) {
       return NextResponse.json(
@@ -65,7 +69,7 @@ export async function POST(req: NextRequest) {
   } catch (error: any) {
     return NextResponse.json(
       { error: "Google calendar sync failed", details: error.message },
-      { status: 500 }
+      { status: requestErrorStatus(error) }
     );
   }
 }
