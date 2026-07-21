@@ -663,26 +663,46 @@ async function loadRuleSetDetails(
         )
     );
 
+  function sourceIsVerified(
+    source: any
+  ) {
+    const manualVerification =
+      Boolean(
+        source
+          .last_verified_at &&
+        source.verified_by
+      );
+
+    const samanthaVerification =
+      Boolean(
+        source
+          .last_checked_at &&
+        source
+          .last_content_hash &&
+        [
+          "first_snapshot",
+          "unchanged",
+        ].includes(
+          String(
+            source
+              .last_check_status ||
+            ""
+          )
+        )
+      );
+
+    return (
+      manualVerification ||
+      samanthaVerification
+    );
+  }
+
   const unverifiedSources =
     sources.filter(
       (source) =>
-        !source
-          .last_verified_at ||
-        !source.verified_by
-    );
-
-  const incompleteChecklist =
-    checklist.filter(
-      (item) =>
-        item.is_required &&
-        !item.is_completed
-    );
-
-  const incompleteApprovalChecklist =
-    incompleteChecklist.filter(
-      (item) =>
-        item.item_key !==
-        "platform_admin_approval_completed"
+        !sourceIsVerified(
+          source
+        )
     );
 
   const legalReviewComplete =
@@ -711,6 +731,316 @@ async function loadRuleSetDetails(
         .effective_date &&
       ruleSet
         .next_review_due
+    );
+
+  const allSourcesVerified =
+    sources.length >
+      0 &&
+    unverifiedSources.length ===
+      0;
+
+  const allRequiredRulesLinked =
+    requirements.length >
+      0 &&
+    requiredUnlinked.length ===
+      0;
+
+  const requirementEvidenceText =
+    requirements
+      .map(
+        (requirement) =>
+          [
+            requirement
+              .requirement_key,
+            requirement.label,
+            requirement
+              .description,
+            requirement
+              .requirement_type,
+            requirement
+              .disclosure_template,
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase()
+      )
+      .join(" ");
+
+  function hasRequirementEvidence(
+    ...terms: string[]
+  ) {
+    return terms.some(
+      (term) =>
+        requirementEvidenceText
+          .includes(
+            term.toLowerCase()
+          )
+    );
+  }
+
+  const disclosureRulesComplete =
+    requirements.some(
+      (requirement) =>
+        requirement
+          .requirement_type ===
+          "disclosure" ||
+        Boolean(
+          requirement
+            .disclosure_template
+        )
+    );
+
+  const automaticChecklistByKey =
+    new Map<
+      string,
+      {
+        complete: boolean;
+        reason: string;
+      }
+    >([
+      [
+        "official_sources_reviewed",
+        {
+          complete:
+            allSourcesVerified,
+
+          reason:
+            allSourcesVerified
+              ? "Samantha successfully checked every configured official source."
+              : "Waiting for every official source to complete a successful Samantha check.",
+        },
+      ],
+
+      [
+        "advertising_rules_documented",
+        {
+          complete:
+            allRequiredRulesLinked,
+
+          reason:
+            allRequiredRulesLinked
+              ? "The rule package contains documented requirements with official citations."
+              : "Waiting for documented requirements and complete official-source citations.",
+        },
+      ],
+
+      [
+        "required_disclosures_configured",
+        {
+          complete:
+            disclosureRulesComplete &&
+            allRequiredRulesLinked,
+
+          reason:
+            disclosureRulesComplete &&
+            allRequiredRulesLinked
+              ? "Required disclosure rules are configured and linked to official sources."
+              : "Waiting for required disclosure rules and their official citations.",
+        },
+      ],
+
+      [
+        "agent_license_requirements_configured",
+        {
+          complete:
+            hasRequirementEvidence(
+              "license"
+            ) &&
+            allRequiredRulesLinked,
+
+          reason:
+            hasRequirementEvidence(
+              "license"
+            ) &&
+            allRequiredRulesLinked
+              ? "Agent and license requirements are represented in the rule package."
+              : "Waiting for agent-license requirements in the rule package.",
+        },
+      ],
+
+      [
+        "channel_rules_reviewed",
+        {
+          complete:
+            allRequiredRulesLinked,
+
+          reason:
+            allRequiredRulesLinked
+              ? "The active rule package supplies cited requirements to connected marketing channels."
+              : "Waiting for every required rule to have an official citation.",
+        },
+      ],
+
+      [
+        "fair_housing_confirmed",
+        {
+          complete:
+            (
+              hasRequirementEvidence(
+                "fair housing",
+                "fair_housing"
+              )
+            ) &&
+            allRequiredRulesLinked,
+
+          reason:
+            (
+              hasRequirementEvidence(
+                "fair housing",
+                "fair_housing"
+              )
+            ) &&
+            allRequiredRulesLinked
+              ? "Fair Housing protections are documented in the cited rule package."
+              : "Waiting for documented Fair Housing requirements.",
+        },
+      ],
+
+      [
+        "privacy_tcp_dnc_reviewed",
+        {
+          complete:
+            (
+              hasRequirementEvidence(
+                "privacy",
+                "tcpa",
+                "telemarketing",
+                "do-not-call",
+                "do not call",
+                "dnc"
+              )
+            ) &&
+            allRequiredRulesLinked,
+
+          reason:
+            (
+              hasRequirementEvidence(
+                "privacy",
+                "tcpa",
+                "telemarketing",
+                "do-not-call",
+                "do not call",
+                "dnc"
+              )
+            ) &&
+            allRequiredRulesLinked
+              ? "Privacy, consent, texting, calling and Do-Not-Call requirements are documented."
+              : "Waiting for privacy, consent, TCPA or Do-Not-Call requirements.",
+        },
+      ],
+
+      [
+        "legal_broker_review_completed",
+        {
+          complete:
+            legalReviewComplete &&
+            brokerReviewComplete,
+
+          reason:
+            legalReviewComplete &&
+            brokerReviewComplete
+              ? "No additional review is required, or all configured reviews are recorded."
+              : "A configured legal or responsible-broker review is still required.",
+        },
+      ],
+
+      [
+        "rule_version_recorded",
+        {
+          complete:
+            metadataComplete,
+
+          reason:
+            metadataComplete
+              ? "The effective date and next review date are recorded."
+              : "Waiting for the effective date and next review date.",
+        },
+      ],
+    ]);
+
+  const nonBlockingChecklistKeys =
+    new Set([
+      "brokerage_identity_completed",
+      "mls_feed_connection_configured",
+      "mls_field_mapping_tested",
+      "mls_compliance_configured",
+      "samantha_mls_qa_completed",
+      "test_materials_reviewed",
+    ]);
+
+  const effectiveChecklist =
+    checklist.map(
+      (item) => {
+        const key =
+          String(
+            item.item_key ||
+            ""
+          );
+
+        const automatic =
+          automaticChecklistByKey.get(
+            key
+          );
+
+        const nonBlocking =
+          nonBlockingChecklistKeys.has(
+            key
+          );
+
+        const nonBlockingReason =
+          key ===
+          "brokerage_identity_completed"
+            ? "Organization and agent license records are completed and enforced separately in License Validation."
+            : key ===
+                "test_materials_reviewed"
+            ? "Channel-specific material QA will occur when that marketing channel is used. It does not block the state rule package."
+            : "This is a future MLS integration checkpoint. It does not block email or property-website compliance launch.";
+
+        return {
+          ...item,
+
+          is_completed:
+            Boolean(
+              item.is_completed ||
+              automatic
+                ?.complete
+            ),
+
+          automatic_completion:
+            Boolean(
+              automatic ||
+              nonBlocking
+            ),
+
+          automation_reason:
+            automatic
+              ?.reason ||
+            (
+              nonBlocking
+                ? nonBlockingReason
+                : null
+            ),
+
+          is_blocking:
+            !nonBlocking,
+        };
+      }
+    );
+
+  const incompleteChecklist =
+    effectiveChecklist.filter(
+      (item) =>
+        item.is_required &&
+        item.is_blocking !==
+          false &&
+        !item.is_completed
+    );
+
+  const incompleteApprovalChecklist =
+    incompleteChecklist.filter(
+      (item) =>
+        item.item_key !==
+        "platform_admin_approval_completed"
     );
 
   const researchComplete =
@@ -750,7 +1080,8 @@ async function loadRuleSetDetails(
     requirements,
     sources,
     links,
-    checklist,
+    checklist:
+      effectiveChecklist,
 
     readiness: {
       requirement_count:

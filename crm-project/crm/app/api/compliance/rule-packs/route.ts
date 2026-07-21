@@ -1,4 +1,4 @@
-﻿import { NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
 export const dynamic = 'force-dynamic';
@@ -212,7 +212,10 @@ export async function GET(
           id,
           rule_set_id,
           last_verified_at,
-          verified_by
+          verified_by,
+          last_checked_at,
+          last_check_status,
+          last_content_hash
         `),
 
       admin
@@ -343,9 +346,34 @@ export async function GET(
 
       current.total += 1;
 
+      const manuallyVerified =
+        Boolean(
+          source
+            .last_verified_at &&
+          source.verified_by
+        );
+
+      const samanthaVerified =
+        Boolean(
+          source
+            .last_checked_at &&
+          source
+            .last_content_hash &&
+          [
+            "first_snapshot",
+            "unchanged",
+          ].includes(
+            String(
+              source
+                .last_check_status ||
+              ""
+            )
+          )
+        );
+
       if (
-        source.last_verified_at &&
-        source.verified_by
+        manuallyVerified ||
+        samanthaVerified
       ) {
         current.verified += 1;
       }

@@ -604,7 +604,7 @@ export default function ComplianceAuditPanel() {
   async function runIdahoBatch() {
     const confirmed =
       window.confirm(
-        `Run the controlled Idaho pilot batch against all 8 Idaho official sources?\n\nEach source will be compared with its latest stored snapshot. Samantha analyzes only genuine stored-text changes. This will not verify, approve, activate or change any rule package.`
+        `Run the controlled Idaho pilot batch against all 8 Idaho official sources?\n\nEach source will be compared with its latest stored snapshot. Samantha analyzes only genuine stored-text changes. Successful unchanged checks count toward source verification. Material changes still require review before any active rule changes.`
       );
 
     if (!confirmed) {
@@ -898,8 +898,8 @@ This records your decision and reviewer identity. It will not silently change an
 
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
               Samantha watches official Federal and state sources for changes.
-              Monitoring never verifies legal authority, approves a package or
-              replaces an active rule version.
+              Successful unchanged checks count as system verification. Material
+              legal changes remain open until the review workflow is completed.
             </p>
           </div>
 
@@ -1002,11 +1002,11 @@ This records your decision and reviewer identity. It will not silently change an
               className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"
             >
               <option value="US-ID">
-                Idaho Ã¢â‚¬â€ US-ID
+                Idaho  -  US-ID
               </option>
 
               <option value="US-FED">
-                Federal Ã¢â‚¬â€ US-FED
+                Federal  -  US-FED
               </option>
             </select>
           </label>
@@ -1085,9 +1085,9 @@ This records your decision and reviewer identity. It will not silently change an
         </div>
 
         <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-800">
-          Monitoring records hashes and snapshots. Samantha analyzes only
-          genuine stored-text changes and creates draft findings for human
-          review. Active compliance rules remain unchanged.
+          Monitoring records hashes and snapshots. Successful unchanged checks count
+          toward source verification. Samantha creates review findings only when
+          a source changes or a technical problem needs attention.
         </div>
       </div>
 
@@ -1248,7 +1248,7 @@ This records your decision and reviewer identity. It will not silently change an
           <details className="rounded-2xl border border-slate-200">
             <summary className="cursor-pointer px-4 py-4 font-semibold text-slate-950">
               Recent Audit Runs
-              {' Ã¢â‚¬â€ '}
+              {'  -  '}
               {data.runs.length}
             </summary>
 
@@ -1271,7 +1271,7 @@ This records your decision and reviewer identity. It will not silently change an
                             {formatStatus(
                               run.audit_type
                             )}
-                            {' Ã¢â‚¬â€ '}
+                            {'  -  '}
                             {formatStatus(
                               run.trigger_source
                             )}
@@ -1297,11 +1297,11 @@ This records your decision and reviewer identity. It will not silently change an
 
                       <div className="mt-3 text-xs text-slate-600">
                         Checked {run.checked_count}
-                        {' Ã¢â‚¬Â¢ '}
+                        {'  |  '}
                         Changed {run.changed_count}
-                        {' Ã¢â‚¬Â¢ '}
+                        {'  |  '}
                         Unchanged {run.unchanged_count}
-                        {' Ã¢â‚¬Â¢ '}
+                        {'  |  '}
                         Errors {run.error_count}
                       </div>
 
@@ -1320,7 +1320,7 @@ This records your decision and reviewer identity. It will not silently change an
           <details className="rounded-2xl border border-slate-200">
             <summary className="cursor-pointer px-4 py-4 font-semibold text-slate-950">
               Open Samantha Findings
-              {' Ã¢â‚¬â€ '}
+              {'  -  '}
               {data.findings.length}
             </summary>
 
@@ -1374,11 +1374,11 @@ This records your decision and reviewer identity. It will not silently change an
                             {formatStatus(
                               finding.finding_type
                             )}
-                            {' Ã¢â‚¬Â¢ '}
+                            {'  |  '}
                             {formatStatus(
                               finding.severity
                             )}
-                            {' Ã¢â‚¬Â¢ '}
+                            {'  |  '}
                             {formatDate(
                               finding.created_at
                             )}
@@ -1395,7 +1395,7 @@ This records your decision and reviewer identity. It will not silently change an
           <details className="rounded-2xl border border-slate-200">
             <summary className="cursor-pointer px-4 py-4 font-semibold text-slate-950">
               Official Source Health
-              {' Ã¢â‚¬â€ '}
+              {'  -  '}
               {data.sources.length}
             </summary>
 
@@ -1416,7 +1416,7 @@ This records your decision and reviewer identity. It will not silently change an
                           {formatStatus(
                             source.source_type
                           )}
-                          {' Ã¢â‚¬Â¢ '}
+                          {'  |  '}
                           {formatStatus(
                             source.monitor_frequency
                           )}
@@ -1462,7 +1462,7 @@ This records your decision and reviewer identity. It will not silently change an
                         </strong>
                         {' '}
                         {source.last_http_status ||
-                          'Ã¢â‚¬â€'}
+                          ' - '}
                       </div>
                     </div>
 

@@ -100,6 +100,9 @@ type SourceRow = {
   expiration_date: string | null;
   last_verified_at: string | null;
   verified_by: string | null;
+  last_checked_at?: string | null;
+  last_check_status?: string | null;
+  last_content_hash?: string | null;
   archived_copy_url: string | null;
   notes: string | null;
 };
@@ -128,6 +131,9 @@ type ChecklistRow = {
   official_source_url: string | null;
   rule_reference: string | null;
   notes: string | null;
+  automatic_completion?: boolean;
+  automation_reason?: string | null;
+  is_blocking?: boolean;
 };
 
 type Readiness = {
@@ -186,6 +192,37 @@ type ChecklistDraft = {
   notes: string;
 };
 
+function sourceIsVerified(
+  source: SourceRow
+) {
+  const manuallyVerified =
+    Boolean(
+      source
+        .last_verified_at &&
+      source.verified_by
+    );
+
+  const samanthaVerified =
+    Boolean(
+      source
+        .last_checked_at &&
+      source
+        .last_content_hash &&
+      [
+        'first_snapshot',
+        'unchanged',
+      ].includes(
+        source
+          .last_check_status ||
+        ''
+      )
+    );
+
+  return (
+    manuallyVerified ||
+    samanthaVerified
+  );
+}
 function formatStatus(value: string) {
   return value
     .replaceAll('_', ' ')
@@ -1067,9 +1104,8 @@ export default function ComplianceManagerPanel() {
     source: SourceRow
   ) {
     const verified =
-      Boolean(
-        source.last_verified_at &&
-        source.verified_by
+      sourceIsVerified(
+        source
       );
 
     await runAction(
@@ -1279,7 +1315,7 @@ export default function ComplianceManagerPanel() {
                     }
                   >
                     {jurisdiction.name}
-                    {' — '}
+                    {'  -  '}
                     {jurisdiction.code}
                   </option>
                 )
@@ -1320,12 +1356,12 @@ export default function ComplianceManagerPanel() {
                     }
                   >
                     {ruleSet.version}
-                    {' — '}
+                    {'  -  '}
                     {formatStatus(
                       ruleSet.status
                     )}
                     {ruleSet.is_active
-                      ? ' — ACTIVE'
+                      ? '  -  ACTIVE'
                       : ''}
                   </option>
                 )
@@ -1396,7 +1432,7 @@ export default function ComplianceManagerPanel() {
 
                 <div className="mt-1 text-sm text-slate-500">
                   {details.jurisdiction.code}
-                  {' • '}
+                  {'  |  '}
                   {details.rule_set.version}
                 </div>
               </div>
@@ -1553,7 +1589,7 @@ export default function ComplianceManagerPanel() {
                 <details className="rounded-2xl border border-slate-200 bg-slate-50">
                   <summary className="cursor-pointer px-5 py-4 font-semibold text-slate-900">
                     View All 50 States
-                    {' — '}
+                    {'  -  '}
                     {activeStateCount} Active
                   </summary>
 
@@ -1699,7 +1735,7 @@ export default function ComplianceManagerPanel() {
 
                                 <div className="mt-1 text-xs text-slate-500">
                                   {requirement.requirement_type}
-                                  {' • '}
+                                  {'  |  '}
                                   {requirement.severity}
                                 </div>
                               </div>
@@ -1747,11 +1783,11 @@ export default function ComplianceManagerPanel() {
                                       <strong>
                                         {link.source_role}
                                       </strong>
-                                      {' — '}
+                                      {'  -  '}
                                       {source?.title ||
                                         'Unknown source'}
                                       {link.pinpoint_citation
-                                        ? ` — ${link.pinpoint_citation}`
+                                        ? `  -  ${link.pinpoint_citation}`
                                         : ''}
                                     </div>
                                   );
@@ -1803,9 +1839,8 @@ export default function ComplianceManagerPanel() {
                   {filteredSources.map(
                     (source) => {
                       const verified =
-                        Boolean(
-                          source.last_verified_at &&
-                          source.verified_by
+                        sourceIsVerified(
+                          source
                         );
 
                       return (
@@ -1825,7 +1860,7 @@ export default function ComplianceManagerPanel() {
                                 <div className="mt-1 text-xs text-slate-500">
                                   {source.source_type}
                                   {source.issuing_authority
-                                    ? ` • ${source.issuing_authority}`
+                                    ? `  |  ${source.issuing_authority}`
                                     : ''}
                                 </div>
                               </div>
@@ -1930,8 +1965,11 @@ export default function ComplianceManagerPanel() {
                         }
 
                         const automatic =
+                          item
+                            .automatic_completion ===
+                            true ||
                           item.item_key ===
-                          'platform_admin_approval_completed';
+                            'platform_admin_approval_completed';
 
                         return (
                           <details
@@ -1956,6 +1994,12 @@ export default function ComplianceManagerPanel() {
                                   <div className="mt-1 text-xs text-slate-500">
                                     {draft.is_completed
                                       ? 'Complete'
+                                      : item
+                                          .is_blocking ===
+                                          false
+                                      ? 'Handled separately - not blocking'
+                                      : automatic
+                                      ? 'Waiting for Samantha'
                                       : 'Pending'}
                                   </div>
                                 </div>
@@ -1971,8 +2015,9 @@ export default function ComplianceManagerPanel() {
 
                               {automatic ? (
                                 <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
-                                  This item completes automatically when the
-                                  package receives platform approval.
+                                  {item
+                                    .automation_reason ||
+                                    'This item is managed automatically by the compliance workflow.'}
                                 </div>
                               ) : (
                                 <>
