@@ -105,6 +105,8 @@ type SourceRow = {
   last_content_hash?: string | null;
   archived_copy_url: string | null;
   notes: string | null;
+  is_blocking?: boolean;
+  compliance_role?: string;
 };
 
 type LinkRow = {
@@ -139,6 +141,9 @@ type ChecklistRow = {
 type Readiness = {
   requirement_count: number;
   source_count: number;
+  blocking_source_count: number;
+  supplemental_source_count: number;
+  unverified_supplemental_source_count: number;
   linked_requirement_count: number;
   unlinked_required_count: number;
   unverified_source_count: number;
@@ -939,10 +944,14 @@ export default function ComplianceManagerPanel() {
             label:
               'Official sources verified',
             description:
-              `${details.readiness.source_count - details.readiness.unverified_source_count} of ${details.readiness.source_count} verified`,
+              details.readiness
+                .supplemental_source_count >
+                0
+                ? `${details.readiness.blocking_source_count - details.readiness.unverified_source_count} of ${details.readiness.blocking_source_count} required sources verified; ${details.readiness.supplemental_source_count} supplemental source monitored`
+                : `${details.readiness.blocking_source_count - details.readiness.unverified_source_count} of ${details.readiness.blocking_source_count} required sources verified`,
             complete:
               details.readiness
-                .source_count >
+                .blocking_source_count >
                 0 &&
               details.readiness
                 .unverified_source_count ===
@@ -1849,7 +1858,9 @@ export default function ComplianceManagerPanel() {
                     </h3>
 
                     <p className="mt-1 text-sm text-slate-500">
-                      Verify sources only after opening and reviewing the official page.
+                      Controlling sources must be verified before activation.
+                      Supplemental guidance remains monitored but does not replace
+                      or block the controlling law and regulations.
                     </p>
                   </div>
 
@@ -1905,11 +1916,19 @@ export default function ComplianceManagerPanel() {
                                 className={`shrink-0 rounded-full border px-2.5 py-1 text-xs font-semibold ${
                                   verified
                                     ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                    : source
+                                        .is_blocking ===
+                                        false
+                                    ? 'border-blue-200 bg-blue-50 text-blue-700'
                                     : 'border-amber-200 bg-amber-50 text-amber-700'
                                 }`}
                               >
                                 {verified
                                   ? 'Verified'
+                                  : source
+                                      .is_blocking ===
+                                      false
+                                  ? 'Supplemental - Monitor Issue'
                                   : 'Needs Review'}
                               </span>
                             </div>

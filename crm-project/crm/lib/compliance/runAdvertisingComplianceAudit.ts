@@ -2214,6 +2214,175 @@ async function insertAuditFinding(
       >;
   }
 ) {
+  const operationalTypes =
+    [
+      "source_unavailable",
+      "source_moved",
+      "manual_review",
+    ];
+
+  const operationalFinding =
+    operationalTypes.includes(
+      values.findingType
+    );
+
+  const now =
+    new Date()
+      .toISOString();
+
+  if (
+    operationalFinding
+  ) {
+    const {
+      data:
+        existingFindings,
+      error:
+        existingFindingError,
+    } =
+      await supabaseAdmin
+        .from(
+          "marketing_compliance_audit_findings"
+        )
+        .select(`
+          id,
+          created_at
+        `)
+        .eq(
+          "source_id",
+          values.context
+            .source.id
+        )
+        .eq(
+          "finding_status",
+          "open"
+        )
+        .in(
+          "finding_type",
+          operationalTypes
+        )
+        .order(
+          "created_at",
+          {
+            ascending:
+              false,
+          }
+        );
+
+    throwDatabaseError(
+      existingFindingError,
+      "Could not check existing technical findings."
+    );
+
+    const currentFinding =
+      existingFindings?.[0] ||
+      null;
+
+    if (
+      currentFinding?.id
+    ) {
+      const {
+        error:
+          updateError,
+      } =
+        await supabaseAdmin
+          .from(
+            "marketing_compliance_audit_findings"
+          )
+          .update({
+            audit_run_id:
+              values.auditRunId,
+
+            source_check_id:
+              values.sourceCheckId,
+
+            finding_type:
+              values.findingType,
+
+            severity:
+              values.severity,
+
+            title:
+              values.title,
+
+            summary:
+              values.summary,
+
+            confidence:
+              values.confidence ??
+              null,
+
+            change_details:
+              values.changeDetails ||
+              {},
+
+            suggested_updates:
+              values.suggestedUpdates ||
+              [],
+
+            resolution_notes:
+              null,
+
+            updated_at:
+              now,
+          })
+          .eq(
+            "id",
+            currentFinding.id
+          );
+
+      throwDatabaseError(
+        updateError,
+        "Could not update the existing technical finding."
+      );
+
+      const duplicateIds =
+        (
+          existingFindings ||
+          []
+        )
+          .slice(1)
+          .map(
+            (finding) =>
+              finding.id
+          );
+
+      if (
+        duplicateIds.length >
+        0
+      ) {
+        const {
+          error:
+            duplicateResolutionError,
+        } =
+          await supabaseAdmin
+            .from(
+              "marketing_compliance_audit_findings"
+            )
+            .update({
+              finding_status:
+                "resolved",
+
+              resolution_notes:
+                "Automatically consolidated into the newest open technical finding for this official source.",
+
+              updated_at:
+                now,
+            })
+            .in(
+              "id",
+              duplicateIds
+            );
+
+        throwDatabaseError(
+          duplicateResolutionError,
+          "Could not consolidate duplicate technical findings."
+        );
+      }
+
+      return;
+    }
+  }
+
   const {
     error,
   } =

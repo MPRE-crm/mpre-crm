@@ -652,6 +652,22 @@ async function loadRuleSetDetails(
       )
     );
 
+  const requiredRequirementIds =
+    new Set(
+      requirements
+        .filter(
+          (requirement) =>
+            requirement
+              .is_required
+        )
+        .map(
+          (requirement) =>
+            String(
+              requirement.id
+            )
+        )
+    );
+
   const requiredUnlinked =
     requirements.filter(
       (requirement) =>
@@ -662,6 +678,54 @@ async function loadRuleSetDetails(
           )
         )
     );
+
+  const blockingSourceIds =
+    new Set(
+      links
+        .filter(
+          (link) =>
+            requiredRequirementIds.has(
+              String(
+                link.requirement_id
+              )
+            ) &&
+            [
+              "primary",
+              "verification",
+            ].includes(
+              String(
+                link.source_role ||
+                ""
+              )
+            )
+        )
+        .map(
+          (link) =>
+            String(
+              link.source_id
+            )
+        )
+    );
+
+  const hasExplicitBlockingSources =
+    blockingSourceIds.size >
+    0;
+
+  function sourceIsBlocking(
+    source: any
+  ) {
+    if (
+      !hasExplicitBlockingSources
+    ) {
+      return true;
+    }
+
+    return blockingSourceIds.has(
+      String(
+        source.id
+      )
+    );
+  }
 
   function sourceIsVerified(
     source: any
@@ -703,12 +767,52 @@ async function loadRuleSetDetails(
     );
   }
 
-  const unverifiedSources =
+  const blockingSources =
     sources.filter(
+      sourceIsBlocking
+    );
+
+  const supplementalComplianceSources =
+    sources.filter(
+      (source) =>
+        !sourceIsBlocking(
+          source
+        )
+    );
+
+  const unverifiedSources =
+    blockingSources.filter(
       (source) =>
         !sourceIsVerified(
           source
         )
+    );
+
+  const unverifiedSupplementalSources =
+    supplementalComplianceSources.filter(
+      (source) =>
+        !sourceIsVerified(
+          source
+        )
+    );
+
+  const effectiveSources =
+    sources.map(
+      (source) => ({
+        ...source,
+
+        is_blocking:
+          sourceIsBlocking(
+            source
+          ),
+
+        compliance_role:
+          sourceIsBlocking(
+            source
+          )
+            ? "controlling"
+            : "supplemental",
+      })
     );
 
   const legalReviewComplete =
@@ -740,7 +844,7 @@ async function loadRuleSetDetails(
     );
 
   const allSourcesVerified =
-    sources.length >
+    blockingSources.length >
       0 &&
     unverifiedSources.length ===
       0;
@@ -1014,8 +1118,8 @@ async function loadRuleSetDetails(
 
           reason:
             allSourcesVerified
-              ? "Samantha successfully checked every configured official source."
-              : "Waiting for every official source to complete a successful Samantha check.",
+              ? "Samantha successfully verified every controlling official source. Supplemental guidance remains monitored separately."
+              : "Waiting for every controlling official source to complete a successful Samantha check.",
         },
       ],
 
@@ -1254,7 +1358,7 @@ async function loadRuleSetDetails(
   const researchComplete =
     requirements.length >
       0 &&
-    sources.length >
+    blockingSources.length >
       0 &&
     requiredUnlinked.length ===
       0 &&
@@ -1286,7 +1390,10 @@ async function loadRuleSetDetails(
       ruleSet,
 
     requirements,
-    sources,
+
+    sources:
+      effectiveSources,
+
     links,
     checklist:
       effectiveChecklist,
@@ -1297,6 +1404,17 @@ async function loadRuleSetDetails(
 
       source_count:
         sources.length,
+
+      blocking_source_count:
+        blockingSources.length,
+
+      supplemental_source_count:
+        supplementalComplianceSources
+          .length,
+
+      unverified_supplemental_source_count:
+        unverifiedSupplementalSources
+          .length,
 
       linked_requirement_count:
         linkedRequirementIds
