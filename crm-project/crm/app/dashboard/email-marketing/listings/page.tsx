@@ -115,6 +115,12 @@ type Listing = {
   features: unknown;
 
   public_url: string | null;
+
+  website_slug: string | null;
+  website_template_key: string | null;
+  website_status: string | null;
+  website_published_at: string | null;
+
   virtual_tour_url: string | null;
   branded_video_url: string | null;
   unbranded_video_url: string | null;
@@ -693,6 +699,16 @@ export default function MarketingListingsPage() {
     savingListingId,
     setSavingListingId,
   ] = useState<string | null>(null);
+
+  const [
+    websiteTemplateDrafts,
+    setWebsiteTemplateDrafts,
+  ] = useState<Record<string, string>>({});
+
+  const [
+    websiteBlockers,
+    setWebsiteBlockers,
+  ] = useState<Record<string, string[]>>({});
 
   const [pdfInputKey, setPdfInputKey] =
     useState(0);
@@ -1354,6 +1370,10 @@ export default function MarketingListingsPage() {
             directions,
             features,
             public_url,
+            website_slug,
+            website_template_key,
+            website_status,
+            website_published_at,
             virtual_tour_url,
             branded_video_url,
             unbranded_video_url,
@@ -2629,6 +2649,192 @@ export default function MarketingListingsPage() {
       setError(
         err?.message ||
           'Could not update the listing status.'
+      );
+    } finally {
+      setSavingListingId(null);
+    }
+  }
+
+  async function updateListingWebsite(
+    listing: Listing,
+    action: 'publish' | 'unpublish'
+  ) {
+    if (
+      action === 'unpublish' &&
+      !window.confirm(
+        'Remove this property website from public view? The saved slug will remain available for republishing.'
+      )
+    ) {
+      return;
+    }
+
+    try {
+      setSavingListingId(
+        listing.id
+      );
+
+      setError(null);
+      setNotice(null);
+
+      setWebsiteBlockers(
+        (current) => ({
+          ...current,
+          [listing.id]: [],
+        })
+      );
+
+      const {
+        data: sessionResult,
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (
+        sessionError ||
+        !sessionResult.session
+      ) {
+        throw new Error(
+          sessionError?.message ||
+            'Your CRM session expired.'
+        );
+      }
+
+      const templateKey =
+        websiteTemplateDrafts[
+          listing.id
+        ] ||
+        listing.website_template_key ||
+        'standard';
+
+      const response = await fetch(
+        '/api/marketing/listing-websites/publish',
+        {
+          method: 'POST',
+
+          headers: {
+            'Content-Type':
+              'application/json',
+
+            Authorization:
+              `Bearer ${sessionResult.session.access_token}`,
+          },
+
+          body: JSON.stringify({
+            listing_id:
+              listing.id,
+
+            action,
+
+            template_key:
+              templateKey,
+          }),
+        }
+      );
+
+      const result =
+        await response.json();
+
+      if (
+        !response.ok ||
+        !result?.ok
+      ) {
+        const blockers =
+          Array.isArray(
+            result?.blockers
+          )
+            ? result.blockers
+                .map(
+                  (item: unknown) =>
+                    String(
+                      item || ''
+                    ).trim()
+                )
+                .filter(Boolean)
+            : [];
+
+        if (
+          blockers.length > 0
+        ) {
+          setWebsiteBlockers(
+            (current) => ({
+              ...current,
+              [listing.id]:
+                blockers,
+            })
+          );
+        }
+
+        throw new Error(
+          result?.error ||
+            'The property website action failed.'
+        );
+      }
+
+      const updated =
+        result.listing || {};
+
+      setListings(
+        (current) =>
+          current.map(
+            (item) =>
+              item.id ===
+              listing.id
+                ? {
+                    ...item,
+
+                    website_slug:
+                      updated.website_slug ??
+                      item.website_slug,
+
+                    website_template_key:
+                      updated.website_template_key ??
+                      templateKey,
+
+                    website_status:
+                      updated.website_status ??
+                      item.website_status,
+
+                    website_published_at:
+                      updated.website_published_at ??
+                      null,
+
+                    public_url:
+                      updated.public_url ??
+                      null,
+                  }
+                : item
+          )
+      );
+
+      setWebsiteTemplateDrafts(
+        (current) => ({
+          ...current,
+
+          [listing.id]:
+            updated.website_template_key ||
+            templateKey,
+        })
+      );
+
+      setWebsiteBlockers(
+        (current) => ({
+          ...current,
+          [listing.id]: [],
+        })
+      );
+
+      setNotice(
+        result?.message ||
+          (
+            action ===
+            'publish'
+              ? 'The compliant property website is now published.'
+              : 'The property website is no longer public.'
+          )
+      );
+    } catch (err: any) {
+      setError(
+        err?.message ||
+          'The property website action failed.'
       );
     } finally {
       setSavingListingId(null);
@@ -4076,7 +4282,7 @@ export default function MarketingListingsPage() {
                 </th>
 
                 <th className="px-4 py-3">
-                  Link
+                  Property Website
                 </th>
 
                 <th className="px-4 py-3">
@@ -4180,23 +4386,158 @@ export default function MarketingListingsPage() {
                       </select>
                     </td>
 
-                    <td className="px-4 py-3">
-                      {listing.public_url ? (
-                        <a
-                          href={
-                            listing.public_url
-                          }
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1 font-semibold text-blue-700 hover:text-blue-800"
-                        >
-                          View
+                    <td className="min-w-[260px] px-4 py-3 align-top">
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span
+                            className={
+                              listing.website_status ===
+                              'published'
+                                ? 'rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700'
+                                : 'rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold capitalize text-slate-600'
+                            }
+                          >
+                            {listing.website_status ||
+                              'draft'}
+                          </span>
 
-                          <ExternalLink className="h-3.5 w-3.5" />
-                        </a>
-                      ) : (
-                        '-'
-                      )}
+                          {listing.website_slug && (
+                            <span className="text-[11px] text-slate-400">
+                              /property/
+                              {listing.website_slug}
+                            </span>
+                          )}
+                        </div>
+
+                        <select
+                          value={
+                            websiteTemplateDrafts[
+                              listing.id
+                            ] ||
+                            listing.website_template_key ||
+                            'standard'
+                          }
+                          disabled={
+                            savingListingId ===
+                              listing.id ||
+                            listing.website_status ===
+                              'published'
+                          }
+                          onChange={(event) =>
+                            setWebsiteTemplateDrafts(
+                              (current) => ({
+                                ...current,
+
+                                [listing.id]:
+                                  event.target
+                                    .value,
+                              })
+                            )
+                          }
+                          className="w-full rounded-xl border border-slate-200 bg-white px-2 py-1.5 text-xs"
+                        >
+                          <option value="luxury">
+                            Luxury
+                          </option>
+
+                          <option value="standard">
+                            Standard
+                          </option>
+
+                          <option value="modern">
+                            Modern
+                          </option>
+                        </select>
+
+                        <div className="flex flex-wrap gap-2">
+                          {listing.website_status ===
+                          'published' ? (
+                            <>
+                              {listing.public_url && (
+                                <a
+                                  href={
+                                    listing.public_url
+                                  }
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex items-center gap-1 rounded-xl bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+                                >
+                                  View Website
+
+                                  <ExternalLink className="h-3.5 w-3.5" />
+                                </a>
+                              )}
+
+                              <button
+                                type="button"
+                                disabled={
+                                  savingListingId ===
+                                  listing.id
+                                }
+                                onClick={() =>
+                                  updateListingWebsite(
+                                    listing,
+                                    'unpublish'
+                                  )
+                                }
+                                className="rounded-xl border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                {savingListingId ===
+                                listing.id
+                                  ? 'Working...'
+                                  : 'Unpublish'}
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={
+                                savingListingId ===
+                                listing.id
+                              }
+                              onClick={() =>
+                                updateListingWebsite(
+                                  listing,
+                                  'publish'
+                                )
+                              }
+                              className="rounded-xl bg-emerald-700 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {savingListingId ===
+                              listing.id
+                                ? 'Checking Compliance...'
+                                : 'Publish Website'}
+                            </button>
+                          )}
+                        </div>
+
+                        {websiteBlockers[
+                          listing.id
+                        ]?.length > 0 && (
+                          <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                            <div className="font-semibold">
+                              Compliance items required:
+                            </div>
+
+                            <ul className="mt-2 list-disc space-y-1 pl-4">
+                              {websiteBlockers[
+                                listing.id
+                              ].map(
+                                (
+                                  blocker,
+                                  blockerIndex
+                                ) => (
+                                  <li
+                                    key={`${listing.id}-${blockerIndex}`}
+                                  >
+                                    {blocker}
+                                  </li>
+                                )
+                              )}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
                     </td>
 
                     <td className="px-4 py-3">
@@ -4241,6 +4582,7 @@ export default function MarketingListingsPage() {
     </div>
   );
 }
+
 
 
 

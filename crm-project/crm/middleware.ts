@@ -8,6 +8,7 @@ const PUBLIC_PATHS = [
   '/login',
   '/reset-password',
   '/auth/callback',
+  '/property',
   '/api',
   '/favicon.ico',
   '/robots.txt',
@@ -107,4 +108,5 @@ export async function middleware(req: NextRequest) {
 export const config = {
   matcher: '/:path*',
 };
+
 
