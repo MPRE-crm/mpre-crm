@@ -100,6 +100,12 @@ type AuditRunResponse = {
   automatic_rule_changes: false;
 };
 
+type OpenAiHealthResponse = {
+  ok: true;
+  valid: true;
+  checked_at: string;
+};
+
 function formatStatus(
   value:
     string | null
@@ -227,6 +233,11 @@ export default function ComplianceAuditPanel() {
   const [
     running,
     setRunning,
+  ] = useState(false);
+
+  const [
+    testingOpenAi,
+    setTestingOpenAi,
   ] = useState(false);
 
   const [
@@ -369,6 +380,55 @@ export default function ComplianceAuditPanel() {
   useEffect(() => {
     void loadAuditData();
   }, []);
+
+  async function testOpenAiRuntime() {
+    const confirmed =
+      window.confirm(
+        'Test the production OpenAI API key now?\n\nThis makes one tiny request from the protected Vercel runtime. It does not modify compliance rules, database records or environment variables.'
+      );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setTestingOpenAi(true);
+      setError(null);
+      setNotice(null);
+
+      await auditFetch<
+        OpenAiHealthResponse
+      >(
+        '/api/compliance/openai-health',
+        {
+          method:
+            'POST',
+        }
+      );
+
+      setNotice(
+        'Production OpenAI API key is valid. OpenAI successfully completed the protected runtime request.'
+      );
+    }
+    catch (
+      testError:
+        unknown
+    ) {
+      console.error(
+        'OpenAI runtime test failed:',
+        testError
+      );
+
+      setError(
+        testError instanceof Error
+          ? testError.message
+          : 'The production OpenAI runtime test failed.'
+      );
+    }
+    finally {
+      setTestingOpenAi(false);
+    }
+  }
 
   async function runOneSourceTest(
     sourceId?: string | null,
@@ -688,26 +748,52 @@ export default function ComplianceAuditPanel() {
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={() =>
-              void loadAuditData()
-            }
-            disabled={
-              loading ||
-              running
-            }
-            className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-          >
-            <RefreshCw
-              className={`h-4 w-4 ${
-                loading
-                  ? 'animate-spin'
-                  : ''
-              }`}
-            />
-            Refresh Monitor
-          </button>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <button
+              type="button"
+              onClick={() =>
+                void testOpenAiRuntime()
+              }
+              disabled={
+                loading ||
+                running ||
+                testingOpenAi
+              }
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-violet-300 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-800 hover:bg-violet-100 disabled:opacity-50"
+            >
+              {testingOpenAi ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <ShieldCheck className="h-4 w-4" />
+              )}
+
+              {testingOpenAi
+                ? 'Testing OpenAI...'
+                : 'Test OpenAI Key'}
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                void loadAuditData()
+              }
+              disabled={
+                loading ||
+                running ||
+                testingOpenAi
+              }
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              <RefreshCw
+                className={`h-4 w-4 ${
+                  loading
+                    ? 'animate-spin'
+                    : ''
+                }`}
+              />
+              Refresh Monitor
+            </button>
+          </div>
         </div>
 
         <div className="mt-5 grid gap-3 lg:grid-cols-[1fr_auto]">
