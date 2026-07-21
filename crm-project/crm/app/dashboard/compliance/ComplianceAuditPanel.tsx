@@ -106,6 +106,13 @@ type OpenAiHealthResponse = {
   checked_at: string;
 };
 
+type OpenAiImageHealthResponse = {
+  ok: true;
+  valid: true;
+  model: string;
+  checked_at: string;
+};
+
 function formatStatus(
   value:
     string | null
@@ -238,6 +245,11 @@ export default function ComplianceAuditPanel() {
   const [
     testingOpenAi,
     setTestingOpenAi,
+  ] = useState(false);
+
+  const [
+    testingOpenAiImage,
+    setTestingOpenAiImage,
   ] = useState(false);
 
   const [
@@ -427,6 +439,55 @@ export default function ComplianceAuditPanel() {
     }
     finally {
       setTestingOpenAi(false);
+    }
+  }
+
+  async function testOpenAiImageRuntime() {
+    const confirmed =
+      window.confirm(
+        'Test GPT Image 2 access now?\n\nThis makes one low-cost protected image-generation request from the Vercel runtime. It does not save the image, modify compliance rules, write to Supabase or expose the API key.'
+      );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setTestingOpenAiImage(true);
+      setError(null);
+      setNotice(null);
+
+      await auditFetch<
+        OpenAiImageHealthResponse
+      >(
+        '/api/compliance/openai-image-health',
+        {
+          method:
+            'POST',
+        }
+      );
+
+      setNotice(
+        'GPT Image 2 access is confirmed. OpenAI successfully completed the protected image-generation runtime test.'
+      );
+    }
+    catch (
+      testError:
+        unknown
+    ) {
+      console.error(
+        'OpenAI GPT Image 2 test failed:',
+        testError
+      );
+
+      setError(
+        testError instanceof Error
+          ? testError.message
+          : 'The GPT Image 2 runtime test failed.'
+      );
+    }
+    finally {
+      setTestingOpenAiImage(false);
     }
   }
 
@@ -757,7 +818,8 @@ export default function ComplianceAuditPanel() {
               disabled={
                 loading ||
                 running ||
-                testingOpenAi
+                testingOpenAi ||
+                testingOpenAiImage
               }
               className="inline-flex items-center justify-center gap-2 rounded-xl border border-violet-300 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-800 hover:bg-violet-100 disabled:opacity-50"
             >
@@ -775,12 +837,37 @@ export default function ComplianceAuditPanel() {
             <button
               type="button"
               onClick={() =>
+                void testOpenAiImageRuntime()
+              }
+              disabled={
+                loading ||
+                running ||
+                testingOpenAi ||
+                testingOpenAiImage
+              }
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-fuchsia-300 bg-fuchsia-50 px-4 py-2 text-sm font-semibold text-fuchsia-800 hover:bg-fuchsia-100 disabled:opacity-50"
+            >
+              {testingOpenAiImage ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <ShieldCheck className="h-4 w-4" />
+              )}
+
+              {testingOpenAiImage
+                ? 'Testing GPT Image 2...'
+                : 'Test GPT Image 2'}
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
                 void loadAuditData()
               }
               disabled={
                 loading ||
                 running ||
-                testingOpenAi
+                testingOpenAi ||
+                testingOpenAiImage
               }
               className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
             >
