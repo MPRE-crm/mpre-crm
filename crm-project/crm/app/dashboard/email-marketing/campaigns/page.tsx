@@ -31,6 +31,8 @@ import {
   buildMarketingFooterHtml,
 } from '../../../../lib/marketing-email-footer';
 
+import GeneratedArtworkPanel from './GeneratedArtworkPanel';
+
 const supabase =
   getSupabaseBrowser();
 
@@ -718,6 +720,7 @@ function buildEmailHtml({
   previewText,
   campaignType,
   templateKey,
+  generatedArtworkUrl,
   audienceContactType,
   profile,
 }: {
@@ -729,6 +732,7 @@ function buildEmailHtml({
   previewText: string;
   campaignType: string;
   templateKey: EmailTemplateKey;
+  generatedArtworkUrl: string;
   audienceContactType: string;
   profile: Profile;
 }) {
@@ -852,6 +856,11 @@ function buildEmailHtml({
     listing.public_url
       ?.trim() ||
     '';
+
+
+  const generatedArtwork =
+    generatedArtworkUrl
+      .trim();
 
   const videoUrl =
     listing
@@ -1262,6 +1271,43 @@ function buildEmailHtml({
               </td>
             </tr>
 
+            ${
+              generatedArtwork
+                ? `
+                  <tr>
+                    <td>
+                      ${
+                        publicUrl
+                          ? `
+                            <a
+                              href="${escapeHtml(
+                                publicUrl
+                              )}"
+                              style="display:block;text-decoration:none;"
+                            >
+                          `
+                          : ''
+                      }
+
+                      <img
+                        src="${escapeHtml(
+                          generatedArtwork
+                        )}"
+                        alt="Decorative real-estate campaign artwork"
+                        width="680"
+                        style="display:block;width:100%;height:auto;border:0;"
+                      />
+
+                      ${
+                        publicUrl
+                          ? '</a>'
+                          : ''
+                      }
+                    </td>
+                  </tr>
+                `
+                : ''
+            }
             <tr>
               <td
                 style="padding:32px 34px 27px;text-align:center;font-family:${template.headingFont};"
@@ -1573,6 +1619,16 @@ export default function CampaignsPage() {
     'luxury'
   );
 
+  const [
+    selectedGeneratedAssetId,
+    setSelectedGeneratedAssetId,
+  ] = useState('');
+
+  const [
+    selectedGeneratedArtworkUrl,
+    setSelectedGeneratedArtworkUrl,
+  ] = useState('');
+
   const selectedListing =
     useMemo(
       () =>
@@ -1754,6 +1810,9 @@ export default function CampaignsPage() {
 
         templateKey,
 
+        generatedArtworkUrl:
+          selectedGeneratedArtworkUrl,
+
         audienceContactType:
           contactTypeFilter,
 
@@ -1769,6 +1828,7 @@ export default function CampaignsPage() {
       previewText,
       campaignType,
       templateKey,
+      selectedGeneratedArtworkUrl,
       contactTypeFilter,
     ]);
 
@@ -2308,6 +2368,14 @@ export default function CampaignsPage() {
       null
     );
 
+    setSelectedGeneratedAssetId(
+      ''
+    );
+
+    setSelectedGeneratedArtworkUrl(
+      ''
+    );
+
     setSelectedListingId(
       listingId
     );
@@ -2351,6 +2419,14 @@ export default function CampaignsPage() {
   function startNewCampaign() {
     setEditingCampaignId(
       null
+    );
+
+    setSelectedGeneratedAssetId(
+      ''
+    );
+
+    setSelectedGeneratedArtworkUrl(
+      ''
     );
 
     setCampaignType(
@@ -2448,6 +2524,24 @@ export default function CampaignsPage() {
         campaign
           .design_settings
           ?.template_key
+      )
+    );
+
+    setSelectedGeneratedAssetId(
+      String(
+        campaign
+          .design_settings
+          ?.generated_asset_id ||
+          ''
+      )
+    );
+
+    setSelectedGeneratedArtworkUrl(
+      String(
+        campaign
+          .design_settings
+          ?.generated_asset_url ||
+          ''
       )
     );
 
@@ -2604,6 +2698,19 @@ export default function CampaignsPage() {
             'listing_media_sort_order',
 
           primary_first: true,
+
+          generated_asset_id:
+            selectedGeneratedAssetId ||
+            null,
+
+          generated_asset_url:
+            selectedGeneratedArtworkUrl ||
+            null,
+
+          generated_asset_format:
+            selectedGeneratedAssetId
+              ? 'email_banner'
+              : null,
         },
       };
 
@@ -3300,6 +3407,33 @@ export default function CampaignsPage() {
         </div>
 
         <div className="space-y-5">
+          <GeneratedArtworkPanel
+            listingId={
+              selectedListingId
+            }
+            campaignId={
+              editingCampaignId
+            }
+            templateKey={
+              templateKey
+            }
+            selectedAssetId={
+              selectedGeneratedAssetId
+            }
+            onSelectedAssetChange={(
+              asset
+            ) => {
+              setSelectedGeneratedAssetId(
+                asset?.id ||
+                  ''
+              );
+
+              setSelectedGeneratedArtworkUrl(
+                asset?.public_url ||
+                  ''
+              );
+            }}
+          />
           <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
