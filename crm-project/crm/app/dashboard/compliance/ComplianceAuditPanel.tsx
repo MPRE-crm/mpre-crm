@@ -277,6 +277,14 @@ export default function ComplianceAuditPanel() {
       null
     );
 
+  const [
+    workingFindingId,
+    setWorkingFindingId,
+  ] =
+    useState<string | null>(
+      null
+    );
+
   async function getAccessToken() {
     const {
       data:
@@ -656,6 +664,92 @@ export default function ComplianceAuditPanel() {
       setRunning(false);
     }
   }
+  async function reviewFinding(
+    findingId: string,
+    decision:
+      | 'approve'
+      | 'reject'
+      | 'needs_legal_review',
+    resolutionNotes: string
+  ) {
+    const decisionLabel =
+      decision ===
+        'approve'
+        ? 'approve this recommendation'
+        : decision ===
+          'reject'
+        ? 'reject this recommendation'
+        : 'send this finding for legal review';
+
+    const confirmed =
+      window.confirm(
+        `Are you sure you want to ${decisionLabel}?
+
+This records your decision and reviewer identity. It will not silently change an active compliance rule.`
+      );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setWorkingFindingId(
+        `${findingId}:${decision}`
+      );
+
+      setError(null);
+      setNotice(null);
+
+      const result =
+        await auditFetch<{
+          ok: true;
+          message: string;
+        }>(
+          '/api/compliance/audits',
+          {
+            method:
+              'PATCH',
+
+            body:
+              JSON.stringify({
+                finding_id:
+                  findingId,
+
+                decision,
+
+                resolution_notes:
+                  resolutionNotes,
+              }),
+          }
+        );
+
+      setNotice(
+        result.message
+      );
+
+      await loadAuditData();
+    }
+    catch (
+      reviewError:
+        unknown
+    ) {
+      console.error(
+        'Compliance finding review failed:',
+        reviewError
+      );
+
+      setError(
+        reviewError instanceof Error
+          ? reviewError.message
+          : 'The compliance finding decision could not be saved.'
+      );
+    }
+    finally {
+      setWorkingFindingId(
+        null
+      );
+    }
+  }
   const latestRun =
     data?.runs?.[0] ||
     null;
@@ -908,11 +1002,11 @@ export default function ComplianceAuditPanel() {
               className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"
             >
               <option value="US-ID">
-                Idaho — US-ID
+                Idaho Ã¢â‚¬â€ US-ID
               </option>
 
               <option value="US-FED">
-                Federal — US-FED
+                Federal Ã¢â‚¬â€ US-FED
               </option>
             </select>
           </label>
@@ -1154,7 +1248,7 @@ export default function ComplianceAuditPanel() {
           <details className="rounded-2xl border border-slate-200">
             <summary className="cursor-pointer px-4 py-4 font-semibold text-slate-950">
               Recent Audit Runs
-              {' — '}
+              {' Ã¢â‚¬â€ '}
               {data.runs.length}
             </summary>
 
@@ -1177,7 +1271,7 @@ export default function ComplianceAuditPanel() {
                             {formatStatus(
                               run.audit_type
                             )}
-                            {' — '}
+                            {' Ã¢â‚¬â€ '}
                             {formatStatus(
                               run.trigger_source
                             )}
@@ -1203,11 +1297,11 @@ export default function ComplianceAuditPanel() {
 
                       <div className="mt-3 text-xs text-slate-600">
                         Checked {run.checked_count}
-                        {' • '}
+                        {' Ã¢â‚¬Â¢ '}
                         Changed {run.changed_count}
-                        {' • '}
+                        {' Ã¢â‚¬Â¢ '}
                         Unchanged {run.unchanged_count}
-                        {' • '}
+                        {' Ã¢â‚¬Â¢ '}
                         Errors {run.error_count}
                       </div>
 
@@ -1226,7 +1320,7 @@ export default function ComplianceAuditPanel() {
           <details className="rounded-2xl border border-slate-200">
             <summary className="cursor-pointer px-4 py-4 font-semibold text-slate-950">
               Open Samantha Findings
-              {' — '}
+              {' Ã¢â‚¬â€ '}
               {data.findings.length}
             </summary>
 
@@ -1264,17 +1358,27 @@ export default function ComplianceAuditPanel() {
                             finding={
                               finding
                             }
+                            onDecision={
+                              reviewFinding
+                            }
+                            workingDecision={
+                              workingFindingId?.startsWith(
+                                `${finding.id}:`
+                              )
+                                ? workingFindingId
+                                : null
+                            }
                           />
 
                           <div className="mt-2 text-xs text-amber-700">
                             {formatStatus(
                               finding.finding_type
                             )}
-                            {' • '}
+                            {' Ã¢â‚¬Â¢ '}
                             {formatStatus(
                               finding.severity
                             )}
-                            {' • '}
+                            {' Ã¢â‚¬Â¢ '}
                             {formatDate(
                               finding.created_at
                             )}
@@ -1291,7 +1395,7 @@ export default function ComplianceAuditPanel() {
           <details className="rounded-2xl border border-slate-200">
             <summary className="cursor-pointer px-4 py-4 font-semibold text-slate-950">
               Official Source Health
-              {' — '}
+              {' Ã¢â‚¬â€ '}
               {data.sources.length}
             </summary>
 
@@ -1312,7 +1416,7 @@ export default function ComplianceAuditPanel() {
                           {formatStatus(
                             source.source_type
                           )}
-                          {' • '}
+                          {' Ã¢â‚¬Â¢ '}
                           {formatStatus(
                             source.monitor_frequency
                           )}
@@ -1358,7 +1462,7 @@ export default function ComplianceAuditPanel() {
                         </strong>
                         {' '}
                         {source.last_http_status ||
-                          '—'}
+                          'Ã¢â‚¬â€'}
                       </div>
                     </div>
 

@@ -22,6 +22,23 @@ export const runtime =
 export const maxDuration =
   300;
 
+class ComplianceAuditActionError extends Error {
+  status: number;
+
+  constructor(
+    message: string,
+    status = 400
+  ) {
+    super(message);
+
+    this.name =
+      "ComplianceAuditActionError";
+
+    this.status =
+      status;
+  }
+}
+
 async function requirePlatformAdmin(
   request: Request
 ) {
@@ -58,9 +75,12 @@ function errorResponse(
     },
     {
       status:
-        requestErrorStatus(
-          error
-        ),
+        error instanceof
+          ComplianceAuditActionError
+          ? error.status
+          : requestErrorStatus(
+              error
+            ),
     }
   );
 }
@@ -354,6 +374,263 @@ export async function POST(
   catch (error) {
     console.error(
       "Compliance audit POST error:",
+      error
+    );
+
+    return errorResponse(
+      error
+    );
+  }
+}
+export async function PATCH(
+  request: Request
+) {
+  try {
+    const profile =
+      await requirePlatformAdmin(
+        request
+      );
+
+    const body =
+      await request
+        .json()
+        .catch(
+          () => ({})
+        );
+
+    const findingId =
+      String(
+        body?.finding_id ||
+        ""
+      ).trim();
+
+    if (!findingId) {
+      throw new ComplianceAuditActionError(
+        "A finding ID is required."
+      );
+    }
+
+    const decision =
+      String(
+        body?.decision ||
+        ""
+      ).trim();
+
+    if (
+      decision !==
+        "approve" &&
+      decision !==
+        "reject" &&
+      decision !==
+        "needs_legal_review"
+    ) {
+      throw new ComplianceAuditActionError(
+        "decision must be approve, reject or needs_legal_review."
+      );
+    }
+
+    const submittedNotes =
+      String(
+        body?.resolution_notes ||
+        ""
+      )
+        .trim()
+        .slice(
+          0,
+          4000
+        );
+
+    const {
+      data:
+        findingData,
+      error:
+        findingError,
+    } =
+      await supabaseAdmin
+        .from(
+          "marketing_compliance_audit_findings"
+        )
+        .select(`
+          id,
+          finding_status,
+          finding_type,
+          title,
+          rule_set_id,
+          change_details,
+          suggested_updates
+        `)
+        .eq(
+          "id",
+          findingId
+        )
+        .maybeSingle();
+
+    if (findingError) {
+      throw findingError;
+    }
+
+    if (!findingData) {
+      throw new ComplianceAuditActionError(
+        "The compliance finding was not found.",
+        404
+      );
+    }
+
+    if (
+      findingData
+        .finding_status !==
+      "open"
+    ) {
+      throw new ComplianceAuditActionError(
+        "This compliance finding has already been resolved or reviewed.",
+        409
+      );
+    }
+
+    const currentDetails =
+      findingData
+        .change_details &&
+      typeof findingData
+        .change_details ===
+        "object" &&
+      !Array.isArray(
+        findingData
+          .change_details
+      )
+        ? findingData
+            .change_details as
+              Record<
+                string,
+                unknown
+              >
+        : {};
+
+    const now =
+      new Date()
+        .toISOString();
+
+    const findingStatus =
+      decision ===
+        "needs_legal_review"
+        ? "open"
+        : "resolved";
+
+    const defaultNotes =
+      decision ===
+        "approve"
+        ? "Platform administrator approved Samantha's recommendation for the rule-drafting and application workflow. The active rule was not silently changed by this review action."
+        : decision ===
+          "reject"
+        ? "Platform administrator rejected the recommendation or determined that no compliance-rule change is required."
+        : "Platform administrator requested legal review before any compliance-rule change is drafted or applied.";
+
+    const nextDetails = {
+      ...currentDetails,
+
+      review_decision:
+        decision,
+
+      review_decision_at:
+        now,
+
+      review_decision_by:
+        profile.id,
+
+      legal_review_required:
+        decision ===
+        "needs_legal_review",
+
+      approved_for_rule_drafting:
+        decision ===
+        "approve",
+
+      active_rule_unchanged:
+        true,
+
+      automatic_live_rule_change:
+        false,
+    };
+
+    const {
+      data:
+        updatedFinding,
+      error:
+        updateError,
+    } =
+      await supabaseAdmin
+        .from(
+          "marketing_compliance_audit_findings"
+        )
+        .update({
+          finding_status:
+            findingStatus,
+
+          reviewed_by:
+            profile.id,
+
+          reviewed_at:
+            now,
+
+          resolution_notes:
+            submittedNotes ||
+            defaultNotes,
+
+          change_details:
+            nextDetails,
+
+          updated_at:
+            now,
+        })
+        .eq(
+          "id",
+          findingId
+        )
+        .eq(
+          "finding_status",
+          "open"
+        )
+        .select(`
+          id,
+          finding_status,
+          reviewed_by,
+          reviewed_at,
+          resolution_notes,
+          change_details
+        `)
+        .single();
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    const message =
+      decision ===
+        "approve"
+        ? "Recommendation approved and recorded. It is ready for the controlled rule-drafting step."
+        : decision ===
+          "reject"
+        ? "Finding rejected and removed from the open review queue."
+        : "Legal review requested. The finding remains open and no active rule was changed.";
+
+    return NextResponse.json(
+      {
+        ok: true,
+        message,
+        decision,
+        finding:
+          updatedFinding,
+      },
+      {
+        headers: {
+          "Cache-Control":
+            "no-store",
+        },
+      }
+    );
+  }
+  catch (error) {
+    console.error(
+      "Compliance audit PATCH error:",
       error
     );
 
