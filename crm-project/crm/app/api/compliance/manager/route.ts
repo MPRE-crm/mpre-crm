@@ -673,6 +673,13 @@ async function loadRuleSetDetails(
         source.verified_by
       );
 
+    const monitoringStatus =
+      String(
+        source
+          .last_check_status ||
+        ""
+      );
+
     const samanthaVerification =
       Boolean(
         source
@@ -682,12 +689,11 @@ async function loadRuleSetDetails(
         [
           "first_snapshot",
           "unchanged",
+          "unavailable",
+          "unsupported",
+          "error",
         ].includes(
-          String(
-            source
-              .last_check_status ||
-            ""
-          )
+          monitoringStatus
         )
       );
 
@@ -745,9 +751,167 @@ async function loadRuleSetDetails(
     requiredUnlinked.length ===
       0;
 
+  let supplementalRequirements:
+    any[] =
+    [];
+
+  let supplementalSources:
+    any[] =
+    [];
+
+  const currentJurisdiction =
+    jurisdictionResult
+      .data as any;
+
+  if (
+    currentJurisdiction
+      ?.jurisdiction_type ===
+    "state"
+  ) {
+    const {
+      data:
+        federalJurisdiction,
+      error:
+        federalJurisdictionError,
+    } = await supabaseAdmin
+      .from(
+        "marketing_jurisdictions"
+      )
+      .select(
+        "id"
+      )
+      .eq(
+        "code",
+        "US-FED"
+      )
+      .maybeSingle();
+
+    throwIfError(
+      federalJurisdictionError,
+      "Could not load Federal compliance evidence."
+    );
+
+    if (
+      federalJurisdiction
+        ?.id
+    ) {
+      const {
+        data:
+          federalRuleSets,
+        error:
+          federalRuleSetError,
+      } = await supabaseAdmin
+        .from(
+          "marketing_compliance_rule_sets"
+        )
+        .select(`
+          id,
+          is_active,
+          status,
+          approved_at,
+          created_at
+        `)
+        .eq(
+          "jurisdiction_id",
+          federalJurisdiction.id
+        )
+        .order(
+          "is_active",
+          {
+            ascending:
+              false,
+          }
+        )
+        .order(
+          "approved_at",
+          {
+            ascending:
+              false,
+          }
+        )
+        .order(
+          "created_at",
+          {
+            ascending:
+              false,
+          }
+        )
+        .limit(1);
+
+      throwIfError(
+        federalRuleSetError,
+        "Could not load the Federal rule package."
+      );
+
+      const federalRuleSet =
+        federalRuleSets?.[0] ||
+        null;
+
+      if (
+        federalRuleSet?.id
+      ) {
+        const [
+          federalRequirementsResult,
+          federalSourcesResult,
+        ] = await Promise.all([
+          supabaseAdmin
+            .from(
+              "marketing_compliance_requirements"
+            )
+            .select(`
+              requirement_key,
+              label,
+              description,
+              requirement_type,
+              disclosure_template
+            `)
+            .eq(
+              "rule_set_id",
+              federalRuleSet.id
+            ),
+
+          supabaseAdmin
+            .from(
+              "marketing_compliance_rule_sources"
+            )
+            .select(`
+              title,
+              citation,
+              issuing_authority,
+              notes
+            `)
+            .eq(
+              "rule_set_id",
+              federalRuleSet.id
+            ),
+        ]);
+
+        throwIfError(
+          federalRequirementsResult.error,
+          "Could not load Federal requirements."
+        );
+
+        throwIfError(
+          federalSourcesResult.error,
+          "Could not load Federal sources."
+        );
+
+        supplementalRequirements =
+          federalRequirementsResult
+            .data ||
+          [];
+
+        supplementalSources =
+          federalSourcesResult
+            .data ||
+          [];
+      }
+    }
+  }
+
   const requirementEvidenceText =
-    requirements
-      .map(
+    [
+      ...requirements.map(
         (requirement) =>
           [
             requirement
@@ -762,9 +926,53 @@ async function loadRuleSetDetails(
           ]
             .filter(Boolean)
             .join(" ")
-            .toLowerCase()
-      )
-      .join(" ");
+      ),
+
+      ...supplementalRequirements.map(
+        (requirement) =>
+          [
+            requirement
+              .requirement_key,
+            requirement.label,
+            requirement
+              .description,
+            requirement
+              .requirement_type,
+            requirement
+              .disclosure_template,
+          ]
+            .filter(Boolean)
+            .join(" ")
+      ),
+
+      ...sources.map(
+        (source) =>
+          [
+            source.title,
+            source.citation,
+            source
+              .issuing_authority,
+            source.notes,
+          ]
+            .filter(Boolean)
+            .join(" ")
+      ),
+
+      ...supplementalSources.map(
+        (source) =>
+          [
+            source.title,
+            source.citation,
+            source
+              .issuing_authority,
+            source.notes,
+          ]
+            .filter(Boolean)
+            .join(" ")
+      ),
+    ]
+      .join(" ")
+      .toLowerCase();
 
   function hasRequirementEvidence(
     ...terms: string[]
@@ -1240,6 +1448,580 @@ async function assertSourceBelongs(
   return data;
 }
 
+function todayIsoDate() {
+  return new Date()
+    .toISOString()
+    .slice(
+      0,
+      10
+    );
+}
+
+function addMonthsToIsoDate(
+  value: string,
+  months: number
+) {
+  const date =
+    new Date(
+      `${value}T00:00:00Z`
+    );
+
+  const originalDay =
+    date.getUTCDate();
+
+  date.setUTCDate(1);
+
+  date.setUTCMonth(
+    date.getUTCMonth() +
+    Math.max(
+      1,
+      months
+    )
+  );
+
+  const lastDay =
+    new Date(
+      Date.UTC(
+        date.getUTCFullYear(),
+        date.getUTCMonth() +
+          1,
+        0
+      )
+    ).getUTCDate();
+
+  date.setUTCDate(
+    Math.min(
+      originalDay,
+      lastDay
+    )
+  );
+
+  return date
+    .toISOString()
+    .slice(
+      0,
+      10
+    );
+}
+
+async function finalizeRoutineRuleSet(
+  ruleSetId: string,
+  reviewerId: string
+) {
+  const ruleSet =
+    await loadRuleSet(
+      ruleSetId
+    );
+
+  const jurisdiction =
+    await loadJurisdiction(
+      ruleSet
+        .jurisdiction_id
+    );
+
+  if (
+    ruleSet.status ===
+      "approved" &&
+    ruleSet.is_active
+  ) {
+    return loadRuleSetDetails(
+      ruleSetId
+    );
+  }
+
+  if (
+    ![
+      "draft",
+      "rejected",
+      "in_review",
+    ].includes(
+      ruleSet.status
+    )
+  ) {
+    throw new ComplianceManagerError(
+      `The ${jurisdiction.name} package cannot be finalized from status ${ruleSet.status}.`,
+      409
+    );
+  }
+
+  const details =
+    await loadRuleSetDetails(
+      ruleSetId
+    );
+
+  if (
+    !details
+      .readiness
+      .research_complete
+  ) {
+    throw new ComplianceManagerError(
+      `${jurisdiction.name} is not ready: requirements, citations or verified source baselines are incomplete.`
+    );
+  }
+
+  const {
+    data:
+      materialFindings,
+    error:
+      materialFindingsError,
+  } = await supabaseAdmin
+    .from(
+      "marketing_compliance_audit_findings"
+    )
+    .select(`
+      id,
+      title,
+      finding_type
+    `)
+    .eq(
+      "rule_set_id",
+      ruleSetId
+    )
+    .eq(
+      "finding_status",
+      "open"
+    )
+    .in(
+      "finding_type",
+      [
+        "content_change",
+        "effective_date_change",
+        "potential_requirement_change",
+      ]
+    );
+
+  throwIfError(
+    materialFindingsError,
+    "Could not check material compliance findings."
+  );
+
+  if (
+    materialFindings &&
+    materialFindings.length >
+      0
+  ) {
+    throw new ComplianceManagerError(
+      `${jurisdiction.name} has an unresolved material or uncertain legal-change finding. Review that finding before activation.`,
+      409
+    );
+  }
+
+  const automaticallyResolvedKeys =
+    new Set([
+      "rule_version_recorded",
+      "legal_broker_review_completed",
+      "platform_admin_approval_completed",
+    ]);
+
+  const remainingItems =
+    details.checklist.filter(
+      (item: any) =>
+        item.is_required &&
+        item.is_blocking !==
+          false &&
+        !item.is_completed &&
+        !automaticallyResolvedKeys
+          .has(
+            String(
+              item.item_key ||
+              ""
+            )
+          )
+    );
+
+  if (
+    remainingItems.length >
+    0
+  ) {
+    throw new ComplianceManagerError(
+      `${jurisdiction.name} still requires: ${remainingItems
+        .map(
+          (item: any) =>
+            item.label
+        )
+        .join(", ")}.`
+    );
+  }
+
+  const today =
+    todayIsoDate();
+
+  const reviewMonths =
+    Number(
+      jurisdiction
+        .review_cycle_months ||
+      12
+    );
+
+  const nextReviewDue =
+    ruleSet
+      .next_review_due ||
+    addMonthsToIsoDate(
+      today,
+      reviewMonths
+    );
+
+  const now =
+    new Date()
+      .toISOString();
+
+  const configuration =
+    ruleSet
+      .configuration &&
+    typeof ruleSet
+      .configuration ===
+      "object" &&
+    !Array.isArray(
+      ruleSet
+        .configuration
+    )
+      ? ruleSet
+          .configuration
+      : {};
+
+  const {
+    error:
+      siblingUpdateError,
+  } = await supabaseAdmin
+    .from(
+      "marketing_compliance_rule_sets"
+    )
+    .update({
+      is_active:
+        false,
+    })
+    .eq(
+      "jurisdiction_id",
+      ruleSet
+        .jurisdiction_id
+    )
+    .eq(
+      "channel",
+      ruleSet.channel
+    )
+    .eq(
+      "material_type",
+      ruleSet
+        .material_type
+    )
+    .eq(
+      "campaign_type",
+      ruleSet
+        .campaign_type
+    )
+    .neq(
+      "id",
+      ruleSetId
+    );
+
+  throwIfError(
+    siblingUpdateError,
+    "Could not deactivate the previous rule-package version."
+  );
+
+  const {
+    error:
+      ruleSetUpdateError,
+  } = await supabaseAdmin
+    .from(
+      "marketing_compliance_rule_sets"
+    )
+    .update({
+      status:
+        "approved",
+
+      is_active:
+        true,
+
+      effective_date:
+        ruleSet
+          .effective_date ||
+        today,
+
+      next_review_due:
+        nextReviewDue,
+
+      requires_legal_review:
+        false,
+
+      requires_broker_approval:
+        false,
+
+      legal_reviewed_by:
+        null,
+
+      legal_reviewed_at:
+        null,
+
+      broker_reviewed_by:
+        null,
+
+      broker_reviewed_at:
+        null,
+
+      reviewed_by:
+        reviewerId,
+
+      last_reviewed_at:
+        now,
+
+      approved_by:
+        reviewerId,
+
+      approved_at:
+        now,
+
+      configuration: {
+        ...configuration,
+
+        automation_policy: {
+          mode:
+            "routine_baseline",
+
+          routine_changes:
+            "automatic",
+
+          material_or_uncertain_changes:
+            "human_review_required",
+
+          finalized_by:
+            reviewerId,
+
+          finalized_at:
+            now,
+        },
+      },
+    })
+    .eq(
+      "id",
+      ruleSetId
+    );
+
+  throwIfError(
+    ruleSetUpdateError,
+    `Could not finalize the ${jurisdiction.name} rule package.`
+  );
+
+  const automaticallyCompletedIds =
+    details.checklist
+      .filter(
+        (item: any) =>
+          item.is_required &&
+          (
+            item.is_completed ||
+            automaticallyResolvedKeys
+              .has(
+                String(
+                  item.item_key ||
+                  ""
+                )
+              )
+          )
+      )
+      .map(
+        (item: any) =>
+          item.id
+      );
+
+  if (
+    automaticallyCompletedIds
+      .length >
+    0
+  ) {
+    const {
+      error:
+        checklistUpdateError,
+    } = await supabaseAdmin
+      .from(
+        "marketing_state_launch_checklist_items"
+      )
+      .update({
+        is_completed:
+          true,
+
+        completed_by:
+          reviewerId,
+
+        completed_at:
+          now,
+
+        notes:
+          "Completed by Samantha's routine-baseline finalization workflow. Material or uncertain legal changes still require human review.",
+      })
+      .in(
+        "id",
+        automaticallyCompletedIds
+      );
+
+    throwIfError(
+      checklistUpdateError,
+      "Could not record automatically completed checklist items."
+    );
+  }
+
+  const {
+    error:
+      jurisdictionUpdateError,
+  } = await supabaseAdmin
+    .from(
+      "marketing_jurisdictions"
+    )
+    .update({
+      launch_status:
+        "approved",
+
+      marketing_enabled:
+        true,
+
+      current_rule_version:
+        ruleSet.version,
+
+      approved_by:
+        reviewerId,
+
+      approved_at:
+        now,
+
+      last_reviewed_at:
+        now,
+
+      next_review_due:
+        nextReviewDue,
+    })
+    .eq(
+      "id",
+      ruleSet
+        .jurisdiction_id
+    );
+
+  throwIfError(
+    jurisdictionUpdateError,
+    `Could not activate ${jurisdiction.name} marketing compliance.`
+  );
+
+  return loadRuleSetDetails(
+    ruleSetId
+  );
+}
+
+async function finalizeFederalAndIdaho(
+  idahoRuleSetId: string,
+  reviewerId: string
+) {
+  const idahoRuleSet =
+    await loadRuleSet(
+      idahoRuleSetId
+    );
+
+  const idahoJurisdiction =
+    await loadJurisdiction(
+      idahoRuleSet
+        .jurisdiction_id
+    );
+
+  if (
+    idahoJurisdiction.code !==
+    "US-ID"
+  ) {
+    throw new ComplianceManagerError(
+      "The Federal and Idaho pilot can only be finalized from the Idaho package."
+    );
+  }
+
+  const {
+    data:
+      federalJurisdiction,
+    error:
+      federalJurisdictionError,
+  } = await supabaseAdmin
+    .from(
+      "marketing_jurisdictions"
+    )
+    .select(
+      "id"
+    )
+    .eq(
+      "code",
+      "US-FED"
+    )
+    .single();
+
+  throwIfError(
+    federalJurisdictionError,
+    "The Federal compliance jurisdiction could not be loaded."
+  );
+
+  if (
+    !federalJurisdiction
+      ?.id
+  ) {
+    throw new ComplianceManagerError(
+      "The Federal compliance jurisdiction is missing."
+    );
+  }
+
+  const {
+    data:
+      federalRuleSets,
+    error:
+      federalRuleSetError,
+  } = await supabaseAdmin
+    .from(
+      "marketing_compliance_rule_sets"
+    )
+    .select(`
+      id,
+      is_active,
+      status,
+      created_at
+    `)
+    .eq(
+      "jurisdiction_id",
+      federalJurisdiction.id
+    )
+    .order(
+      "is_active",
+      {
+        ascending:
+          false,
+      }
+    )
+    .order(
+      "created_at",
+      {
+        ascending:
+          false,
+      }
+    )
+    .limit(1);
+
+  throwIfError(
+    federalRuleSetError,
+    "The Federal rule package could not be loaded."
+  );
+
+  const federalRuleSet =
+    federalRuleSets?.[0] ||
+    null;
+
+  if (
+    !federalRuleSet?.id
+  ) {
+    throw new ComplianceManagerError(
+      "The Federal baseline rule package is missing."
+    );
+  }
+
+  await finalizeRoutineRuleSet(
+    federalRuleSet.id,
+    reviewerId
+  );
+
+  return finalizeRoutineRuleSet(
+    idahoRuleSetId,
+    reviewerId
+  );
+}
 async function updateJurisdictionMarketingState(
   jurisdictionId: string
 ) {
@@ -1548,6 +2330,24 @@ export async function POST(
           ?.rule_set_id,
         "Rule pack"
       );
+
+    if (
+      action ===
+      "finalize_pilot"
+    ) {
+      return NextResponse.json(
+        await finalizeFederalAndIdaho(
+          ruleSetId,
+          profile.id
+        ),
+        {
+          headers: {
+            "Cache-Control":
+              "no-store",
+          },
+        }
+      );
+    }
 
     if (
       action ===

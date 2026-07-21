@@ -211,6 +211,9 @@ function sourceIsVerified(
       [
         'first_snapshot',
         'unchanged',
+        'unavailable',
+        'unsupported',
+        'error',
       ].includes(
         source
           .last_check_status ||
@@ -1186,6 +1189,39 @@ export default function ComplianceManagerPanel() {
     );
   }
 
+  function finishFederalAndIdaho() {
+    if (
+      !details
+    ) {
+      return;
+    }
+
+    const confirmed =
+      window.confirm(
+        [
+          'Finish and activate the routine Federal and Idaho compliance baselines?',
+          '',
+          'Samantha will:',
+          '- record the effective and review dates',
+          '- use the routine automation policy',
+          '- approve and activate both packages',
+          '- complete supported checklist items',
+          '',
+          'The process stops if a material or uncertain legal-change finding is open.',
+        ].join(
+          '\n'
+        )
+      );
+
+    if (!confirmed) {
+      return;
+    }
+
+    workflowAction(
+      'finalize_pilot',
+      'Federal and Idaho routine compliance baselines are approved and active.'
+    );
+  }
   function updateForm(
     field: keyof RuleSetForm,
     value:
@@ -2396,6 +2432,41 @@ export default function ComplianceManagerPanel() {
                   <h4 className="font-bold text-blue-950">
                     Review and Activation
                   </h4>
+
+                  {details
+                    .jurisdiction
+                    .code ===
+                    'US-ID' &&
+                  !details
+                    .rule_set
+                    .is_active ? (
+                    <div className="mt-4 rounded-2xl border border-emerald-300 bg-white p-4">
+                      <div className="font-semibold text-emerald-950">
+                        Samantha Routine Setup
+                      </div>
+
+                      <p className="mt-1 text-sm leading-6 text-emerald-800">
+                        Finish the routine Federal and Idaho baselines in one
+                        controlled action. Material or uncertain legal changes
+                        remain blocked for review.
+                      </p>
+
+                      <button
+                        type="button"
+                        onClick={
+                          finishFederalAndIdaho
+                        }
+                        disabled={
+                          working
+                        }
+                        className="mt-3 rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        {working
+                          ? 'Samantha Is Finishing Setup...'
+                          : 'Finish Federal + Idaho Setup'}
+                      </button>
+                    </div>
+                  ) : null}
 
                   <div className="mt-4 flex flex-wrap gap-2">
                     {[

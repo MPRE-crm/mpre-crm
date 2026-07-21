@@ -362,6 +362,9 @@ export async function GET(
           [
             "first_snapshot",
             "unchanged",
+            "unavailable",
+            "unsupported",
+            "error",
           ].includes(
             String(
               source
