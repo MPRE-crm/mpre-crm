@@ -207,6 +207,10 @@ type Listing = {
     | string
     | null;
 
+  unbranded_video_url:
+    | string
+    | null;
+
   campaign_headline:
     | string
     | null;
@@ -358,6 +362,233 @@ const CAMPAIGN_TYPES = [
   },
 ];
 
+const EMAIL_TEMPLATES = [
+  {
+    value: 'luxury',
+    label: 'Luxury',
+    description:
+      'Editorial serif typography, warm white and restrained gold.',
+    pageBackground: '#ede8df',
+    cardBackground: '#fffdf8',
+    cardBorder:
+      '1px solid #d6c7a5',
+    cardRadius: '0px',
+    shadow:
+      '0 14px 36px rgba(40,32,20,0.18)',
+    bannerBackground: '#111827',
+    bannerColor: '#f8fafc',
+    headingFont:
+      "Georgia, 'Times New Roman', serif",
+    headingColor: '#111827',
+    accent: '#b7791f',
+    factsBackground: '#111827',
+    factsColor: '#f8fafc',
+    bodyColor: '#374151',
+    buttonRadius: '0px',
+    imageRadius: '0px',
+    secondaryAction: '#111827',
+  },
+  {
+    value: 'standard',
+    label: 'Standard',
+    description:
+      'Clean professional presentation with familiar blue accents.',
+    pageBackground: '#e8edf4',
+    cardBackground: '#ffffff',
+    cardBorder:
+      '1px solid #dbe3ee',
+    cardRadius: '16px',
+    shadow:
+      '0 12px 30px rgba(15,23,42,0.12)',
+    bannerBackground: '#1d4ed8',
+    bannerColor: '#ffffff',
+    headingFont:
+      'Arial, sans-serif',
+    headingColor: '#0f172a',
+    accent: '#2563eb',
+    factsBackground: '#eff6ff',
+    factsColor: '#1e3a8a',
+    bodyColor: '#334155',
+    buttonRadius: '8px',
+    imageRadius: '8px',
+    secondaryAction: '#0f172a',
+  },
+  {
+    value: 'modern',
+    label: 'Modern / Minimal',
+    description:
+      'Minimal black-and-white layout with sharp editorial spacing.',
+    pageBackground: '#f4f4f5',
+    cardBackground: '#ffffff',
+    cardBorder:
+      '1px solid #e4e4e7',
+    cardRadius: '0px',
+    shadow: 'none',
+    bannerBackground: '#ffffff',
+    bannerColor: '#18181b',
+    headingFont:
+      'Arial, sans-serif',
+    headingColor: '#09090b',
+    accent: '#18181b',
+    factsBackground: '#f4f4f5',
+    factsColor: '#18181b',
+    bodyColor: '#3f3f46',
+    buttonRadius: '0px',
+    imageRadius: '0px',
+    secondaryAction: '#18181b',
+  },
+  {
+    value: 'realtor_blast',
+    label: 'Realtor Blast',
+    description:
+      'High-contrast agent outreach built for fast scanning and sharing.',
+    pageBackground: '#eaf2ff',
+    cardBackground: '#ffffff',
+    cardBorder:
+      '1px solid #bfdbfe',
+    cardRadius: '14px',
+    shadow:
+      '0 12px 30px rgba(30,64,175,0.16)',
+    bannerBackground: '#b91c1c',
+    bannerColor: '#ffffff',
+    headingFont:
+      'Arial, sans-serif',
+    headingColor: '#0f172a',
+    accent: '#dc2626',
+    factsBackground: '#1d4ed8',
+    factsColor: '#ffffff',
+    bodyColor: '#334155',
+    buttonRadius: '8px',
+    imageRadius: '6px',
+    secondaryAction: '#1d4ed8',
+  },
+] as const;
+
+type EmailTemplateKey =
+  (typeof EMAIL_TEMPLATES)[number]['value'];
+
+function normalizeTemplateKey(
+  value: unknown
+): EmailTemplateKey {
+  const normalized =
+    String(value || '').trim();
+
+  return EMAIL_TEMPLATES.some(
+    (template) =>
+      template.value ===
+      normalized
+  )
+    ? (normalized as EmailTemplateKey)
+    : 'luxury';
+}
+
+function youtubeVideoId(
+  value: unknown
+) {
+  const raw =
+    String(
+      value || ''
+    ).trim();
+
+  if (!raw) {
+    return '';
+  }
+
+  try {
+    const parsed =
+      new URL(raw);
+
+    const hostname =
+      parsed.hostname
+        .toLowerCase()
+        .replace(
+          /^www./,
+          ''
+        );
+
+    if (
+      hostname ===
+      'youtu.be'
+    ) {
+      return (
+        parsed.pathname
+          .split('/')
+          .filter(Boolean)[0] ||
+        ''
+      );
+    }
+
+    if (
+      hostname.endsWith(
+        'youtube.com'
+      )
+    ) {
+      const queryId =
+        parsed.searchParams.get(
+          'v'
+        );
+
+      if (queryId) {
+        return queryId;
+      }
+
+      const parts =
+        parsed.pathname
+          .split('/')
+          .filter(Boolean);
+
+      const markerIndex =
+        parts.findIndex(
+          (part) =>
+            [
+              'embed',
+              'shorts',
+              'live',
+            ].includes(
+              part
+            )
+        );
+
+      if (
+        markerIndex >= 0 &&
+        parts[
+          markerIndex + 1
+        ]
+      ) {
+        return parts[
+          markerIndex + 1
+        ];
+      }
+    }
+  } catch {
+    // Fall through to the
+    // lightweight URL matcher.
+  }
+
+  const fallback =
+    raw.match(
+      /(?:youtu\.be\/|youtube\.com\/(?:embed|shorts|live)\/)([A-Za-z0-9_-]{6,})/i
+    );
+
+  return (
+    fallback?.[1] ||
+    ''
+  );
+}
+
+function youtubeThumbnailUrl(
+  value: unknown
+) {
+  const videoId =
+    youtubeVideoId(
+      value
+    );
+
+  return videoId
+    ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
+    : '';
+}
+
 function escapeHtml(
   value: unknown
 ) {
@@ -424,6 +655,7 @@ function buildTextBody(
   listing: Listing,
   headline: string,
   description: string,
+  audienceContactType: string,
   profile: Profile
 ) {
   return [
@@ -437,9 +669,30 @@ function buildTextBody(
     description,
     '',
     listing.public_url
-      ? `View listing: ${listing.public_url}`
+      ? `View the full listing and photo collection: ${listing.public_url}`
       : '',
-    '',
+    listing.unbranded_video_url
+      ? `Watch the unbranded property video: ${listing.unbranded_video_url}`
+      : '',
+    audienceContactType ===
+    'realtor'
+      ? ''
+      : null,
+
+    audienceContactType ===
+    'realtor'
+      ? 'Agent-to-agent note:'
+      : null,
+
+    audienceContactType ===
+    'realtor'
+      ? 'Please share this home with buyers who may appreciate its setting, presentation and lifestyle. I am happy to answer questions or coordinate a private showing.'
+      : null,
+
+    audienceContactType ===
+    'realtor'
+      ? ''
+      : null,
     `MLS: ${
       listing.mls_number || '-'
     }`,
@@ -464,6 +717,8 @@ function buildEmailHtml({
   description,
   previewText,
   campaignType,
+  templateKey,
+  audienceContactType,
   profile,
 }: {
   listing: Listing;
@@ -473,8 +728,21 @@ function buildEmailHtml({
   description: string;
   previewText: string;
   campaignType: string;
+  templateKey: EmailTemplateKey;
+  audienceContactType: string;
   profile: Profile;
 }) {
+  const template =
+    EMAIL_TEMPLATES.find(
+      (item) =>
+        item.value ===
+        templateKey
+    ) || EMAIL_TEMPLATES[0];
+
+  const isRealtorAudience =
+    audienceContactType ===
+    'realtor';
+
   const chosenPhotos =
     photos.slice(
       0,
@@ -523,7 +791,7 @@ function buildEmailHtml({
                 listing.title
             )}"
             width="280"
-            style="display:block;width:100%;height:auto;border-radius:10px;"
+            style="display:block;width:100%;height:auto;border-radius:${template.imageRadius};"
           />
         </td>
 
@@ -545,7 +813,7 @@ function buildEmailHtml({
                       listing.title
                   )}"
                   width="280"
-                  style="display:block;width:100%;height:auto;border-radius:10px;"
+                  style="display:block;width:100%;height:auto;border-radius:${template.imageRadius};"
                 />
               `
               : '&nbsp;'
@@ -580,33 +848,314 @@ function buildEmailHtml({
     .filter(Boolean)
     .join(' • ');
 
-  const publicButton =
+  const publicUrl =
     listing.public_url
-      ? `
-        <table
-          role="presentation"
-          cellpadding="0"
-          cellspacing="0"
-          border="0"
-          align="center"
-          style="margin:26px auto;"
+      ?.trim() ||
+    '';
+
+  const videoUrl =
+    listing
+      .unbranded_video_url
+      ?.trim() ||
+    '';
+
+  const phone =
+    profile
+      .marketing_phone
+      ?.trim() ||
+    '';
+
+  const phoneUrl =
+    phone
+      ? `tel:${phone.replace(
+          /[^\d+]/g,
+          ''
+        )}`
+      : '';
+
+  const marketingName =
+    profile
+      .marketing_from_name
+      ?.trim() ||
+    'Listing Agent';
+
+  const brandName =
+    profile
+      .marketing_brokerage
+      ?.trim() ||
+    'MPRE';
+
+  const brandLogoUrl =
+    profile
+      .marketing_logo_url
+      ?.trim() ||
+    '';
+
+  const videoThumbnailUrl =
+    youtubeThumbnailUrl(
+      videoUrl
+    );
+
+  const actionButtons = [
+    publicUrl
+      ? {
+          label:
+            'View Full Listing',
+          url: publicUrl,
+          background:
+            template.accent,
+        }
+      : null,
+
+    videoUrl
+      ? {
+          label:
+            'Watch Property Video',
+          url: videoUrl,
+          background:
+            template.secondaryAction,
+        }
+      : null,
+
+    phoneUrl
+      ? {
+          label:
+            `Call or Text ${marketingName}`,
+          url: phoneUrl,
+          background:
+            '#2563eb',
+        }
+      : null,
+  ]
+    .filter(
+      (
+        button
+      ): button is {
+        label: string;
+        url: string;
+        background: string;
+      } =>
+        Boolean(button)
+    )
+    .map(
+      (button) => `
+        <a
+          href="${escapeHtml(
+            button.url
+          )}"
+          style="display:inline-block;margin:5px 4px;padding:13px 19px;border-radius:${template.buttonRadius};background:${button.background};color:#ffffff;text-decoration:none;font-family:Arial,sans-serif;font-size:14px;font-weight:bold;"
         >
-          <tr>
-            <td
-              bgcolor="#ea580c"
-              style="border-radius:10px;"
-            >
-              <a
-                href="${escapeHtml(
-                  listing.public_url
-                )}"
-                style="display:inline-block;padding:14px 24px;color:#ffffff;text-decoration:none;font-family:Arial,sans-serif;font-size:16px;font-weight:bold;"
+          ${escapeHtml(
+            button.label
+          )}
+        </a>
+      `
+    )
+    .join('');
+
+  const realtorSection =
+    isRealtorAudience
+      ? `
+    <table
+      role="presentation"
+      width="100%"
+      cellpadding="0"
+      cellspacing="0"
+      border="0"
+      style="margin-top:26px;background:#fff8eb;border:1px solid #f6d79b;border-radius:16px;"
+    >
+      <tr>
+        <td
+          style="padding:24px 25px;font-family:Arial,sans-serif;"
+        >
+          <div
+            style="font-size:11px;font-weight:bold;letter-spacing:1.4px;text-transform:uppercase;color:#a16207;"
+          >
+            Agent-to-Agent Note
+          </div>
+
+          <div
+            style="margin-top:7px;font-size:22px;font-weight:bold;line-height:1.3;color:#0f172a;"
+          >
+            Why This Home Deserves a Showing
+          </div>
+
+          <table
+            role="presentation"
+            width="100%"
+            cellpadding="0"
+            cellspacing="0"
+            border="0"
+            style="margin-top:14px;"
+          >
+            <tr>
+              <td
+                width="28"
+                valign="top"
+                style="padding:4px 0;color:#d97706;font-size:18px;font-weight:bold;"
               >
-                View Property Details
-              </a>
-            </td>
-          </tr>
-        </table>
+                &#10003;
+              </td>
+
+              <td
+                style="padding:4px 0;font-size:14px;line-height:1.65;color:#475569;"
+              >
+                Strong presentation and a clear property story make it easy to introduce to qualified buyers.
+              </td>
+            </tr>
+
+            <tr>
+              <td
+                width="28"
+                valign="top"
+                style="padding:4px 0;color:#d97706;font-size:18px;font-weight:bold;"
+              >
+                &#10003;
+              </td>
+
+              <td
+                style="padding:4px 0;font-size:14px;line-height:1.65;color:#475569;"
+              >
+                Professional photography${
+                  videoUrl
+                    ? ' and an unbranded video'
+                    : ''
+                } provide share-ready material before the showing.
+              </td>
+            </tr>
+
+            <tr>
+              <td
+                width="28"
+                valign="top"
+                style="padding:4px 0;color:#d97706;font-size:18px;font-weight:bold;"
+              >
+                &#10003;
+              </td>
+
+              <td
+                style="padding:4px 0;font-size:14px;line-height:1.65;color:#475569;"
+              >
+                Contact ${escapeHtml(
+                  profile
+                    .marketing_from_name ||
+                    'the listing agent'
+                )} directly with questions or for private-showing coordination.
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  `
+      : '';
+
+  const videoFeature =
+    videoUrl
+      ? `
+        <tr>
+          <td
+            style="padding:0 28px 30px;"
+          >
+            <table
+              role="presentation"
+              width="100%"
+              cellpadding="0"
+              cellspacing="0"
+              border="0"
+              style="background:#0f172a;border-radius:16px;"
+            >
+              <tr>
+                <td
+                  style="padding:25px;text-align:center;font-family:Arial,sans-serif;"
+                >
+                  ${
+                    videoThumbnailUrl
+                      ? `
+                        <a
+                          href="${escapeHtml(
+                            videoUrl
+                          )}"
+                          style="display:block;text-decoration:none;"
+                        >
+                          <img
+                            src="${escapeHtml(
+                              videoThumbnailUrl
+                            )}"
+                            alt="Property video preview"
+                            width="580"
+                            style="display:block;width:100%;max-width:580px;height:auto;margin:0 auto 18px;border:0;border-radius:12px;"
+                          />
+                        </a>
+                      `
+                      : ''
+                  }
+
+                  <div
+                    style="display:inline-block;width:58px;height:58px;border-radius:50%;background:#d97706;color:#ffffff;font-size:27px;line-height:58px;text-align:center;"
+                  >
+                    &#9654;
+                  </div>
+
+                  <div
+                    style="margin-top:14px;font-size:11px;font-weight:bold;letter-spacing:1.4px;text-transform:uppercase;color:#fbbf24;"
+                  >
+                    Share-Ready Property Video
+                  </div>
+
+                  <div
+                    style="margin-top:7px;font-size:22px;font-weight:bold;line-height:1.25;color:#ffffff;"
+                  >
+                    ${isRealtorAudience
+                      ? 'Preview the Home Before the Showing'
+                      : 'Take a Closer Look at the Property'}
+                  </div>
+
+                  <div
+                    style="margin:10px auto 0;max-width:480px;font-size:14px;line-height:1.7;color:#cbd5e1;"
+                  >
+                    ${isRealtorAudience
+                      ? 'Preview the home with your buyers or forward the unbranded property video directly to them.'
+                      : 'Watch the property video for a closer look at the home, its features and overall presentation.'}
+                  </div>
+
+                  <div
+                    style="margin-top:18px;"
+                  >
+                    <a
+                      href="${escapeHtml(
+                        videoUrl
+                      )}"
+                      style="display:inline-block;padding:13px 22px;border-radius:10px;background:#ffffff;color:#0f172a;text-decoration:none;font-family:Arial,sans-serif;font-size:14px;font-weight:bold;"
+                    >
+                      ${isRealtorAudience
+                        ? 'Watch the Unbranded Video'
+                        : 'Watch the Property Video'}
+                    </a>
+                  </div>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      `
+      : '';
+
+  const galleryButton =
+    publicUrl
+      ? `
+        <div
+          style="margin-top:20px;text-align:center;"
+        >
+          <a
+            href="${escapeHtml(
+              publicUrl
+            )}"
+            style="display:inline-block;padding:12px 20px;border:1px solid #cbd5e1;border-radius:10px;color:#0f172a;text-decoration:none;font-family:Arial,sans-serif;font-size:14px;font-weight:bold;"
+          >
+            View All ${photos.length} Photos
+          </a>
+        </div>
       `
       : '';
 
@@ -627,7 +1176,7 @@ function buildEmailHtml({
   </head>
 
   <body
-    style="margin:0;padding:0;background:#f1f5f9;"
+    style="margin:0;padding:0;background:${template.pageBackground};"
   >
     <div
       style="display:none;max-height:0;overflow:hidden;opacity:0;"
@@ -643,7 +1192,7 @@ function buildEmailHtml({
       cellpadding="0"
       cellspacing="0"
       border="0"
-      style="background:#f1f5f9;"
+      style="background:${template.pageBackground};"
     >
       <tr>
         <td
@@ -656,14 +1205,69 @@ function buildEmailHtml({
             cellpadding="0"
             cellspacing="0"
             border="0"
-            style="max-width:640px;background:#ffffff;border-radius:18px;overflow:hidden;"
+            style="max-width:680px;background:${template.cardBackground};border:${template.cardBorder};border-radius:${template.cardRadius};overflow:hidden;box-shadow:${template.shadow};"
           >
             <tr>
               <td
-                style="padding:28px 30px 22px;text-align:center;font-family:Arial,sans-serif;"
+                style="padding:20px 28px 16px;text-align:center;font-family:Arial,sans-serif;"
+              >
+                ${
+                  brandLogoUrl
+                    ? `
+                      <img
+                        src="${escapeHtml(
+                          brandLogoUrl
+                        )}"
+                        alt="${escapeHtml(
+                          brandName
+                        )}"
+                        width="180"
+                        style="display:block;width:auto;max-width:180px;max-height:74px;margin:0 auto;border:0;"
+                      />
+                    `
+                    : `
+                      <div
+                        style="font-size:28px;font-weight:800;letter-spacing:1px;color:${template.headingColor};"
+                      >
+                        ${escapeHtml(
+                          brandName
+                        )}
+                      </div>
+                    `
+                }
+
+                ${
+                  brandLogoUrl
+                    ? `
+                      <div
+                        style="margin-top:8px;font-size:12px;font-weight:bold;letter-spacing:1.2px;text-transform:uppercase;color:#64748b;"
+                      >
+                        ${escapeHtml(
+                          brandName
+                        )}
+                      </div>
+                    `
+                    : ''
+                }
+              </td>
+            </tr>
+
+            <tr>
+              <td
+                style="padding:13px 28px;background:${template.bannerBackground};text-align:center;font-family:Arial,sans-serif;font-size:11px;font-weight:bold;letter-spacing:1.4px;text-transform:uppercase;color:${template.bannerColor};"
+              >
+                ${isRealtorAudience
+                  ? 'A Share-Ready Property Spotlight for Your Buyers'
+                  : 'Featured Property Spotlight'}
+              </td>
+            </tr>
+
+            <tr>
+              <td
+                style="padding:32px 34px 27px;text-align:center;font-family:${template.headingFont};"
               >
                 <div
-                  style="font-size:13px;font-weight:bold;letter-spacing:1.5px;text-transform:uppercase;color:#2563eb;"
+                  style="font-size:13px;font-weight:bold;letter-spacing:1.5px;text-transform:uppercase;color:${template.accent};"
                 >
                   ${escapeHtml(
                     typeLabel(
@@ -673,7 +1277,7 @@ function buildEmailHtml({
                 </div>
 
                 <h1
-                  style="margin:10px 0 8px;font-size:30px;line-height:1.2;color:#0f172a;"
+                  style="margin:14px auto 9px;max-width:570px;font-family:${template.headingFont};font-size:34px;line-height:1.15;color:${template.headingColor};"
                 >
                   ${escapeHtml(
                     headline
@@ -681,7 +1285,7 @@ function buildEmailHtml({
                 </h1>
 
                 <div
-                  style="font-size:18px;font-weight:bold;color:#ea580c;"
+                  style="font-size:22px;font-weight:bold;color:${template.accent};"
                 >
                   ${escapeHtml(
                     formatPrice(
@@ -716,7 +1320,7 @@ function buildEmailHtml({
                             heroPhoto.title ||
                             listing.title
                         )}"
-                        width="640"
+                        width="680"
                         style="display:block;width:100%;height:auto;"
                       />
                     </td>
@@ -733,7 +1337,7 @@ function buildEmailHtml({
                   facts
                     ? `
                       <div
-                        style="margin-bottom:18px;padding:12px 15px;border-radius:10px;background:#eff6ff;text-align:center;font-size:15px;font-weight:bold;color:#1e3a8a;"
+                        style="margin-bottom:20px;padding:14px 16px;border-radius:${template.buttonRadius};background:${template.factsBackground};text-align:center;font-size:15px;font-weight:bold;color:${template.factsColor};"
                       >
                         ${escapeHtml(
                           facts
@@ -744,7 +1348,7 @@ function buildEmailHtml({
                 }
 
                 <p
-                  style="margin:0;font-size:16px;line-height:1.7;color:#334155;"
+                  style="margin:0;font-family:Arial,sans-serif;font-size:16px;line-height:1.7;color:${template.bodyColor};"
                 >
                   ${escapeHtml(
                     description
@@ -754,9 +1358,23 @@ function buildEmailHtml({
                   )}
                 </p>
 
-                ${publicButton}
+                ${
+                  actionButtons
+                    ? `
+                      <div
+                        style="margin-top:23px;text-align:center;"
+                      >
+                        ${actionButtons}
+                      </div>
+                    `
+                    : ''
+                }
+
+                ${realtorSection}
               </td>
             </tr>
+
+            ${videoFeature}
 
             ${
               galleryRows
@@ -765,6 +1383,22 @@ function buildEmailHtml({
                     <td
                       style="padding:0 20px 24px;"
                     >
+                      <div
+                        style="padding:0 6px 13px;text-align:center;font-family:Arial,sans-serif;"
+                      >
+                        <div
+                          style="font-size:11px;font-weight:bold;letter-spacing:1.4px;text-transform:uppercase;color:${template.accent};"
+                        >
+                          A Closer Look
+                        </div>
+
+                        <div
+                          style="margin-top:6px;font-family:${template.headingFont};font-size:24px;font-weight:bold;color:${template.headingColor};"
+                        >
+                          Explore the Property
+                        </div>
+                      </div>
+
                       <table
                         role="presentation"
                         width="100%"
@@ -774,6 +1408,8 @@ function buildEmailHtml({
                       >
                         ${galleryRows}
                       </table>
+
+                      ${galleryButton}
                     </td>
                   </tr>
                 `
@@ -928,7 +1564,14 @@ export default function CampaignsPage() {
   const [
     photoCount,
     setPhotoCount,
-  ] = useState(6);
+  ] = useState(9);
+
+  const [
+    templateKey,
+    setTemplateKey,
+  ] = useState<EmailTemplateKey>(
+    'luxury'
+  );
 
   const selectedListing =
     useMemo(
@@ -1109,6 +1752,11 @@ export default function CampaignsPage() {
 
         campaignType,
 
+        templateKey,
+
+        audienceContactType:
+          contactTypeFilter,
+
         profile,
       });
     }, [
@@ -1120,6 +1768,8 @@ export default function CampaignsPage() {
       marketingDescription,
       previewText,
       campaignType,
+      templateKey,
+      contactTypeFilter,
     ]);
 
   const senderReady =
@@ -1345,6 +1995,7 @@ export default function CampaignsPage() {
             list_price,
             listing_status,
             public_url,
+            unbranded_video_url,
             campaign_headline,
             short_marketing_description,
             public_remarks,
@@ -1722,7 +2373,11 @@ export default function CampaignsPage() {
       'all'
     );
 
-    setPhotoCount(6);
+    setPhotoCount(9);
+
+    setTemplateKey(
+      'luxury'
+    );
 
     setNotice(
       'New campaign draft started.'
@@ -1784,7 +2439,15 @@ export default function CampaignsPage() {
         campaign
           .design_settings
           ?.photo_count ||
-          6
+          9
+      )
+    );
+
+    setTemplateKey(
+      normalizeTemplateKey(
+        campaign
+          .design_settings
+          ?.template_key
       )
     );
 
@@ -1900,6 +2563,7 @@ export default function CampaignsPage() {
             selectedListing,
             headline,
             marketingDescription,
+            contactTypeFilter,
             profile
           ),
 
@@ -1927,6 +2591,9 @@ export default function CampaignsPage() {
         },
 
         design_settings: {
+          template_key:
+            templateKey,
+
           photo_count:
             Math.min(
               photoCount,
@@ -2306,6 +2973,48 @@ export default function CampaignsPage() {
 
               <label className="block">
                 <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Email Template
+                </span>
+
+                <select
+                  value={templateKey}
+                  onChange={(event) =>
+                    setTemplateKey(
+                      event.target
+                        .value as EmailTemplateKey
+                    )
+                  }
+                  className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 text-sm"
+                >
+                  {EMAIL_TEMPLATES.map(
+                    (template) => (
+                      <option
+                        key={
+                          template.value
+                        }
+                        value={
+                          template.value
+                        }
+                      >
+                        {template.label}
+                      </option>
+                    )
+                  )}
+                </select>
+
+                <div className="mt-1 text-xs leading-5 text-slate-500">
+                  {
+                    EMAIL_TEMPLATES.find(
+                      (template) =>
+                        template.value ===
+                        templateKey
+                    )?.description
+                  }
+                </div>
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Internal Campaign Name
                 </span>
 
@@ -2527,7 +3236,7 @@ export default function CampaignsPage() {
                 }
                 className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 text-sm"
               >
-                {[1, 2, 4, 6, 8, 10, 12].map(
+                {[1, 2, 4, 6, 8, 9, 10, 12].map(
                   (count) => (
                     <option
                       key={count}
