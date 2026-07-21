@@ -39,10 +39,31 @@ class ComplianceLicenseError extends Error {
 function jsonError(
   error: unknown
 ) {
+  const objectMessage =
+    error &&
+    typeof error ===
+      'object' &&
+    'message' in error &&
+    typeof (
+      error as {
+        message?: unknown;
+      }
+    ).message ===
+      'string'
+      ? String(
+          (
+            error as {
+              message: string;
+            }
+          ).message
+        ).trim()
+      : '';
+
   const message =
     error instanceof Error
       ? error.message
-      : 'The compliance-license request failed.';
+      : objectMessage ||
+        'The compliance-license request failed.';
 
   const status =
     error instanceof ComplianceLicenseError
@@ -1568,102 +1589,33 @@ export async function PATCH(
         );
 
       const {
-        data: market,
-        error: marketError,
-      } = await supabaseAdmin
-        .from(
-          'organization_markets'
-        )
-        .select(`
-          id,
-          organization_id,
-          jurisdiction_id
-        `)
-        .eq(
-          'id',
-          marketId
-        )
-        .single();
+        error:
+          activationError,
+      } =
+        await supabaseAdmin
+          .rpc(
+            'activate_manual_upload_organization_market',
+            {
+              requested_market_id:
+                marketId,
+
+              reviewer_id:
+                profile.id,
+            }
+          );
 
       if (
-        marketError ||
-        !market
+        activationError
       ) {
-        throw new ComplianceLicenseError(
-          marketError?.message ||
-            'Organization market not found.',
-          404
-        );
-      }
-
-      const {
-        data: jurisdiction,
-        error: jurisdictionError,
-      } = await supabaseAdmin
-        .from(
-          'marketing_jurisdictions'
-        )
-        .select(`
-          id,
-          code,
-          launch_status,
-          marketing_enabled
-        `)
-        .eq(
-          'id',
-          market.jurisdiction_id
-        )
-        .single();
-
-      if (
-        jurisdictionError ||
-        !jurisdiction
-      ) {
-        throw new ComplianceLicenseError(
-          jurisdictionError?.message ||
-            'Compliance jurisdiction not found.',
-          404
-        );
-      }
-
-      if (
-        jurisdiction.marketing_enabled !==
-        true
-      ) {
-        throw new ComplianceLicenseError(
-          `${jurisdiction.code} marketing must have an approved and active rule package before this organization market can be activated.`,
-          409
-        );
-      }
-
-      const {
-        error: marketUpdateError,
-      } = await supabaseAdmin
-        .from(
-          'organization_markets'
-        )
-        .update({
-          market_status:
-            'active',
-          marketing_enabled:
-            true,
-        })
-        .eq(
-          'id',
-          marketId
-        );
-
-      if (
-        marketUpdateError
-      ) {
-        throw marketUpdateError;
+        throw activationError;
       }
 
       return NextResponse.json(
         {
           ...await loadLicenseData(),
+
           message:
-            'Organization market activated for marketing.',
+            'Organization market activated for the approved manual-upload marketing workflow.',
         },
         {
           headers: {
