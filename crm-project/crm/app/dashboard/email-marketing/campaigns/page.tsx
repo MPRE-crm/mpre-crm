@@ -2026,8 +2026,8 @@ export default function CampaignsPage() {
       }
 
       const mergedProfile = {
-        ...typedProfile,
         ...complianceResult.organization,
+        ...typedProfile,
       } as Profile;
 
       setProfile(
