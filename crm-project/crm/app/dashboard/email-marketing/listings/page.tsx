@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import {
   ChangeEvent,
@@ -28,6 +28,7 @@ import { getSupabaseBrowser } from '../../../../lib/supabase-browser';
 import ListingMediaManager, {
   type ListingMediaSummary,
 } from './ListingMediaManager';
+
 
 const supabase = getSupabaseBrowser();
 
@@ -4386,8 +4387,18 @@ export default function MarketingListingsPage() {
                       </select>
                     </td>
 
-                    <td className="min-w-[260px] px-4 py-3 align-top">
+                    <td className="min-w-[320px] px-4 py-3 align-top">
                       <div className="space-y-2">
+                        <a
+                          href={`/dashboard/email-marketing/listings/${listing.id}/website-studio`}
+                          className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-violet-700 px-3 py-2 text-xs font-semibold text-white hover:bg-violet-800"
+                        >
+                          <Sparkles className="h-3.5 w-3.5" />
+
+                          Open Website Studio
+                        </a>
+
+
                         <div className="flex flex-wrap items-center gap-2">
                           <span
                             className={
