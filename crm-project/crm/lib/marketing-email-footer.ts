@@ -98,69 +98,99 @@ function phoneHref(
   )}`;
 }
 
+function formatPhoneDisplay(
+  value?: string | null
+) {
+  const original =
+    String(value || '').trim();
+
+  const digits =
+    original.replace(/\D/g, '');
+
+  const nationalDigits =
+    digits.length === 11 &&
+    digits.startsWith('1')
+      ? digits.slice(1)
+      : digits;
+
+  if (nationalDigits.length !== 10) {
+    return original;
+  }
+
+  return `(${nationalDigits.slice(
+    0,
+    3
+  )}) ${nationalDigits.slice(
+    3,
+    6
+  )}-${nationalDigits.slice(6)}`;
+}
+
 function socialLinks(
   profile:
     MarketingIdentityForEmail
 ) {
-  const links = [
+  const links: Array<{
+    label: string;
+    url: string | null;
+    iconUrl: string;
+  }> = [
     {
       label: 'Facebook',
-      icon: 'f',
       url:
         profile
           .marketing_facebook_url,
+      iconUrl:
+        'https://img.icons8.com/ios-filled/96/ffffff/facebook-new.png',
     },
     {
       label: 'Instagram',
-      icon: 'IG',
       url:
         profile
           .marketing_instagram_url,
+      iconUrl:
+        'https://img.icons8.com/ios-filled/96/ffffff/instagram-new--v1.png',
     },
     {
       label: 'LinkedIn',
-      icon: 'in',
       url:
         profile
           .marketing_linkedin_url,
+      iconUrl:
+        'https://img.icons8.com/ios-filled/96/ffffff/linkedin.png',
     },
     {
       label: 'YouTube',
-      icon: 'YT',
       url:
         profile
           .marketing_youtube_url,
+      iconUrl:
+        'https://img.icons8.com/ios-filled/96/ffffff/youtube-play.png',
     },
     {
       label: 'TikTok',
-      icon: 'TT',
       url:
         profile
           .marketing_tiktok_url,
+      iconUrl:
+        'https://img.icons8.com/ios-filled/96/ffffff/tiktok--v1.png',
     },
     {
       label: 'X',
-      icon: 'X',
       url:
         profile
           .marketing_x_url,
+      iconUrl:
+        'https://img.icons8.com/ios-filled/96/ffffff/twitterx--v2.png',
     },
   ].filter(
-    (
-      item
-    ): item is {
-      label: string;
-      icon: string;
-      url: string;
-    } =>
+    (item) =>
       Boolean(
         item.url?.trim()
       )
   );
 
-  if (
-    links.length === 0
-  ) {
+  if (links.length === 0) {
     return '';
   }
 
@@ -170,30 +200,46 @@ function socialLinks(
       cellpadding="0"
       cellspacing="0"
       border="0"
-      style="margin-top:15px;"
+      style="margin-top:10px;"
     >
       <tr>
         ${links
           .map(
-            (item) => `
-              <td
-                style="padding-right:7px;"
-              >
-                <a
-                  href="${escapeHtml(
-                    webUrl(item.url)
-                  )}"
-                  title="${escapeHtml(
-                    item.label
-                  )}"
-                  style="display:inline-block;min-width:31px;height:31px;padding:0 5px;border-radius:999px;background:#0f172a;color:#ffffff;text-align:center;text-decoration:none;font-size:10px;font-weight:bold;line-height:31px;"
+            (item) => {
+              const url =
+                item.url?.trim() ||
+                '';
+
+              return `
+                <td
+                  style="padding-right:8px;"
                 >
-                  ${escapeHtml(
-                    item.icon
-                  )}
-                </a>
-              </td>
-            `
+                  <a
+                    href="${escapeHtml(
+                      webUrl(
+                        url
+                      )
+                    )}"
+                    title="${escapeHtml(
+                      item.label
+                    )}"
+                    style="display:block;width:30px;height:30px;text-decoration:none;"
+                  >
+                    <img
+                      src="${escapeHtml(
+                        item.iconUrl
+                      )}"
+                      alt="${escapeHtml(
+                        item.label
+                      )}"
+                      width="16"
+                      height="16"
+                      style="display:block;width:16px;height:16px;margin:7px;border:0;"
+                    />
+                  </a>
+                </td>
+              `;
+            }
           )
           .join('')}
       </tr>
@@ -206,12 +252,18 @@ export function buildMarketingFooterHtml(
     MarketingIdentityForEmail
 ) {
   const displayName =
-    profile.marketing_from_name ||
+    profile
+      .marketing_from_name
+      ?.trim() ||
     'Real Estate Professional';
 
   const titleLine = [
-    profile.marketing_title,
-    profile.marketing_brokerage,
+    profile
+      .marketing_title
+      ?.trim(),
+    profile
+      .marketing_brokerage
+      ?.trim(),
   ]
     .filter(Boolean)
     .join(' | ');
@@ -222,23 +274,18 @@ export function buildMarketingFooterHtml(
         .marketing_designations ||
       []
     ),
-
     ...(
       profile
         .marketing_certifications ||
       []
     ),
-  ].join(' • ');
+  ]
+    .filter(Boolean)
+    .join(' • ');
 
   const phone =
     profile
       .marketing_phone
-      ?.trim() ||
-    '';
-
-  const officePhone =
-    profile
-      .marketing_office_phone
       ?.trim() ||
     '';
 
@@ -257,61 +304,46 @@ export function buildMarketingFooterHtml(
       ?.trim() ||
     '';
 
-  const signature =
+  const headshot =
     profile
-      .marketing_signature_text
+      .marketing_headshot_url
       ?.trim() ||
     '';
 
-  const license =
+  const logo =
+    profile
+      .marketing_logo_url
+      ?.trim() ||
+    '';
+
+  const agentLicense =
     profile
       .marketing_license_number
       ?.trim() ||
     '';
 
-  const officeAddress =
+  const address =
+    profile
+      .marketing_physical_address
+      ?.trim() ||
     profile
       .marketing_office_address
       ?.trim() ||
     '';
 
-  const appointmentUrl =
-    profile
-      .marketing_appointment_url
-      ?.trim() ||
-    '';
-
-  const serviceAreas =
-    (
-      profile
-        .marketing_service_areas ||
-      []
-    ).join(', ');
-
-  const languages =
-    (
-      profile
-        .marketing_languages ||
-      []
-    ).join(', ');
-
-  const personalDisclaimer =
-    profile
-      .marketing_disclaimer
-      ?.trim() ||
-    '';
-
-  const licensedBusinessName =
+  const business =
     profile
       .marketing_licensed_business_name
       ?.trim() ||
-    'Broker licensed business name required';
+    profile
+      .marketing_brokerage
+      ?.trim() ||
+    'Licensed Real Estate Brokerage';
 
   const brokerLicense = [
     profile
       .marketing_broker_license_number
       ?.trim(),
-
     profile
       .marketing_license_state
       ?.trim(),
@@ -319,17 +351,23 @@ export function buildMarketingFooterHtml(
     .filter(Boolean)
     .join(' | ');
 
+  const advertisement =
+    profile
+      .marketing_advertisement_label
+      ?.trim() ||
+    'Advertisement';
+
   const propertyDisclaimer =
     profile
       .marketing_standard_disclaimer
       ?.trim() ||
     DEFAULT_PROPERTY_DISCLAIMER;
 
-  const advertisementLabel =
+  const personalDisclaimer =
     profile
-      .marketing_advertisement_label
+      .marketing_disclaimer
       ?.trim() ||
-    'Advertisement';
+    '';
 
   const privacyUrl =
     profile
@@ -346,515 +384,358 @@ export function buildMarketingFooterHtml(
   return `
     <tr>
       <td
-        style="padding:28px 30px;background:#0f172a;font-family:Arial,sans-serif;"
+        style="padding:0;background:#11100e;"
       >
-        ${
-          profile
-            .marketing_logo_url
-            ? `
-              <div
-                style="margin-bottom:18px;text-align:center;"
-              >
-                <img
-                  src="${escapeHtml(
-                    profile
-                      .marketing_logo_url
-                  )}"
-                  alt="Brokerage or team logo"
-                  style="display:inline-block;max-width:260px;max-height:92px;width:auto;height:auto;"
-                />
-              </div>
-            `
-            : ''
-        }
-
         <table
           role="presentation"
           width="100%"
           cellpadding="0"
           cellspacing="0"
           border="0"
-          style="background:#ffffff;border-radius:16px;"
         >
           <tr>
-            ${
-              profile
-                .marketing_headshot_url
-                ? `
+            <td
+              style="padding:24px 28px 20px;"
+            >
+              <table
+                role="presentation"
+                width="100%"
+                cellpadding="0"
+                cellspacing="0"
+                border="0"
+              >
+                <tr>
+                  ${
+                    headshot
+                      ? `
+                        <td
+                          width="74"
+                          valign="top"
+                          style="padding-right:14px;"
+                        >
+                          <img
+                            src="${escapeHtml(
+                              headshot
+                            )}"
+                            alt="${escapeHtml(
+                              displayName
+                            )}"
+                            width="62"
+                            height="62"
+                            style="display:block;width:62px;height:62px;border-radius:999px;object-fit:cover;border:1px solid #5a4c34;"
+                          />
+                        </td>
+                      `
+                      : ''
+                  }
+
                   <td
-                    width="130"
                     valign="top"
-                    style="padding:24px 0 24px 24px;"
+                    style="font-family:Arial,sans-serif;"
+                  >
+                    <div
+                      style="font-family:Georgia,'Times New Roman',serif;font-size:24px;line-height:1.1;color:#ffffff;"
+                    >
+                      ${escapeHtml(
+                        displayName
+                      )}
+                    </div>
+
+                    ${
+                      titleLine
+                        ? `
+                          <div
+                            style="margin-top:5px;font-size:11px;line-height:1.4;color:#c9a964;font-weight:bold;"
+                          >
+                            ${escapeHtml(
+                              titleLine
+                            )}
+                          </div>
+                        `
+                        : ''
+                    }
+
+                    ${
+                      credentials
+                        ? `
+                          <div
+                            style="margin-top:3px;font-size:9px;line-height:1.4;color:#9d9488;"
+                          >
+                            ${escapeHtml(
+                              credentials
+                            )}
+                          </div>
+                        `
+                        : ''
+                    }
+
+                    <div
+                      style="margin-top:8px;font-size:10px;line-height:1.6;color:#ddd4c7;"
+                    >
+                      ${
+                        phone
+                          ? `
+                            <a
+                              href="tel:${escapeHtml(
+                                phone.replace(
+                                  /[^\d+]/g,
+                                  ''
+                                )
+                              )}"
+                              style="color:#ddd4c7;text-decoration:none;"
+                            >
+                              ${escapeHtml(
+                                formatPhoneDisplay(
+                                  phone
+                                )
+                              )}
+                            </a>
+                          `
+                          : ''
+                      }
+
+                      ${
+                        phone &&
+                        email
+                          ? '&nbsp;&nbsp;•&nbsp;&nbsp;'
+                          : ''
+                      }
+
+                      ${
+                        email
+                          ? `
+                            <a
+                              href="mailto:${escapeHtml(
+                                email
+                              )}"
+                              style="color:#ddd4c7;text-decoration:none;"
+                            >
+                              ${escapeHtml(
+                                email
+                              )}
+                            </a>
+                          `
+                          : ''
+                      }
+
+                      ${
+                        website &&
+                        (
+                          phone ||
+                          email
+                        )
+                          ? '&nbsp;&nbsp;•&nbsp;&nbsp;'
+                          : ''
+                      }
+
+                      ${
+                        website
+                          ? `
+                            <a
+                              href="${escapeHtml(
+                                webUrl(
+                                  website
+                                )
+                              )}"
+                              style="color:#c9a964;text-decoration:none;"
+                            >
+                              Website
+                            </a>
+                          `
+                          : ''
+                      }
+                    </div>
+
+                    ${socialLinks(
+                      profile
+                    )}
+                  </td>
+
+                  ${
+                    logo
+                      ? `
+                        <td
+                          width="132"
+                          valign="top"
+                          align="right"
+                          style="padding-left:16px;"
+                        >
+                          <div
+                            style="display:inline-block;background:transparent;padding-top:4px;"
+                          >
+                            <img
+                              src="${escapeHtml(
+                                logo
+                              )}"
+                              alt="${escapeHtml(
+                                business
+                              )}"
+                              width="112"
+                              style="display:block;max-width:112px;max-height:46px;width:auto;height:auto;border:0;"
+                            />
+                          </div>
+                        </td>
+                      `
+                      : ''
+                  }
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <tr>
+            <td
+              style="padding:10px 24px 12px;border-top:1px solid #302b23;font-family:Arial,sans-serif;"
+            >
+              <table
+                role="presentation"
+                width="100%"
+                cellpadding="0"
+                cellspacing="0"
+                border="0"
+              >
+                <tr>
+                  <td
+                    valign="top"
+                    style="padding-right:12px;"
+                  >
+                    <div
+                      style="font-size:7px;line-height:1.45;color:#9d9488;"
+                    >
+                      <span
+                        style="display:inline-block;margin-right:5px;padding:2px 5px;border:1px solid #695938;border-radius:999px;font-weight:bold;letter-spacing:0.9px;text-transform:uppercase;color:#d0b06e;"
+                      >
+                        ${escapeHtml(
+                          advertisement
+                        )}
+                      </span>
+
+                      <strong
+                        style="color:#c5bbae;"
+                      >
+                        ${escapeHtml(
+                          business
+                        )}
+                      </strong>
+
+                      ${
+                        brokerLicense
+                          ? ` • Brokerage License: ${escapeHtml(
+                              brokerLicense
+                            )}`
+                          : ''
+                      }
+
+                      ${
+                        agentLicense
+                          ? ` • Agent License: ${escapeHtml(
+                              agentLicense
+                            )}`
+                          : ''
+                      }
+                    </div>
+
+                    ${
+                      address
+                        ? `
+                          <div
+                            style="margin-top:3px;font-size:7px;line-height:1.35;color:#7f776d;"
+                          >
+                            ${escapeHtml(
+                              address
+                            )}
+                          </div>
+                        `
+                        : ''
+                    }
+
+                    <div
+                      style="margin-top:5px;font-size:7px;line-height:1.45;color:#766f65;"
+                    >
+                      ${escapeHtml(
+                        propertyDisclaimer
+                      )}
+
+                      ${
+                        personalDisclaimer &&
+                        personalDisclaimer !==
+                          propertyDisclaimer
+                          ? ` ${escapeHtml(
+                              personalDisclaimer
+                            )}`
+                          : ''
+                      }
+
+                      easyrealtor.homes is a technology platform and is not the real-estate brokerage representing this property.
+                    </div>
+
+                    ${
+                      mlsAttribution ||
+                      privacyUrl
+                        ? `
+                          <div
+                            style="margin-top:4px;font-size:7px;line-height:1.35;color:#746c61;"
+                          >
+                            ${
+                              mlsAttribution
+                                ? escapeHtml(
+                                    mlsAttribution
+                                  )
+                                : ''
+                            }
+
+                            ${
+                              mlsAttribution &&
+                              privacyUrl
+                                ? ' • '
+                                : ''
+                            }
+
+                            ${
+                              privacyUrl
+                                ? `
+                                  <a
+                                    href="${escapeHtml(
+                                      webUrl(
+                                        privacyUrl
+                                      )
+                                    )}"
+                                    style="color:#a98b51;text-decoration:none;"
+                                  >
+                                    Privacy Policy
+                                  </a>
+                                `
+                                : ''
+                            }
+                          </div>
+                        `
+                        : ''
+                    }
+                  </td>
+
+                  <td
+                    width="45"
+                    valign="middle"
+                    align="right"
                   >
                     <img
-                      src="${escapeHtml(
-                        profile
-                          .marketing_headshot_url
-                      )}"
-                      alt="${escapeHtml(
-                        displayName
-                      )}"
-                      width="96"
-                      height="96"
-                      style="display:block;width:96px;height:96px;border-radius:50%;object-fit:cover;border:3px solid #e2e8f0;"
+                      src="${EQUAL_HOUSING_LOGO_URL}"
+                      alt="Equal Housing Opportunity"
+                      width="28"
+                      style="display:block;width:28px;height:auto;margin-left:auto;border:0;"
                     />
+
+                    <div
+                      style="margin-top:2px;font-size:5px;line-height:1.1;text-align:center;color:#898075;"
+                    >
+                      Equal Housing
+                    </div>
                   </td>
-                `
-                : ''
-            }
-
-            <td
-              valign="top"
-              style="padding:24px;color:#334155;"
-            >
-              <div
-                style="font-size:21px;font-weight:bold;color:#0f172a;"
-              >
-                ${escapeHtml(
-                  displayName
-                )}
-              </div>
-
-              ${
-                titleLine
-                  ? `
-                    <div
-                      style="margin-top:4px;font-size:13px;font-weight:bold;color:#ea580c;"
-                    >
-                      ${escapeHtml(
-                        titleLine
-                      )}
-                    </div>
-                  `
-                  : ''
-              }
-
-              ${
-                credentials
-                  ? `
-                    <div
-                      style="margin-top:8px;font-size:12px;font-weight:bold;line-height:1.6;color:#475569;"
-                    >
-                      ${escapeHtml(
-                        credentials
-                      )}
-                    </div>
-                  `
-                  : ''
-              }
-
-              ${
-                signature
-                  ? `
-                    <div
-                      style="margin-top:12px;font-size:14px;line-height:1.6;color:#475569;"
-                    >
-                      ${escapeHtml(
-                        signature
-                      ).replace(
-                        /\n/g,
-                        '<br />'
-                      )}
-                    </div>
-                  `
-                  : ''
-              }
-
-              ${
-                profile
-                  .marketing_signature_image_url
-                  ? `
-                    <div
-                      style="margin-top:14px;"
-                    >
-                      <img
-                        src="${escapeHtml(
-                          profile
-                            .marketing_signature_image_url
-                        )}"
-                        alt="Email signature"
-                        style="display:block;max-width:240px;max-height:90px;width:auto;height:auto;"
-                      />
-                    </div>
-                  `
-                  : ''
-              }
-
-              <div
-                style="margin-top:14px;font-size:13px;line-height:1.9;"
-              >
-                ${
-                  phone
-                    ? `
-                      <div>
-                        <strong>
-                          Mobile:
-                        </strong>
-
-                        <a
-                          href="${escapeHtml(
-                            phoneHref(phone)
-                          )}"
-                          style="color:#2563eb;text-decoration:none;"
-                        >
-                          ${escapeHtml(
-                            phone
-                          )}
-                        </a>
-                      </div>
-                    `
-                    : ''
-                }
-
-                ${
-                  officePhone
-                    ? `
-                      <div>
-                        <strong>
-                          Office:
-                        </strong>
-
-                        <a
-                          href="${escapeHtml(
-                            phoneHref(
-                              officePhone
-                            )
-                          )}"
-                          style="color:#2563eb;text-decoration:none;"
-                        >
-                          ${escapeHtml(
-                            officePhone
-                          )}
-                        </a>
-                      </div>
-                    `
-                    : ''
-                }
-
-                ${
-                  email
-                    ? `
-                      <div>
-                        <strong>
-                          Email:
-                        </strong>
-
-                        <a
-                          href="mailto:${escapeHtml(
-                            email
-                          )}"
-                          style="color:#2563eb;text-decoration:none;"
-                        >
-                          ${escapeHtml(
-                            email
-                          )}
-                        </a>
-                      </div>
-                    `
-                    : ''
-                }
-
-                ${
-                  website
-                    ? `
-                      <div>
-                        <strong>
-                          Website:
-                        </strong>
-
-                        <a
-                          href="${escapeHtml(
-                            webUrl(website)
-                          )}"
-                          style="color:#2563eb;text-decoration:none;"
-                        >
-                          ${escapeHtml(
-                            website
-                          )}
-                        </a>
-                      </div>
-                    `
-                    : ''
-                }
-
-                ${
-                  license
-                    ? `
-                      <div>
-                        <strong>
-                          Agent License:
-                        </strong>
-
-                        ${escapeHtml(
-                          license
-                        )}
-                      </div>
-                    `
-                    : ''
-                }
-
-                ${
-                  officeAddress
-                    ? `
-                      <div>
-                        <strong>
-                          Office:
-                        </strong>
-
-                        ${escapeHtml(
-                          officeAddress
-                        )}
-                      </div>
-                    `
-                    : ''
-                }
-              </div>
-
-              ${
-                appointmentUrl
-                  ? `
-                    <table
-                      role="presentation"
-                      cellpadding="0"
-                      cellspacing="0"
-                      border="0"
-                      style="margin-top:15px;"
-                    >
-                      <tr>
-                        <td
-                          bgcolor="#2563eb"
-                          style="border-radius:9px;"
-                        >
-                          <a
-                            href="${escapeHtml(
-                              webUrl(
-                                appointmentUrl
-                              )
-                            )}"
-                            style="display:inline-block;padding:10px 16px;color:#ffffff;text-decoration:none;font-size:13px;font-weight:bold;"
-                          >
-                            Schedule an Appointment
-                          </a>
-                        </td>
-                      </tr>
-                    </table>
-                  `
-                  : ''
-              }
-
-              ${
-                serviceAreas
-                  ? `
-                    <div
-                      style="margin-top:14px;font-size:11px;line-height:1.5;color:#64748b;"
-                    >
-                      <strong>
-                        Service Areas:
-                      </strong>
-
-                      ${escapeHtml(
-                        serviceAreas
-                      )}
-                    </div>
-                  `
-                  : ''
-              }
-
-              ${
-                languages
-                  ? `
-                    <div
-                      style="margin-top:5px;font-size:11px;line-height:1.5;color:#64748b;"
-                    >
-                      <strong>
-                        Languages:
-                      </strong>
-
-                      ${escapeHtml(
-                        languages
-                      )}
-                    </div>
-                  `
-                  : ''
-              }
-
-              ${socialLinks(profile)}
+                </tr>
+              </table>
             </td>
           </tr>
         </table>
-
-        <table
-          role="presentation"
-          width="100%"
-          cellpadding="0"
-          cellspacing="0"
-          border="0"
-          style="margin-top:18px;background:#ffffff;border-radius:14px;"
-        >
-          <tr>
-            <td
-              style="padding:20px;text-align:center;font-family:Arial,sans-serif;color:#334155;"
-            >
-              <div
-                style="display:inline-block;border-radius:999px;background:#fef3c7;padding:6px 11px;font-size:11px;font-weight:bold;text-transform:uppercase;letter-spacing:1px;color:#92400e;"
-              >
-                ${escapeHtml(
-                  advertisementLabel
-                )}
-              </div>
-
-              <div
-                style="margin-top:12px;font-size:15px;font-weight:bold;color:#0f172a;"
-              >
-                ${escapeHtml(
-                  licensedBusinessName
-                )}
-              </div>
-
-              ${
-                brokerLicense
-                  ? `
-                    <div
-                      style="margin-top:4px;font-size:11px;color:#64748b;"
-                    >
-                      Brokerage License:
-                      ${escapeHtml(
-                        brokerLicense
-                      )}
-                    </div>
-                  `
-                  : ''
-              }
-
-              <div
-                style="margin-top:16px;"
-              >
-                <img
-                  src="${EQUAL_HOUSING_LOGO_URL}"
-                  alt="Equal Housing Opportunity"
-                  width="42"
-                  style="display:inline-block;width:42px;height:auto;"
-                />
-              </div>
-
-              <div
-                style="margin-top:5px;font-size:11px;font-weight:bold;color:#334155;"
-              >
-                Equal Housing Opportunity
-              </div>
-
-              <div
-                style="margin:11px auto 0;max-width:540px;font-size:9px;line-height:1.55;color:#64748b;"
-              >
-                ${escapeHtml(
-                  propertyDisclaimer
-                )}
-              </div>
-
-              ${
-                mlsAttribution
-                  ? `
-                    <div
-                      style="margin-top:10px;font-size:10px;line-height:1.6;color:#64748b;"
-                    >
-                      ${escapeHtml(
-                        mlsAttribution
-                      ).replace(
-                        /\n/g,
-                        '<br />'
-                      )}
-                    </div>
-                  `
-                  : ''
-              }
-
-              ${
-                personalDisclaimer
-                  ? `
-                    <div
-                      style="margin-top:10px;font-size:10px;line-height:1.6;color:#64748b;"
-                    >
-                      ${escapeHtml(
-                        personalDisclaimer
-                      ).replace(
-                        /\n/g,
-                        '<br />'
-                      )}
-                    </div>
-                  `
-                  : ''
-              }
-            </td>
-          </tr>
-        </table>
-
-        <div
-          style="margin-top:18px;text-align:center;font-size:11px;line-height:1.6;color:#cbd5e1;"
-        >
-          ${escapeHtml(
-            profile
-              .marketing_physical_address ||
-              'Valid physical postal address required'
-          )}
-        </div>
-
-        <div
-          style="margin-top:9px;text-align:center;font-size:11px;line-height:1.8;"
-        >
-          ${
-            privacyUrl
-              ? `
-                <a
-                  href="${escapeHtml(
-                    webUrl(
-                      privacyUrl
-                    )
-                  )}"
-                  style="color:#cbd5e1;margin-right:12px;"
-                >
-                  Privacy Policy
-                </a>
-              `
-              : ''
-          }
-
-          <a
-            href="{{preferences_url}}"
-            style="color:#cbd5e1;margin-right:12px;"
-          >
-            Email Preferences
-          </a>
-
-          <a
-            href="{{unsubscribe_url}}"
-            style="color:#cbd5e1;"
-          >
-            Unsubscribe
-          </a>
-        </div>
-
-        <div
-          style="margin-top:20px;text-align:center;"
-        >
-          <img
-            src="${PLATFORM_LOGO_URL}"
-            alt="easyrealtor.homes"
-            style="display:inline-block;max-width:190px;max-height:58px;width:auto;height:auto;"
-          />
-        </div>
-
-        <div
-          style="margin-top:7px;text-align:center;font-size:10px;color:#94a3b8;"
-        >
-          Email technology powered by easyrealtor.homes
-        </div>
-
-        <div
-          style="margin-top:5px;text-align:center;font-size:9px;line-height:1.5;color:#64748b;"
-        >
-          easyrealtor.homes is a technology platform and is not
-          the real-estate brokerage representing this property.
-        </div>
       </td>
     </tr>
   `;
@@ -864,135 +745,119 @@ export function buildMarketingContactText(
   profile:
     MarketingIdentityForEmail
 ) {
+  const displayName =
+    profile
+      .marketing_from_name
+      ?.trim() ||
+    'Real Estate Professional';
+
+  const titleLine = [
+    profile
+      .marketing_title
+      ?.trim(),
+    profile
+      .marketing_brokerage
+      ?.trim(),
+  ]
+    .filter(Boolean)
+    .join(' | ');
+
   const credentials = [
     ...(
       profile
         .marketing_designations ||
       []
     ),
-
     ...(
       profile
         .marketing_certifications ||
       []
     ),
-  ].join(', ');
+  ]
+    .filter(Boolean)
+    .join(' • ');
 
-  return [
+  const phone =
     profile
-      .marketing_advertisement_label ||
-      'Advertisement',
+      .marketing_phone
+      ?.trim() ||
+    '';
 
+  const email =
     profile
-      .marketing_licensed_business_name,
+      .marketing_reply_to_email
+      ?.trim() ||
+    profile
+      .marketing_from_email
+      ?.trim() ||
+    '';
 
+  const website =
+    profile
+      .marketing_website_url
+      ?.trim() ||
+    '';
+
+  const agentLicense =
+    profile
+      .marketing_license_number
+      ?.trim() ||
+    '';
+
+  const address =
+    profile
+      .marketing_physical_address
+      ?.trim() ||
+    profile
+      .marketing_office_address
+      ?.trim() ||
+    '';
+
+  const business =
+    profile
+      .marketing_licensed_business_name
+      ?.trim() ||
+    profile
+      .marketing_brokerage
+      ?.trim() ||
+    '';
+
+  const brokerLicense = [
     profile
       .marketing_broker_license_number
-      ? `Brokerage License: ${profile.marketing_broker_license_number}`
-      : '',
-
+      ?.trim(),
     profile
       .marketing_license_state
-      ? `License State: ${profile.marketing_license_state}`
-      : '',
+      ?.trim(),
+  ]
+    .filter(Boolean)
+    .join(' | ');
 
-    'Equal Housing Opportunity',
-    '',
-    profile.marketing_signature_text,
-    profile.marketing_from_name,
-
-    [
-      profile.marketing_title,
-      profile.marketing_brokerage,
-    ]
-      .filter(Boolean)
-      .join(' | '),
-
+  return [
+    displayName,
+    titleLine,
     credentials,
-
-    profile.marketing_phone
-      ? `Mobile: ${profile.marketing_phone}`
+    phone,
+    email,
+    website,
+    agentLicense
+      ? `Agent License: ${agentLicense}`
       : '',
-
-    profile.marketing_office_phone
-      ? `Office: ${profile.marketing_office_phone}`
+    address,
+    business,
+    brokerLicense
+      ? `Brokerage License: ${brokerLicense}`
       : '',
-
-    profile.marketing_reply_to_email ||
-      profile.marketing_from_email,
-
-    profile.marketing_website_url,
-
-    profile.marketing_appointment_url
-      ? `Appointments: ${profile.marketing_appointment_url}`
-      : '',
-
-    profile.marketing_license_number
-      ? `Agent License: ${profile.marketing_license_number}`
-      : '',
-
-    profile.marketing_office_address
-      ? `Office: ${profile.marketing_office_address}`
-      : '',
-
-    (
-      profile
-        .marketing_service_areas ||
-      []
-    ).length
-      ? `Service Areas: ${
-          (
-            profile
-              .marketing_service_areas ||
-            []
-          ).join(', ')
-        }`
-      : '',
-
-    (
-      profile
-        .marketing_languages ||
-      []
-    ).length
-      ? `Languages: ${
-          (
-            profile
-              .marketing_languages ||
-            []
-          ).join(', ')
-        }`
-      : '',
-
-    '',
     profile
-      .marketing_standard_disclaimer ||
+      .marketing_standard_disclaimer
+      ?.trim() ||
       DEFAULT_PROPERTY_DISCLAIMER,
-
-    profile
-      .marketing_mls_attribution,
-
-    profile
-      .marketing_disclaimer,
-
-    '',
-    profile.marketing_physical_address,
-
     profile
       .marketing_privacy_policy_url
-      ? `Privacy Policy: ${profile.marketing_privacy_policy_url}`
+      ?.trim()
+      ? `Privacy: ${profile.marketing_privacy_policy_url.trim()}`
       : '',
-
-    'Email Preferences: {{preferences_url}}',
-    'Unsubscribe: {{unsubscribe_url}}',
-    '',
-    'Email technology powered by easyrealtor.homes',
-    'easyrealtor.homes is a technology platform and is not the real-estate brokerage representing this property.',
   ]
-    .filter(
-      (line) =>
-        line !== null &&
-        line !== undefined &&
-        line !== ''
-    )
+    .filter(Boolean)
     .join('\n');
 }

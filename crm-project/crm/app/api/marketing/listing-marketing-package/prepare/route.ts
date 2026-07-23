@@ -16,6 +16,10 @@ import {
   supabaseAdmin,
 } from '../../../../../lib/supabaseAdmin';
 
+import {
+  loadSavedListingPhotoIntelligence,
+} from '../../../../../lib/server/listingPhotoIntelligence';
+
 export const dynamic =
   'force-dynamic';
 
@@ -686,7 +690,7 @@ export async function POST(
               true,
           }
         )
-        .limit(18),
+        .limit(100),
 
       supabaseAdmin
         .from(
@@ -853,6 +857,49 @@ export async function POST(
         .OPENAI_LISTING_WEBSITE_MODEL ||
       'gpt-4.1-mini';
 
+    const photoIntelligence =
+      await loadSavedListingPhotoIntelligence({
+        listingId:
+          listing.id,
+
+        photos,
+      });
+
+    const emailSlotPhotoIds =
+      photoIntelligence
+        .emailSlotPhotoIds;
+
+    const lockedEmailSlotIndexes =
+      new Set(
+        photoIntelligence
+          .lockedEmailSlotIndexes
+      );
+
+    const analysisByPhotoId =
+      new Map(
+        photoIntelligence
+          .analyses
+          .map(
+            (analysis) => [
+              analysis.media_id,
+              analysis,
+            ]
+          )
+      );
+
+    const analyzedPhotoCatalog =
+      photoCatalog.map(
+        (photo) => ({
+          ...photo,
+
+          ai_analysis:
+            analysisByPhotoId.get(
+              photo.photo_media_id
+            ) ||
+            null,
+        })
+      );
+
     const inputContent:
       Array<
         Record<string, unknown>
@@ -881,6 +928,11 @@ export async function POST(
           '- Do not use protected-class, demographic, safety, crime, investment-guarantee or buyer-profile language.',
           '- Select photo_media_id values only from the supplied photo catalog.',
           '- Prefer different, directly relevant photos for each major role.',
+          '- Use the supplied AI-analyzed photo catalog when choosing photographs for property website, social, flyer and video sections.',
+          '- The final six Email photographs are selected separately by deterministic CRM code using saved room classifications, quality scores, duplicate groups and manually locked slots.',
+          '- Do not infer a different room classification than the one supplied in ai_analysis.',
+          '- For the email section, email.body must be a concise one- or two-sentence property highlight, not the full public remarks, full listing description or complete MLS-style narrative.',
+          '- Keep email.body under 420 characters and focus only on the strongest property differentiators. The full listing description is displayed separately by the email renderer.',
           '- Email, social, flyer and video language may be polished but must remain factual.',
           '- Seller-report content must be a reusable report introduction and outline only. Do not fabricate activity statistics.',
           '- Map destinations, driving times and school research are handled by a separate verified research process. Do not provide them.',
@@ -893,9 +945,9 @@ export async function POST(
             2
           ),
           '',
-          'PHOTO CATALOG:',
+          'ANALYZED PHOTO CATALOG:',
           JSON.stringify(
-            photoCatalog,
+            analyzedPhotoCatalog,
             null,
             2
           ),
@@ -903,36 +955,6 @@ export async function POST(
       },
     ];
 
-    for (
-      const photo of photos
-    ) {
-      const imageUrl =
-        photo.public_url ||
-        photo.thumbnail_url;
-
-      if (!imageUrl) {
-        continue;
-      }
-
-      inputContent.push({
-        type:
-          'input_text',
-
-        text:
-          `The following image is PHOTO_MEDIA_ID ${photo.id}.`,
-      });
-
-      inputContent.push({
-        type:
-          'input_image',
-
-        image_url:
-          imageUrl,
-
-        detail:
-          'auto',
-      });
-    }
 
     const sharedSectionProperties = {
       template_key: {
@@ -1028,6 +1050,9 @@ export async function POST(
             body: {
               type:
                 'string',
+
+              maxLength:
+                420,
             },
 
             cta_label: {
@@ -1422,11 +1447,26 @@ export async function POST(
           existing
         );
 
-      const photoIds =
+      let photoIds =
         normalizePhotoIds(
           output.photo_media_ids,
           validPhotoIds
         );
+
+      if (
+        sectionKey ===
+        'email'
+      ) {
+        photoIds =
+          emailSlotPhotoIds.filter(
+            (
+              photoId
+            ): photoId is string =>
+              Boolean(
+                photoId
+              )
+          );
+      }
 
       const content = {
         ...output,
@@ -1450,7 +1490,18 @@ export async function POST(
             : undefined,
       };
 
+      const preserveExistingEmailContent =
+        sectionKey ===
+          'email' &&
+        Boolean(existing) &&
+        (
+          existing
+            ?.generation_version ||
+          0
+        ) > 0;
+
       if (
+        !preserveExistingEmailContent &&
         !existing
           ?.manual_override
       ) {
@@ -1578,8 +1629,47 @@ export async function POST(
         );
       }
 
+      const assignmentEntries =
+        sectionKey ===
+          'email'
+          ? emailSlotPhotoIds
+              .map(
+                (
+                  mediaId,
+                  index
+                ) => ({
+                  mediaId,
+                  index,
+                })
+              )
+              .filter(
+                (
+                  entry
+                ): entry is {
+                  mediaId:
+                    string;
+                  index:
+                    number;
+                } =>
+                  Boolean(
+                    entry.mediaId
+                  ) &&
+                  !lockedEmailSlotIndexes.has(
+                    entry.index
+                  )
+              )
+          : photoIds.map(
+              (
+                mediaId,
+                index
+              ) => ({
+                mediaId,
+                index,
+              })
+            );
+
       if (
-        photoIds.length >
+        assignmentEntries.length >
         0
       ) {
         const {
@@ -1590,11 +1680,11 @@ export async function POST(
             'listing_marketing_photo_assignments'
           )
           .insert(
-            photoIds.map(
-              (
+            assignmentEntries.map(
+              ({
                 mediaId,
-                index
-              ) => ({
+                index,
+              }) => ({
                 listing_id:
                   listing.id,
 

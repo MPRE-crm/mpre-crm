@@ -31,6 +31,11 @@ import {
   buildMarketingFooterHtml,
 } from '../../../../lib/marketing-email-footer';
 
+import {
+  buildEmailHtml as buildSharedEmailHtml,
+  buildTextBody as buildSharedTextBody,
+} from '../../../../lib/listing-email-creative';
+
 import GeneratedArtworkPanel from './GeneratedArtworkPanel';
 
 const supabase =
@@ -239,6 +244,14 @@ type Listing = {
 
   square_feet:
     | number
+    | null;
+
+  acres:
+    | number
+    | null;
+
+  lot_size_text:
+    | string
     | null;
 
   review_status: string;
@@ -1791,7 +1804,7 @@ export default function CampaignsPage() {
         return '';
       }
 
-      return buildEmailHtml({
+      return buildSharedEmailHtml({
         listing:
           selectedListing,
 
@@ -2063,6 +2076,8 @@ export default function CampaignsPage() {
             bedrooms,
             bathrooms,
             square_feet,
+            acres,
+            lot_size_text,
             review_status
           `)
           .order(
@@ -2653,7 +2668,7 @@ export default function CampaignsPage() {
           previewHtml,
 
         text_body:
-          buildTextBody(
+          buildSharedTextBody(
             selectedListing,
             headline,
             marketingDescription,
@@ -3750,7 +3765,3 @@ export default function CampaignsPage() {
     </div>
   );
 }
-
-
-
-

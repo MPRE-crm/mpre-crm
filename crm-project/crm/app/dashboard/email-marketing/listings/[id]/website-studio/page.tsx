@@ -38,6 +38,7 @@ import {
 } from '../../../../../../lib/supabase-browser';
 
 import ListingWebsiteEnrichmentPanel from '../../ListingWebsiteEnrichmentPanel';
+import ListingEmailStudioPanel from '../../ListingEmailStudioPanel';
 
 const supabase =
   getSupabaseBrowser();
@@ -72,6 +73,19 @@ type ListingRow = {
   review_status: string;
   website_status: string | null;
   public_url: string | null;
+  mls_number: string | null;
+  list_price: number | null;
+  listing_status: string;
+  unbranded_video_url: string | null;
+  campaign_headline: string | null;
+  short_marketing_description: string | null;
+  public_remarks: string | null;
+  description: string | null;
+  bedrooms: number | null;
+  bathrooms: number | null;
+  square_feet: number | null;
+  acres: number | null;
+  lot_size_text: string | null;
 };
 
 type SectionRow = {
@@ -335,6 +349,22 @@ const SECTION_DEFINITIONS:
           2,
         label:
           'Supporting Photo 3',
+      },
+      {
+        slotKey:
+          'supporting',
+        sortOrder:
+          3,
+        label:
+          'Supporting Photo 4',
+      },
+      {
+        slotKey:
+          'supporting',
+        sortOrder:
+          4,
+        label:
+          'Supporting Photo 5',
       },
     ],
   },
@@ -846,7 +876,20 @@ export default function MarketingStudioPage() {
             zip,
             review_status,
             website_status,
-            public_url
+            public_url,
+            mls_number,
+            list_price,
+            listing_status,
+            unbranded_video_url,
+            campaign_headline,
+            short_marketing_description,
+            public_remarks,
+            description,
+            bedrooms,
+            bathrooms,
+            square_feet,
+            acres,
+            lot_size_text
           `)
           .eq(
             'id',
@@ -1708,7 +1751,14 @@ export default function MarketingStudioPage() {
       ];
 
     return (
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div
+        className={
+          sectionKey ===
+          'email'
+            ? 'grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6'
+            : 'grid gap-3 sm:grid-cols-2 xl:grid-cols-4'
+        }
+      >
         {definition.photoSlots.map(
           (slot) => {
             const assignment =
@@ -1934,48 +1984,70 @@ export default function MarketingStudioPage() {
           />
         )}
 
-        <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h3 className="font-bold text-slate-950">
-                Samantha’s Draft
-              </h3>
+        {sectionKey ===
+          'email' &&
+        listing ? (
+          <ListingEmailStudioPanel
+            listing={
+              listing
+            }
+            section={
+              section
+            }
+            photos={
+              photos
+            }
+            assignments={
+              assignments
+            }
+            onRefresh={
+              loadStudio
+            }
+          />
+        ) : (
+          <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="font-bold text-slate-950">
+                  Samantha's Draft
+                </h3>
 
-              <p className="mt-1 text-sm text-slate-600">
-                Review the finished wording. Detailed editing controls come next.
-              </p>
+                <p className="mt-1 text-sm text-slate-600">
+                  Review the finished wording. Detailed editing controls come next.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                disabled={
+                  saving ||
+                  !section ||
+                  section.status ===
+                    'not_prepared'
+                }
+                onClick={() =>
+                  void approveSection(
+                    sectionKey
+                  )
+                }
+                className="inline-flex items-center gap-2 rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Check className="h-4 w-4" />
+
+                {section?.status ===
+                'approved'
+                  ? 'Approved'
+                  : 'Approve This Section'}
+              </button>
             </div>
 
-            <button
-              type="button"
-              disabled={
-                saving ||
-                !section ||
-                section.status ===
-                  'not_prepared'
-              }
-              onClick={() =>
-                void approveSection(
-                  sectionKey
-                )
-              }
-              className="inline-flex items-center gap-2 rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <Check className="h-4 w-4" />
-
-              {section?.status ===
-              'approved'
-                ? 'Approved'
-                : 'Approve This Section'}
-            </button>
-          </div>
-
-          <div className="mt-4">
-            {renderContent(
-              section
-            )}
-          </div>
-        </section>
+            <div className="mt-4">
+              {renderContent(
+                section
+              )}
+            </div>
+          </section>
+        )}
       </div>
     );
   }

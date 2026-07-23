@@ -1,10 +1,11 @@
-﻿'use client';
+'use client';
 
 import {
   ChangeEvent,
   DragEvent,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 
@@ -20,6 +21,13 @@ import {
   Video,
   X,
 } from 'lucide-react';
+
+import {
+  LISTING_PHOTO_CATEGORIES,
+  LISTING_PHOTO_CATEGORY_LABELS,
+  isListingPhotoCategory,
+  type ListingPhotoCategory,
+} from '../../../../lib/listing-photo-categories';
 
 import { getSupabaseBrowser } from '../../../../lib/supabase-browser';
 
@@ -67,6 +75,28 @@ type ListingMediaRow = {
   thumbnail_url: string | null;
 
   created_at: string;
+};
+
+type ListingPhotoAnalysisRow = {
+  media_id: string;
+
+  analysis_status:
+    | 'complete'
+    | 'failed'
+    | 'needs_review';
+
+  primary_category: string;
+  room_label: string | null;
+
+  quality_score: number;
+  marketing_score: number;
+  confidence: number;
+
+  label_source:
+    | 'samantha'
+    | 'user';
+
+  label_locked: boolean;
 };
 
 type Props = {
@@ -126,6 +156,52 @@ function isVideoFile(file: File) {
   );
 }
 
+function formatPhotoCategory(
+  value?: string | null
+) {
+  if (!value) {
+    return 'Pending label';
+  }
+
+  return value
+    .split('_')
+    .filter(Boolean)
+    .map(
+      (part) =>
+        part.charAt(0)
+          .toUpperCase() +
+        part.slice(1)
+    )
+    .join(' ');
+}
+
+function photoLabelText(
+  analysis?:
+    ListingPhotoAnalysisRow
+) {
+  const roomLabel =
+    analysis
+      ?.room_label
+      ?.trim();
+
+  if (roomLabel) {
+    return roomLabel;
+  }
+
+  if (
+    analysis
+      ?.analysis_status ===
+    'failed'
+  ) {
+    return 'Needs Review';
+  }
+
+  return formatPhotoCategory(
+    analysis
+      ?.primary_category
+  );
+}
+
 export default function ListingMediaManager({
   intakeSessionId,
   listingId = null,
@@ -159,6 +235,33 @@ export default function ListingMediaManager({
   const [notice, setNotice] =
     useState<string | null>(null);
 
+  const [
+    photoAnalyses,
+    setPhotoAnalyses,
+  ] = useState<
+    Record<
+      string,
+      ListingPhotoAnalysisRow
+    >
+  >({});
+
+  const [
+    analyzingPhotos,
+    setAnalyzingPhotos,
+  ] = useState(false);
+
+  const [
+    analysisProgress,
+    setAnalysisProgress,
+  ] = useState<string | null>(
+    null
+  );
+
+  const analysisRunKeyRef =
+    useRef<string | null>(
+      null
+    );
+
   const [photosOpen, setPhotosOpen] =
     useState(true);
 
@@ -169,6 +272,13 @@ export default function ListingMediaManager({
     selectedPhotoId,
     setSelectedPhotoId,
   ] = useState<string | null>(null);
+
+  const [
+    selectedPhotoCategory,
+    setSelectedPhotoCategory,
+  ] = useState<
+    ListingPhotoCategory
+  >('other');
 
   const [
     draggedPhotoId,
@@ -224,6 +334,31 @@ export default function ListingMediaManager({
       ) || null,
     [photos, selectedPhotoId]
   );
+
+  const selectedPhotoAnalysis =
+    selectedPhotoId
+      ? photoAnalyses[
+          selectedPhotoId
+        ]
+      : undefined;
+
+  useEffect(() => {
+    const currentCategory =
+      selectedPhotoAnalysis
+        ?.primary_category;
+
+    setSelectedPhotoCategory(
+      isListingPhotoCategory(
+        currentCategory
+      )
+        ? currentCategory
+        : 'other'
+    );
+  }, [
+    selectedPhotoId,
+    selectedPhotoAnalysis
+      ?.primary_category,
+  ]);
 
   const marketingPhotoCount = useMemo(
     () =>
@@ -348,8 +483,289 @@ export default function ListingMediaManager({
   }
 
   useEffect(() => {
+    analysisRunKeyRef.current =
+      null;
+
+    setPhotoAnalyses({});
+
     loadMedia();
   }, [intakeSessionId, listingId]);
+
+  async function analyzeListingPhotos(
+    runKey: string
+  ) {
+    if (!listingId) {
+      return;
+    }
+
+    try {
+      setAnalyzingPhotos(true);
+      setError(null);
+
+      setAnalysisProgress(
+        'Samantha is reviewing the listing photographs...'
+      );
+
+      const {
+        data:
+          sessionResult,
+        error:
+          sessionError,
+      } = await supabase
+        .auth
+        .getSession();
+
+      if (
+        sessionError ||
+        !sessionResult.session
+      ) {
+        throw new Error(
+          sessionError?.message ||
+            'Your CRM session expired.'
+        );
+      }
+
+      const accessToken =
+        sessionResult
+          .session
+          .access_token;
+
+      let requestNumber =
+        0;
+
+      let finished =
+        false;
+
+      let latestTotal =
+        photos.length;
+
+      let latestRemaining =
+        photos.length;
+
+      while (
+        !finished &&
+        requestNumber <
+          20
+      ) {
+        const response =
+          await fetch(
+            '/api/marketing/listing-photos/analyze',
+            {
+              method:
+                'POST',
+
+              headers: {
+                'Content-Type':
+                  'application/json',
+
+                Authorization:
+                  `Bearer ${accessToken}`,
+              },
+
+              cache:
+                'no-store',
+
+              body:
+                JSON.stringify({
+                  listing_id:
+                    listingId,
+                }),
+            }
+          );
+
+        const payload =
+          await response
+            .json()
+            .catch(
+              () => ({})
+            );
+
+        if (
+          !response.ok ||
+          payload?.ok !==
+            true
+        ) {
+          throw new Error(
+            payload?.error ||
+              'Samantha could not analyze the listing photographs.'
+          );
+        }
+
+        const analyses =
+          Array.isArray(
+            payload?.analyses
+          )
+            ? (
+                payload.analyses as
+                  ListingPhotoAnalysisRow[]
+              )
+            : [];
+
+        const nextById:
+          Record<
+            string,
+            ListingPhotoAnalysisRow
+          > = {};
+
+        for (
+          const analysis of
+          analyses
+        ) {
+          if (
+            analysis &&
+            typeof analysis.media_id ===
+              'string'
+          ) {
+            nextById[
+              analysis.media_id
+            ] = analysis;
+          }
+        }
+
+        setPhotoAnalyses(
+          nextById
+        );
+
+        latestTotal =
+          Number(
+            payload
+              ?.total_photo_count ||
+            photos.length
+          );
+
+        latestRemaining =
+          Math.max(
+            0,
+            Number(
+              payload
+                ?.remaining_count ||
+              0
+            )
+          );
+
+        const reviewedCount =
+          Math.max(
+            0,
+            latestTotal -
+              latestRemaining
+          );
+
+        setAnalysisProgress(
+          latestRemaining >
+            0
+            ? `Samantha reviewed ${reviewedCount} of ${latestTotal} photographs...`
+            : `Samantha finished reviewing ${latestTotal} photographs.`
+        );
+
+        const processedCount =
+          Number(
+            payload
+              ?.processed_count ||
+            0
+          );
+
+        finished =
+          Boolean(
+            payload?.complete
+          ) ||
+          latestRemaining <=
+            0 ||
+          processedCount <=
+            0;
+
+        requestNumber +=
+          1;
+      }
+
+      if (
+        analysisRunKeyRef
+          .current ===
+        runKey
+      ) {
+        setNotice(
+          latestRemaining >
+            0
+            ? `Samantha reviewed ${latestTotal - latestRemaining} of ${latestTotal} photographs. The remaining photographs can be retried later.`
+            : `Samantha finished labeling ${latestTotal} listing photographs.`
+        );
+      }
+    }
+    catch (
+      err: any
+    ) {
+      if (
+        analysisRunKeyRef
+          .current ===
+        runKey
+      ) {
+        setError(
+          err?.message ||
+            'Samantha could not analyze the listing photographs.'
+        );
+      }
+    }
+    finally {
+      if (
+        analysisRunKeyRef
+          .current ===
+        runKey
+      ) {
+        setAnalyzingPhotos(
+          false
+        );
+
+        setAnalysisProgress(
+          null
+        );
+      }
+    }
+  }
+
+  useEffect(() => {
+    if (
+      !listingId ||
+      loading ||
+      photos.length ===
+        0
+    ) {
+      return;
+    }
+
+    const runKey = [
+      listingId,
+
+      photos
+        .map(
+          (photo) =>
+            [
+              photo.id,
+              photo.public_url ||
+                photo.thumbnail_url ||
+                '',
+            ].join(':')
+        )
+        .join('|'),
+    ].join(':');
+
+    if (
+      analysisRunKeyRef
+        .current ===
+      runKey
+    ) {
+      return;
+    }
+
+    analysisRunKeyRef.current =
+      runKey;
+
+    void analyzeListingPhotos(
+      runKey
+    );
+  }, [
+    listingId,
+    loading,
+    photos,
+  ]);
 
   function nextSortOrder(
     mediaType: 'photo' | 'video'
@@ -1129,6 +1545,143 @@ export default function ListingMediaManager({
     }
   }
 
+  async function saveVerifiedPhotoLabel() {
+    if (
+      !listingId ||
+      !selectedPhoto
+    ) {
+      setError(
+        'A saved listing and photograph are required.'
+      );
+
+      return;
+    }
+
+    try {
+      setWorkingId(
+        `photo-label:${selectedPhoto.id}`
+      );
+
+      setError(null);
+      setNotice(null);
+
+      const {
+        data:
+          sessionResult,
+        error:
+          sessionError,
+      } = await supabase
+        .auth
+        .getSession();
+
+      if (
+        sessionError ||
+        !sessionResult.session
+      ) {
+        throw new Error(
+          sessionError?.message ||
+            'Your CRM session expired.'
+        );
+      }
+
+      const response =
+        await fetch(
+          '/api/marketing/listing-photos/label',
+          {
+            method:
+              'POST',
+
+            headers: {
+              'Content-Type':
+                'application/json',
+
+              Authorization:
+                `Bearer ${sessionResult.session.access_token}`,
+            },
+
+            cache:
+              'no-store',
+
+            body:
+              JSON.stringify({
+                listing_id:
+                  listingId,
+
+                media_id:
+                  selectedPhoto.id,
+
+                primary_category:
+                  selectedPhotoCategory,
+              }),
+          }
+        );
+
+      const payload =
+        await response
+          .json()
+          .catch(
+            () => ({})
+          );
+
+      if (
+        !response.ok ||
+        payload?.ok !==
+          true ||
+        !payload?.analysis
+      ) {
+        throw new Error(
+          payload?.error ||
+            'The photograph label could not be saved.'
+        );
+      }
+
+      const updatedAnalysis =
+        payload.analysis as
+          ListingPhotoAnalysisRow;
+
+      setPhotoAnalyses(
+        (current) => ({
+          ...current,
+
+          [
+            updatedAnalysis
+              .media_id
+          ]:
+            updatedAnalysis,
+        })
+      );
+
+      if (
+        isListingPhotoCategory(
+          updatedAnalysis
+            .primary_category
+        )
+      ) {
+        setSelectedPhotoCategory(
+          updatedAnalysis
+            .primary_category
+        );
+      }
+
+      setNotice(
+        `${photoLabelText(
+          updatedAnalysis
+        )} saved as a verified photograph label.`
+      );
+    }
+    catch (
+      err: any
+    ) {
+      setError(
+        err?.message ||
+          'The photograph label could not be saved.'
+      );
+    }
+    finally {
+      setWorkingId(null);
+    }
+  }
+
   async function deleteMedia(
     media: ListingMediaRow
   ) {
@@ -1332,6 +1885,15 @@ export default function ListingMediaManager({
         </div>
       )}
 
+      {analyzingPhotos && (
+        <div className="mt-4 flex items-center gap-2 rounded-xl border border-violet-200 bg-violet-50 p-3 text-sm font-medium text-violet-700">
+          <Loader2 className="h-4 w-4 animate-spin" />
+
+          {analysisProgress ||
+            'Samantha is labeling the listing photographs...'}
+        </div>
+      )}
+
       <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-3">
         <label className="rounded-2xl border border-blue-200 bg-white p-4">
           <div className="flex items-center gap-2 font-semibold text-slate-900">
@@ -1428,7 +1990,7 @@ export default function ListingMediaManager({
             </div>
 
             <div className="text-xs text-slate-500">
-              {photos.length} stored ·{' '}
+              {photos.length} stored |{' '}
               {marketingPhotoCount} selected for marketing
             </div>
           </div>
@@ -1495,109 +2057,156 @@ export default function ListingMediaManager({
               photos.length > 0 && (
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8">
                   {photos.map(
-                    (photo, index) => (
-                      <button
-                        key={photo.id}
-                        type="button"
-                        draggable
-                        onDragStart={(
-                          event
-                        ) =>
-                          handleDragStart(
-                            event,
-                            photo.id
-                          )
-                        }
-                        onDragOver={(
-                          event
-                        ) =>
-                          event.preventDefault()
-                        }
-                        onDrop={(
-                          event
-                        ) =>
-                          handleDrop(
-                            event,
-                            photo.id
-                          )
-                        }
-                        onDragEnd={() =>
-                          setDraggedPhotoId(
-                            null
-                          )
-                        }
-                        onClick={() =>
-                          setSelectedPhotoId(
-                            photo.id
-                          )
-                        }
-                        className={
-                          draggedPhotoId ===
+                    (
+                      photo,
+                      index
+                    ) => {
+                      const analysis =
+                        photoAnalyses[
                           photo.id
-                            ? 'group relative aspect-square overflow-hidden rounded-xl border-2 border-blue-500 bg-slate-100 opacity-50'
-                            : photo.is_primary
-                            ? 'group relative aspect-square overflow-hidden rounded-xl border-2 border-amber-400 bg-slate-100'
-                            : photo.use_in_marketing
-                            ? 'group relative aspect-square overflow-hidden rounded-xl border-2 border-emerald-400 bg-slate-100'
-                            : 'group relative aspect-square overflow-hidden rounded-xl border border-slate-200 bg-slate-100 opacity-60'
-                        }
-                      >
-                        <img
-                          src={
-                            photo.public_url
-                          }
-                          alt={
-                            photo.caption ||
-                            photo.file_name
-                          }
-                          className="h-full w-full object-cover transition group-hover:scale-105"
-                        />
+                        ];
 
-                        <div className="absolute left-1.5 top-1.5 inline-flex items-center gap-1 rounded-full bg-slate-900/75 px-2 py-1 text-[10px] font-bold text-white">
-                          <GripVertical className="h-3 w-3" />
-                          {index + 1}
-                        </div>
+                      const label =
+                        photoLabelText(
+                          analysis
+                        );
 
-                        {photo.is_primary && (
-                          <div className="absolute right-1.5 top-1.5 rounded-full bg-amber-400 p-1.5 text-amber-950 shadow">
-                            <Star className="h-3.5 w-3.5 fill-current" />
-                          </div>
-                        )}
-
+                      return (
                         <div
-                          className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center justify-between gap-1 rounded-lg bg-slate-900/75 px-2 py-1 text-[10px] font-semibold text-white"
-                          onClick={(
-                            event
-                          ) =>
-                            event.stopPropagation()
+                          key={
+                            photo.id
                           }
+                          className="min-w-0"
                         >
-                          <span>
-                            Use
-                          </span>
-
-                          <input
-                            type="checkbox"
-                            aria-label={`Use ${photo.file_name} in marketing`}
-                            checked={
-                              photo
-                                .use_in_marketing
-                            }
-                            disabled={
-                              photo.is_primary ||
-                              workingId !==
-                                null
-                            }
-                            onChange={() =>
-                              toggleMarketingPhoto(
-                                photo
+                          <button
+                            type="button"
+                            draggable
+                            onDragStart={(
+                              event
+                            ) =>
+                              handleDragStart(
+                                event,
+                                photo.id
                               )
                             }
-                            className="h-4 w-4"
-                          />
+                            onDragOver={(
+                              event
+                            ) =>
+                              event.preventDefault()
+                            }
+                            onDrop={(
+                              event
+                            ) =>
+                              handleDrop(
+                                event,
+                                photo.id
+                              )
+                            }
+                            onDragEnd={() =>
+                              setDraggedPhotoId(
+                                null
+                              )
+                            }
+                            onClick={() =>
+                              setSelectedPhotoId(
+                                photo.id
+                              )
+                            }
+                            className={
+                              draggedPhotoId ===
+                              photo.id
+                                ? 'group relative aspect-square w-full overflow-hidden rounded-xl border-2 border-blue-500 bg-slate-100 opacity-50'
+                                : photo.is_primary
+                                ? 'group relative aspect-square w-full overflow-hidden rounded-xl border-2 border-amber-400 bg-slate-100'
+                                : photo.use_in_marketing
+                                ? 'group relative aspect-square w-full overflow-hidden rounded-xl border-2 border-emerald-400 bg-slate-100'
+                                : 'group relative aspect-square w-full overflow-hidden rounded-xl border border-slate-200 bg-slate-100 opacity-60'
+                            }
+                          >
+                            <img
+                              src={
+                                photo.public_url
+                              }
+                              alt={
+                                photo.caption ||
+                                photo.file_name
+                              }
+                              className="h-full w-full object-cover transition group-hover:scale-105"
+                            />
+
+                            <div className="absolute left-1.5 top-1.5 inline-flex items-center gap-1 rounded-full bg-slate-900/75 px-2 py-1 text-[10px] font-bold text-white">
+                              <GripVertical className="h-3 w-3" />
+                              {index + 1}
+                            </div>
+
+                            {photo.is_primary && (
+                              <div className="absolute right-1.5 top-1.5 rounded-full bg-amber-400 p-1.5 text-amber-950 shadow">
+                                <Star className="h-3.5 w-3.5 fill-current" />
+                              </div>
+                            )}
+
+                            <div
+                              className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center justify-between gap-1 rounded-lg bg-slate-900/75 px-2 py-1 text-[10px] font-semibold text-white"
+                              onClick={(
+                                event
+                              ) =>
+                                event.stopPropagation()
+                              }
+                            >
+                              <span>
+                                Use
+                              </span>
+
+                              <input
+                                type="checkbox"
+                                aria-label={`Use ${photo.file_name} in marketing`}
+                                checked={
+                                  photo
+                                    .use_in_marketing
+                                }
+                                disabled={
+                                  photo.is_primary ||
+                                  workingId !==
+                                    null
+                                }
+                                onChange={() =>
+                                  toggleMarketingPhoto(
+                                    photo
+                                  )
+                                }
+                                className="h-4 w-4"
+                              />
+                            </div>
+                          </button>
+
+                          <div className="mt-1 min-h-[34px] px-1 text-center">
+                            <div
+                              className="truncate text-[11px] font-semibold text-slate-700"
+                              title={
+                                label
+                              }
+                            >
+                              {label}
+                            </div>
+
+                            <div className="mt-0.5 text-[10px] text-slate-500">
+                              {analysis
+                                ? analysis
+                                    .label_locked
+                                  ? 'User verified'
+                                  : analysis
+                                      .analysis_status ===
+                                    'failed'
+                                  ? 'Needs review'
+                                  : 'Samantha label'
+                                : analyzingPhotos
+                                ? 'Analyzing...'
+                                : 'Pending'}
+                            </div>
+                          </div>
                         </div>
-                      </button>
-                    )
+                      );
+                    }
                   )}
                 </div>
               )}
@@ -1665,7 +2274,7 @@ export default function ListingMediaManager({
                           {formatBytes(
                             video.file_size_bytes
                           )}
-                          {' · '}
+                          {' Â· '}
 
                           {video.branding_type ===
                           'branded'
@@ -1760,11 +2369,90 @@ export default function ListingMediaManager({
 
                   <div className="mt-1 text-xs text-slate-500">
                     {selectedPhoto.is_primary
-                      ? 'Primary photo · Position #1'
+                      ? 'Primary photo Â· Position #1'
                       : selectedPhoto
                           .use_in_marketing
                       ? 'Selected for marketing'
                       : 'Stored but excluded from marketing'}
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-violet-200 bg-violet-50 p-4">
+                  <div className="text-sm font-semibold text-slate-900">
+                    Verified Photo Category
+                  </div>
+
+                  <p className="mt-1 text-xs text-slate-600">
+                    Correct Samantha's label when needed. Saving locks the category so Samantha cannot overwrite it.
+                  </p>
+
+                  <select
+                    value={
+                      selectedPhotoCategory
+                    }
+                    onChange={(
+                      event
+                    ) =>
+                      setSelectedPhotoCategory(
+                        event.target
+                          .value as
+                          ListingPhotoCategory
+                      )
+                    }
+                    disabled={
+                      workingId !==
+                      null
+                    }
+                    className="mt-3 w-full rounded-xl border border-violet-200 bg-white px-3 py-2 text-sm text-slate-900"
+                  >
+                    {LISTING_PHOTO_CATEGORIES.map(
+                      (category) => (
+                        <option
+                          key={
+                            category
+                          }
+                          value={
+                            category
+                          }
+                        >
+                          {
+                            LISTING_PHOTO_CATEGORY_LABELS[
+                              category
+                            ]
+                          }
+                        </option>
+                      )
+                    )}
+                  </select>
+
+                  <button
+                    type="button"
+                    onClick={
+                      saveVerifiedPhotoLabel
+                    }
+                    disabled={
+                      workingId !==
+                        null ||
+                      !selectedPhotoAnalysis
+                    }
+                    className="mt-3 inline-flex w-full items-center justify-center rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {workingId ===
+                    `photo-label:${selectedPhoto.id}`
+                      ? 'Saving Verified Label...'
+                      : selectedPhotoAnalysis
+                          ?.label_locked
+                      ? 'Update Verified Label'
+                      : 'Save Verified Label'}
+                  </button>
+
+                  <div className="mt-2 text-center text-xs font-medium text-violet-700">
+                    {selectedPhotoAnalysis
+                      ?.label_locked
+                      ? 'User verified and locked'
+                      : selectedPhotoAnalysis
+                      ? 'Currently labeled by Samantha'
+                      : 'Waiting for Samantha analysis'}
                   </div>
                 </div>
 
