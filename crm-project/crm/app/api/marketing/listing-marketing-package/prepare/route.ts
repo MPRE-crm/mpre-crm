@@ -100,10 +100,19 @@ type PhotoRow = {
 
 type ExistingSection = {
   section_key: SectionKey;
+  status: string;
   template_key: string;
   template_locked: boolean;
+  content:
+    Record<string, unknown>;
   manual_override: boolean;
   generation_version: number;
+  approved_at:
+    | string
+    | null;
+  approved_by:
+    | string
+    | null;
 };
 
 type GeneratedSection = {
@@ -361,6 +370,831 @@ function normalizePhotoIds(
   }
 
   return output;
+}
+
+const EMAIL_EDITION_KEYS = [
+  'launch',
+  'views_lifestyle',
+  'design_interiors',
+  'property_in_motion',
+  'closer_look',
+  'agent_spotlight',
+  'fresh_opportunity',
+] as const;
+
+type EmailEditionKey =
+  typeof EMAIL_EDITION_KEYS[number];
+
+const EMAIL_EDITION_LABELS:
+  Record<
+    EmailEditionKey,
+    string
+  > = {
+  launch:
+    'Luxury Launch',
+
+  views_lifestyle:
+    'Views & Lifestyle',
+
+  design_interiors:
+    'Design & Interiors',
+
+  property_in_motion:
+    'Property in Motion',
+
+  closer_look:
+    'A Closer Look',
+
+  agent_spotlight:
+    'Agent Spotlight',
+
+  fresh_opportunity:
+    'Fresh Opportunity',
+};
+
+const EMAIL_EDITION_DEFAULT_CTA:
+  Record<
+    EmailEditionKey,
+    string
+  > = {
+  launch:
+    'View Full Listing',
+
+  views_lifestyle:
+    'Experience the Property',
+
+  design_interiors:
+    'Explore the Interiors',
+
+  property_in_motion:
+    'Watch the Property Film',
+
+  closer_look:
+    'Take a Closer Look',
+
+  agent_spotlight:
+    'Share With Your Buyers',
+
+  fresh_opportunity:
+    'Revisit the Property',
+};
+
+const EMAIL_EDITION_SLOT_PRIORITIES:
+  Record<
+    EmailEditionKey,
+    string[][]
+  > = {
+  launch: [
+    [
+      'front_exterior',
+      'exterior',
+    ],
+    [
+      'kitchen',
+    ],
+    [
+      'living_room',
+    ],
+    [
+      'primary_bedroom',
+      'bedroom',
+    ],
+    [
+      'primary_bathroom',
+      'bathroom',
+    ],
+    [
+      'view',
+      'patio',
+      'backyard',
+      'pool',
+      'shop',
+      'garage',
+      'office',
+      'bonus_room',
+    ],
+  ],
+
+  views_lifestyle: [
+    [
+      'view',
+      'patio',
+      'backyard',
+      'pool',
+      'exterior',
+    ],
+    [
+      'patio',
+      'backyard',
+      'pool',
+      'view',
+    ],
+    [
+      'view',
+      'exterior',
+      'front_exterior',
+    ],
+    [
+      'backyard',
+      'patio',
+      'pool',
+      'community',
+    ],
+    [
+      'front_exterior',
+      'exterior',
+    ],
+    [
+      'living_room',
+      'dining_room',
+      'kitchen',
+    ],
+  ],
+
+  design_interiors: [
+    [
+      'kitchen',
+      'living_room',
+      'dining_room',
+    ],
+    [
+      'living_room',
+      'kitchen',
+    ],
+    [
+      'kitchen',
+      'dining_room',
+    ],
+    [
+      'primary_bathroom',
+      'bathroom',
+    ],
+    [
+      'primary_bedroom',
+      'bedroom',
+    ],
+    [
+      'detail',
+      'office',
+      'bonus_room',
+    ],
+  ],
+
+  property_in_motion: [
+    [
+      'front_exterior',
+      'exterior',
+    ],
+    [
+      'living_room',
+    ],
+    [
+      'kitchen',
+    ],
+    [
+      'dining_room',
+      'living_room',
+    ],
+    [
+      'primary_bedroom',
+      'bedroom',
+    ],
+    [
+      'patio',
+      'backyard',
+      'view',
+      'pool',
+    ],
+  ],
+
+  closer_look: [
+    [
+      'detail',
+      'office',
+      'bonus_room',
+      'shop',
+      'garage',
+    ],
+    [
+      'detail',
+      'primary_bathroom',
+      'bathroom',
+    ],
+    [
+      'office',
+      'bonus_room',
+      'laundry',
+    ],
+    [
+      'shop',
+      'garage',
+    ],
+    [
+      'primary_bathroom',
+      'primary_bedroom',
+    ],
+    [
+      'patio',
+      'backyard',
+      'view',
+    ],
+  ],
+
+  agent_spotlight: [
+    [
+      'front_exterior',
+      'exterior',
+    ],
+    [
+      'kitchen',
+    ],
+    [
+      'living_room',
+    ],
+    [
+      'primary_bedroom',
+      'bedroom',
+    ],
+    [
+      'primary_bathroom',
+      'bathroom',
+    ],
+    [
+      'view',
+      'patio',
+      'backyard',
+      'shop',
+      'garage',
+    ],
+  ],
+
+  fresh_opportunity: [
+    [
+      'view',
+      'patio',
+      'backyard',
+      'exterior',
+      'front_exterior',
+    ],
+    [
+      'primary_bathroom',
+      'primary_bedroom',
+      'office',
+    ],
+    [
+      'dining_room',
+      'living_room',
+      'kitchen',
+    ],
+    [
+      'shop',
+      'garage',
+      'bonus_room',
+    ],
+    [
+      'detail',
+      'patio',
+      'pool',
+    ],
+    [
+      'front_exterior',
+      'exterior',
+      'view',
+    ],
+  ],
+};
+
+type EditionPhotoAnalysis = {
+  media_id: string;
+  analysis_status: string;
+  primary_category: string;
+  quality_score: number;
+  marketing_score: number;
+  confidence: number;
+  is_usable: boolean;
+  duplicate_group:
+    | string
+    | null;
+};
+
+function isRecord(
+  value: unknown
+): value is
+  Record<string, unknown> {
+  return Boolean(
+    value
+  ) &&
+    typeof value ===
+      'object' &&
+    !Array.isArray(
+      value
+    );
+}
+
+function normalizeEmailEditionKey(
+  value: unknown
+): EmailEditionKey {
+  const cleaned =
+    cleanText(
+      value,
+      100
+    );
+
+  return EMAIL_EDITION_KEYS.includes(
+    cleaned as
+      EmailEditionKey
+  )
+    ? (
+        cleaned as
+          EmailEditionKey
+      )
+    : 'launch';
+}
+
+function selectEmailEditionPhotoIds({
+  editionKey,
+  photos,
+  analyses,
+  launchSlotPhotoIds,
+  lockedSlotIndexes,
+}: {
+  editionKey:
+    EmailEditionKey;
+  photos:
+    PhotoRow[];
+  analyses:
+    EditionPhotoAnalysis[];
+  launchSlotPhotoIds:
+    Array<string | null>;
+  lockedSlotIndexes:
+    Set<number>;
+}) {
+  if (
+    editionKey ===
+    'launch'
+  ) {
+    return launchSlotPhotoIds
+      .filter(
+        (
+          photoId
+        ): photoId is string =>
+          Boolean(photoId)
+      )
+      .slice(
+        0,
+        6
+      );
+  }
+
+  const currentPhotoIds =
+    new Set(
+      photos.map(
+        (photo) =>
+          photo.id
+      )
+    );
+
+  const photoOrder =
+    new Map(
+      photos.map(
+        (
+          photo,
+          index
+        ) => [
+          photo.id,
+          photo.sort_order ??
+            index,
+        ]
+      )
+    );
+
+  const launchPhotoIdSet =
+    new Set(
+      launchSlotPhotoIds.filter(
+        (
+          photoId
+        ): photoId is string =>
+          Boolean(photoId)
+      )
+    );
+
+  const output:
+    Array<string | null> = [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+  ];
+
+  const usedIds =
+    new Set<string>();
+
+  const usedDuplicateGroups =
+    new Set<string>();
+
+  const usedCategories =
+    new Set<string>();
+
+  const analysisById =
+    new Map(
+      analyses.map(
+        (analysis) => [
+          analysis.media_id,
+          analysis,
+        ]
+      )
+    );
+
+  function markUsed(
+    mediaId: string
+  ) {
+    usedIds.add(
+      mediaId
+    );
+
+    const analysis =
+      analysisById.get(
+        mediaId
+      );
+
+    if (
+      analysis
+        ?.duplicate_group
+    ) {
+      usedDuplicateGroups.add(
+        analysis
+          .duplicate_group
+      );
+    }
+
+    if (analysis) {
+      usedCategories.add(
+        analysis
+          .primary_category
+      );
+    }
+  }
+
+  for (
+    const lockedIndex of
+    lockedSlotIndexes
+  ) {
+    const mediaId =
+      launchSlotPhotoIds[
+        lockedIndex
+      ];
+
+    if (
+      mediaId &&
+      currentPhotoIds.has(
+        mediaId
+      ) &&
+      lockedIndex >=
+        0 &&
+      lockedIndex <
+        output.length
+    ) {
+      output[
+        lockedIndex
+      ] = mediaId;
+
+      markUsed(
+        mediaId
+      );
+    }
+  }
+
+  const ranked =
+    analyses
+      .filter(
+        (analysis) =>
+          currentPhotoIds.has(
+            analysis.media_id
+          ) &&
+          analysis
+            .analysis_status !==
+            'failed' &&
+          analysis.is_usable &&
+          analysis.confidence >=
+            0.35 &&
+          analysis
+            .primary_category !==
+            'floor_plan' &&
+          analysis
+            .primary_category !==
+            'hallway' &&
+          analysis
+            .primary_category !==
+            'foyer'
+      )
+      .slice()
+      .sort(
+        (
+          left,
+          right
+        ) => {
+          const freshLeftPenalty =
+            editionKey ===
+              'fresh_opportunity' &&
+            launchPhotoIdSet.has(
+              left.media_id
+            )
+              ? 1000
+              : 0;
+
+          const freshRightPenalty =
+            editionKey ===
+              'fresh_opportunity' &&
+            launchPhotoIdSet.has(
+              right.media_id
+            )
+              ? 1000
+              : 0;
+
+          const leftScore =
+            left.marketing_score *
+              3 +
+            left.quality_score *
+              2 +
+            left.confidence *
+              50 -
+            freshLeftPenalty;
+
+          const rightScore =
+            right.marketing_score *
+              3 +
+            right.quality_score *
+              2 +
+            right.confidence *
+              50 -
+            freshRightPenalty;
+
+          if (
+            rightScore !==
+            leftScore
+          ) {
+            return (
+              rightScore -
+              leftScore
+            );
+          }
+
+          return (
+            (
+              photoOrder.get(
+                left.media_id
+              ) ||
+              0
+            ) -
+            (
+              photoOrder.get(
+                right.media_id
+              ) ||
+              0
+            )
+          );
+        }
+      );
+
+  function isAvailable(
+    analysis:
+      EditionPhotoAnalysis,
+    allowDuplicateCategory =
+      false,
+    allowDuplicateGroup =
+      false
+  ) {
+    if (
+      usedIds.has(
+        analysis.media_id
+      )
+    ) {
+      return false;
+    }
+
+    if (
+      !allowDuplicateGroup &&
+      analysis
+        .duplicate_group &&
+      usedDuplicateGroups.has(
+        analysis
+          .duplicate_group
+      )
+    ) {
+      return false;
+    }
+
+    if (
+      !allowDuplicateCategory &&
+      usedCategories.has(
+        analysis
+          .primary_category
+      )
+    ) {
+      return false;
+    }
+
+    return true;
+  }
+
+  for (
+    let slotIndex = 0;
+    slotIndex <
+      output.length;
+    slotIndex += 1
+  ) {
+    if (
+      output[
+        slotIndex
+      ]
+    ) {
+      continue;
+    }
+
+    const categoryPriorities =
+      EMAIL_EDITION_SLOT_PRIORITIES[
+        editionKey
+      ][
+        slotIndex
+      ] || [];
+
+    let candidate:
+      EditionPhotoAnalysis |
+      undefined;
+
+    for (
+      const category of
+      categoryPriorities
+    ) {
+      candidate =
+        ranked.find(
+          (analysis) =>
+            analysis
+              .primary_category ===
+              category &&
+            isAvailable(
+              analysis
+            )
+        );
+
+      if (candidate) {
+        break;
+      }
+    }
+
+    if (!candidate) {
+      for (
+        const category of
+        categoryPriorities
+      ) {
+        candidate =
+          ranked.find(
+            (analysis) =>
+              analysis
+                .primary_category ===
+                category &&
+              isAvailable(
+                analysis,
+                true
+              )
+          );
+
+        if (candidate) {
+          break;
+        }
+      }
+    }
+
+    if (!candidate) {
+      candidate =
+        ranked.find(
+          (analysis) =>
+            isAvailable(
+              analysis
+            )
+        );
+    }
+
+    if (!candidate) {
+      candidate =
+        ranked.find(
+          (analysis) =>
+            isAvailable(
+              analysis,
+              true
+            )
+        );
+    }
+
+    if (!candidate) {
+      candidate =
+        ranked.find(
+          (analysis) =>
+            isAvailable(
+              analysis,
+              true,
+              true
+            )
+        );
+    }
+
+    if (candidate) {
+      output[
+        slotIndex
+      ] =
+        candidate.media_id;
+
+      markUsed(
+        candidate.media_id
+      );
+    }
+  }
+
+  const fallbackPhotos =
+    photos
+      .filter(
+        (photo) =>
+          currentPhotoIds.has(
+            photo.id
+          )
+      )
+      .slice()
+      .sort(
+        (
+          left,
+          right
+        ) => {
+          if (
+            left.is_primary !==
+            right.is_primary
+          ) {
+            return left.is_primary
+              ? -1
+              : 1;
+          }
+
+          return (
+            (
+              left.sort_order ||
+              0
+            ) -
+            (
+              right.sort_order ||
+              0
+            )
+          );
+        }
+      );
+
+  for (
+    let slotIndex = 0;
+    slotIndex <
+      output.length;
+    slotIndex += 1
+  ) {
+    if (
+      output[
+        slotIndex
+      ]
+    ) {
+      continue;
+    }
+
+    const fallback =
+      fallbackPhotos.find(
+        (photo) =>
+          !usedIds.has(
+            photo.id
+          )
+      );
+
+    if (!fallback) {
+      break;
+    }
+
+    output[
+      slotIndex
+    ] =
+      fallback.id;
+
+    markUsed(
+      fallback.id
+    );
+  }
+
+  return output
+    .filter(
+      (
+        photoId
+      ): photoId is string =>
+        Boolean(photoId)
+    )
+    .slice(
+      0,
+      6
+    );
 }
 
 function assignmentSlot(
@@ -726,10 +1560,14 @@ export async function POST(
         )
         .select(`
           section_key,
+          status,
           template_key,
           template_locked,
+          content,
           manual_override,
-          generation_version
+          generation_version,
+          approved_at,
+          approved_by
         `)
         .eq(
           'listing_id',
@@ -929,10 +1767,21 @@ export async function POST(
           '- Select photo_media_id values only from the supplied photo catalog.',
           '- Prefer different, directly relevant photos for each major role.',
           '- Use the supplied AI-analyzed photo catalog when choosing photographs for property website, social, flyer and video sections.',
-          '- The final six Email photographs are selected separately by deterministic CRM code using saved room classifications, quality scores, duplicate groups and manually locked slots.',
+          '- Email photographs are selected separately by deterministic CRM code using saved room classifications, visual summaries, feature tags, quality scores, duplicate groups and manually locked slots.',
           '- Do not infer a different room classification than the one supplied in ai_analysis.',
-          '- For the email section, email.body must be a concise one- or two-sentence property highlight, not the full public remarks, full listing description or complete MLS-style narrative.',
-          '- Keep email.body under 420 characters and focus only on the strongest property differentiators. The full listing description is displayed separately by the email renderer.',
+          '- For email, create seven materially different marketing stories inside email.editions.',
+          '- Luxury Launch is the complete first impression and strongest overall introduction.',
+          '- Views & Lifestyle focuses on verified scenery, exterior setting, patios, yards, acreage, pools and outdoor living that are actually supported.',
+          '- Design & Interiors focuses on verified kitchens, living spaces, suites, finishes, visible materials, craftsmanship and room flow.',
+          '- Property in Motion is video-led and focuses on how the spaces connect and how the residence is experienced while moving through it. Do not claim a property film exists unless a video URL is supplied.',
+          '- A Closer Look focuses on verified overlooked details such as offices, bonus rooms, storage, garages, shops, specialty rooms and distinctive visible features.',
+          '- Agent Spotlight speaks directly to real-estate professionals about why their buyers should review or tour the property. Do not discuss compensation or make unsupported showing claims.',
+          '- Fresh Opportunity gives the property a genuinely new marketing angle without claiming that the listing is new, newly listed, just listed or recently relisted.',
+          '- Every edition must have its own subject, preview text, headline, body, full description and call-to-action.',
+          '- Do not repeat the same headline, opening sentence or central selling argument across editions.',
+          '- Each edition body must be concise, factual and under 520 characters.',
+          '- Each edition full_description may contain two to four short factual paragraphs and must remain under 1600 characters.',
+          '- Refer only to supported listing facts and visible details contained in the analyzed photo catalog.',
           '- Email, social, flyer and video language may be polished but must remain factual.',
           '- Seller-report content must be a reusable report introduction and outline only. Do not fabricate activity statistics.',
           '- Map destinations, driving times and school research are handled by a separate verified research process. Do not provide them.',
@@ -971,6 +1820,61 @@ export async function POST(
             'string',
         },
       },
+    };
+
+    const emailEditionSchema = {
+      type:
+        'object',
+
+      properties: {
+        subject: {
+          type:
+            'string',
+        },
+
+        preview_text: {
+          type:
+            'string',
+        },
+
+        headline: {
+          type:
+            'string',
+        },
+
+        body: {
+          type:
+            'string',
+
+          maxLength:
+            520,
+        },
+
+        full_description: {
+          type:
+            'string',
+
+          maxLength:
+            1600,
+        },
+
+        cta_label: {
+          type:
+            'string',
+        },
+      },
+
+      required: [
+        'subject',
+        'preview_text',
+        'headline',
+        'body',
+        'full_description',
+        'cta_label',
+      ],
+
+      additionalProperties:
+        false,
     };
 
     const schema = {
@@ -1032,43 +1936,45 @@ export async function POST(
           properties: {
             ...sharedSectionProperties,
 
-            subject: {
+            editions: {
               type:
-                'string',
-            },
+                'object',
 
-            preview_text: {
-              type:
-                'string',
-            },
+              properties: {
+                launch:
+                  emailEditionSchema,
 
-            headline: {
-              type:
-                'string',
-            },
+                views_lifestyle:
+                  emailEditionSchema,
 
-            body: {
-              type:
-                'string',
+                design_interiors:
+                  emailEditionSchema,
 
-              maxLength:
-                420,
-            },
+                property_in_motion:
+                  emailEditionSchema,
 
-            cta_label: {
-              type:
-                'string',
+                closer_look:
+                  emailEditionSchema,
+
+                agent_spotlight:
+                  emailEditionSchema,
+
+                fresh_opportunity:
+                  emailEditionSchema,
+              },
+
+              required:
+                EMAIL_EDITION_KEYS,
+
+              additionalProperties:
+                false,
             },
           },
 
           required: [
             'template_key',
             'photo_media_ids',
-            'subject',
-            'preview_text',
-            'headline',
-            'body',
-            'cta_label',
+            'editions',
           ],
 
           additionalProperties:
@@ -1327,7 +2233,7 @@ export async function POST(
               },
 
               max_output_tokens:
-                9000,
+                14000,
             }),
         }
       );
@@ -1468,42 +2374,424 @@ export async function POST(
           );
       }
 
-      const content = {
-        ...output,
-
-        template_key:
-          undefined,
-
-        photo_media_ids:
-          undefined,
-
-        location_research_status:
-          sectionKey ===
-          'property_website'
-            ? 'not_started'
-            : undefined,
-
-        school_research_status:
-          sectionKey ===
-          'property_website'
-            ? 'not_started'
-            : undefined,
-      };
-
-      const preserveExistingEmailContent =
-        sectionKey ===
-          'email' &&
-        Boolean(existing) &&
-        (
-          existing
-            ?.generation_version ||
-          0
-        ) > 0;
+      let content:
+        Record<string, unknown>;
 
       if (
-        !preserveExistingEmailContent &&
+        sectionKey ===
+        'email'
+      ) {
+        const existingContent =
+          isRecord(
+            existing?.content
+          )
+            ? existing
+                ?.content ||
+              {}
+            : {};
+
+        const existingEditionSource =
+          isRecord(
+            existingContent
+              .editions
+          )
+            ? existingContent
+                .editions
+            : {};
+
+        const generatedEditionSource =
+          isRecord(
+            output.editions
+          )
+            ? output.editions
+            : {};
+
+        const legacyLaunch = {
+          subject:
+            cleanText(
+              existingContent
+                .subject,
+              220
+            ),
+
+          preview_text:
+            cleanText(
+              existingContent
+                .preview_text,
+              400
+            ),
+
+          headline:
+            cleanText(
+              existingContent
+                .headline,
+              260
+            ),
+
+          body:
+            cleanText(
+              existingContent
+                .body,
+              520
+            ),
+
+          full_description:
+            cleanText(
+              existingContent
+                .full_description,
+              1600
+            ),
+
+          cta_label:
+            cleanText(
+              existingContent
+                .cta_label,
+              100
+            ) ||
+            'View Full Listing',
+
+          photo_media_ids:
+            emailSlotPhotoIds
+              .filter(
+                (
+                  photoId
+                ): photoId is string =>
+                  Boolean(
+                    photoId
+                  )
+              ),
+
+          status:
+            existing?.status ||
+            'needs_review',
+
+          approved_at:
+            existing
+              ?.approved_at ||
+            null,
+
+          approved_by:
+            existing
+              ?.approved_by ||
+            null,
+
+          manual_override:
+            Boolean(
+              existing
+                ?.manual_override
+            ),
+        };
+
+        const editionContent:
+          Record<
+            EmailEditionKey,
+            Record<string, unknown>
+          > = {} as
+            Record<
+              EmailEditionKey,
+              Record<string, unknown>
+            >;
+
+        for (
+          const editionKey of
+          EMAIL_EDITION_KEYS
+        ) {
+          const generatedCandidate =
+            isRecord(
+              generatedEditionSource[
+                editionKey
+              ]
+            )
+              ? generatedEditionSource[
+                  editionKey
+                ] as
+                  Record<
+                    string,
+                    unknown
+                  >
+              : {};
+
+          const storedCandidate =
+            isRecord(
+              existingEditionSource[
+                editionKey
+              ]
+            )
+              ? existingEditionSource[
+                  editionKey
+                ] as
+                  Record<
+                    string,
+                    unknown
+                  >
+              : (
+                  editionKey ===
+                    'launch' &&
+                  (
+                    existing
+                      ?.generation_version ||
+                    0
+                  ) > 0
+                    ? legacyLaunch
+                    : null
+                );
+
+          const preserveStored =
+            Boolean(
+              storedCandidate
+            ) &&
+            (
+              editionKey ===
+                'launch' &&
+              (
+                existing
+                  ?.generation_version ||
+                0
+              ) > 0 ||
+              storedCandidate
+                ?.status ===
+                'approved' ||
+              storedCandidate
+                ?.manual_override ===
+                true
+            );
+
+          const selectedPhotoIds =
+            selectEmailEditionPhotoIds({
+              editionKey,
+
+              photos,
+
+              analyses:
+                photoIntelligence
+                  .analyses,
+
+              launchSlotPhotoIds:
+                emailSlotPhotoIds,
+
+              lockedSlotIndexes:
+                lockedEmailSlotIndexes,
+            });
+
+          if (
+            preserveStored &&
+            storedCandidate
+          ) {
+            const preservedPhotoIds =
+              normalizePhotoIds(
+                storedCandidate
+                  .photo_media_ids,
+                validPhotoIds
+              );
+
+            editionContent[
+              editionKey
+            ] = {
+              ...storedCandidate,
+
+              photo_media_ids:
+                preservedPhotoIds.length >
+                0
+                  ? preservedPhotoIds
+                  : selectedPhotoIds,
+            };
+
+            continue;
+          }
+
+          const fallbackBody =
+            cleanText(
+              listing
+                .short_marketing_description ||
+              listing.public_remarks ||
+              listing.description,
+              520
+            );
+
+          const generatedBody =
+            cleanText(
+              generatedCandidate
+                .body,
+              520
+            ) ||
+            fallbackBody;
+
+          editionContent[
+            editionKey
+          ] = {
+            subject:
+              cleanText(
+                generatedCandidate
+                  .subject,
+                220
+              ) ||
+              `${listing.title} | ${
+                EMAIL_EDITION_LABELS[
+                  editionKey
+                ]
+              }`,
+
+            preview_text:
+              cleanText(
+                generatedCandidate
+                  .preview_text,
+                400
+              ) ||
+              generatedBody,
+
+            headline:
+              cleanText(
+                generatedCandidate
+                  .headline,
+                260
+              ) ||
+              listing
+                .campaign_headline ||
+              listing.title,
+
+            body:
+              generatedBody,
+
+            full_description:
+              cleanText(
+                generatedCandidate
+                  .full_description,
+                1600
+              ) ||
+              generatedBody ||
+              cleanText(
+                listing
+                  .public_remarks ||
+                listing.description,
+                1600
+              ),
+
+            cta_label:
+              cleanText(
+                generatedCandidate
+                  .cta_label,
+                100
+              ) ||
+              EMAIL_EDITION_DEFAULT_CTA[
+                editionKey
+              ],
+
+            photo_media_ids:
+              selectedPhotoIds,
+
+            status:
+              'needs_review',
+
+            approved_at:
+              null,
+
+            approved_by:
+              null,
+
+            manual_override:
+              false,
+
+            generated_at:
+              preparedAt,
+
+            generation_model:
+              model,
+          };
+        }
+
+        const selectedEditionKey =
+          normalizeEmailEditionKey(
+            existingContent
+              .luxury_edition
+          );
+
+        const selectedEdition =
+          editionContent[
+            selectedEditionKey
+          ];
+
+        photoIds =
+          normalizePhotoIds(
+            selectedEdition
+              .photo_media_ids,
+            validPhotoIds
+          );
+
+        content = {
+          ...existingContent,
+
+          subject:
+            selectedEdition
+              .subject,
+
+          preview_text:
+            selectedEdition
+              .preview_text,
+
+          headline:
+            selectedEdition
+              .headline,
+
+          body:
+            selectedEdition
+              .body,
+
+          full_description:
+            selectedEdition
+              .full_description,
+
+          cta_label:
+            selectedEdition
+              .cta_label,
+
+          luxury_edition:
+            selectedEditionKey,
+
+          editions:
+            editionContent,
+
+          generated_asset_id:
+            null,
+
+          generated_asset_url:
+            null,
+
+          generated_asset_format:
+            null,
+        };
+      }
+      else {
+        content = {
+          ...output,
+
+          template_key:
+            undefined,
+
+          photo_media_ids:
+            undefined,
+
+          location_research_status:
+            sectionKey ===
+            'property_website'
+              ? 'not_started'
+              : undefined,
+
+          school_research_status:
+            sectionKey ===
+            'property_website'
+              ? 'not_started'
+              : undefined,
+        };
+      }
+
+      const shouldSaveSection =
+        sectionKey ===
+          'email' ||
         !existing
-          ?.manual_override
+          ?.manual_override;
+
+      if (
+        shouldSaveSection
       ) {
         const {
           data:
@@ -1529,7 +2817,12 @@ export async function POST(
                 sectionKey,
 
               status:
-                'needs_review',
+                sectionKey ===
+                  'email' &&
+                existing
+                  ?.status
+                  ? existing.status
+                  : 'needs_review',
 
               template_key:
                 templateKey,
@@ -1542,7 +2835,13 @@ export async function POST(
               content,
 
               manual_override:
-                false,
+                sectionKey ===
+                  'email'
+                  ? Boolean(
+                      existing
+                        ?.manual_override
+                    )
+                  : false,
 
               generation_version:
                 (
@@ -1561,10 +2860,20 @@ export async function POST(
                 preparedAt,
 
               approved_at:
-                null,
+                sectionKey ===
+                  'email'
+                  ? existing
+                      ?.approved_at ||
+                    null
+                  : null,
 
               approved_by:
-                null,
+                sectionKey ===
+                  'email'
+                  ? existing
+                      ?.approved_by ||
+                    null
+                  : null,
 
               last_error:
                 null,

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import {
+  AlertTriangle,
   BarChart3,
   Building2,
   Mail,
@@ -33,6 +34,7 @@ type Contact = {
   last_name: string | null;
   display_name: string | null;
   company: string | null;
+  contact_review_status: string;
   email: string | null;
   phone: string | null;
   contact_type: string;
@@ -170,6 +172,7 @@ export default function EmailMarketingPage() {
             last_name,
             display_name,
             company,
+            contact_review_status,
             email,
             phone,
             contact_type,
@@ -267,6 +270,36 @@ export default function EmailMarketingPage() {
         (contact) => contact.contact_type === 'realtor'
       ),
     [activeContacts]
+  );
+
+  const brokerageCount = useMemo(
+    () =>
+      new Set(
+        realtorContacts
+          .map((contact) => contact.company?.trim())
+          .filter(
+            (company): company is string =>
+              Boolean(company)
+          )
+      ).size,
+    [realtorContacts]
+  );
+
+  const unknownBrokerageCount = useMemo(
+    () =>
+      realtorContacts.filter(
+        (contact) => !contact.company?.trim()
+      ).length,
+    [realtorContacts]
+  );
+
+  const needsReviewCount = useMemo(
+    () =>
+      contacts.filter(
+        (contact) =>
+          contact.contact_review_status === 'needs_review'
+      ).length,
+    [contacts]
   );
 
   const activeListings = useMemo(
@@ -375,7 +408,7 @@ export default function EmailMarketingPage() {
         </div>
       )}
 
-      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-6">
         <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 shadow-sm">
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
             <Users className="h-4 w-4 text-blue-600" />
@@ -403,6 +436,36 @@ export default function EmailMarketingPage() {
 
           <div className="mt-1 text-xs text-slate-500">
             Active Realtor email contacts
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 shadow-sm">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <Building2 className="h-4 w-4 text-violet-600" />
+            Brokerages
+          </div>
+
+          <div className="mt-2 text-3xl font-bold text-slate-900">
+            {brokerageCount}
+          </div>
+
+          <div className="mt-1 text-xs text-slate-500">
+            {unknownBrokerageCount} Realtor contacts unverified
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <AlertTriangle className="h-4 w-4 text-amber-600" />
+            Directory Reviews
+          </div>
+
+          <div className="mt-2 text-3xl font-bold text-slate-900">
+            {needsReviewCount}
+          </div>
+
+          <div className="mt-1 text-xs text-slate-500">
+            Waiting for verification or conflict review
           </div>
         </div>
 

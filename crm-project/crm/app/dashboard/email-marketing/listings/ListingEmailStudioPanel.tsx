@@ -3,6 +3,7 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 
@@ -24,9 +25,12 @@ import {
 
 import {
   buildEmailHtml,
+  LUXURY_EMAIL_EDITIONS,
+  normalizeLuxuryEmailEdition,
   normalizeTemplateKey,
   type Listing,
   type ListingPhoto,
+  type LuxuryEmailEditionKey,
   type Profile,
 } from '../../../../lib/listing-email-creative';
 
@@ -105,6 +109,207 @@ function stringValue(
     ? value
     : fallback;
 }
+
+function recordValue(
+  value: unknown
+): Record<string, unknown> {
+  return Boolean(value) &&
+    typeof value ===
+      'object' &&
+    !Array.isArray(value)
+    ? (
+        value as
+          Record<string, unknown>
+      )
+    : {};
+}
+
+function stringArrayValue(
+  value: unknown
+) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const output:
+    string[] = [];
+
+  for (const item of value) {
+    const cleaned =
+      stringValue(item)
+        .trim();
+
+    if (
+      cleaned &&
+      !output.includes(cleaned)
+    ) {
+      output.push(cleaned);
+    }
+  }
+
+  return output;
+}
+
+type EmailEditionStatus =
+  | 'not_prepared'
+  | 'needs_review'
+  | 'approved';
+
+type EmailEditionDraft = {
+  subject: string;
+  preview_text: string;
+  headline: string;
+  body: string;
+  full_description: string;
+  cta_label: string;
+  photo_media_ids: string[];
+  status:
+    EmailEditionStatus;
+  approved_at:
+    | string
+    | null;
+  approved_by:
+    | string
+    | null;
+  manual_override: boolean;
+  [key: string]: unknown;
+};
+
+function editionStatusValue(
+  value: unknown
+): EmailEditionStatus {
+  return value ===
+      'approved' ||
+    value ===
+      'needs_review'
+    ? value
+    : 'not_prepared';
+}
+
+function normalizeEmailEditionDraft(
+  value: unknown,
+  fallback:
+    Partial<
+      EmailEditionDraft
+    > = {}
+): EmailEditionDraft {
+  const source =
+    recordValue(value);
+
+  const sourcePhotoIds =
+    stringArrayValue(
+      source.photo_media_ids
+    );
+
+  return {
+    ...source,
+
+    subject:
+      stringValue(
+        source.subject,
+        fallback.subject ||
+          ''
+      ),
+
+    preview_text:
+      stringValue(
+        source.preview_text,
+        fallback.preview_text ||
+          ''
+      ),
+
+    headline:
+      stringValue(
+        source.headline,
+        fallback.headline ||
+          ''
+      ),
+
+    body:
+      stringValue(
+        source.body,
+        fallback.body ||
+          ''
+      ),
+
+    full_description:
+      stringValue(
+        source.full_description,
+        fallback.full_description ||
+          ''
+      ),
+
+    cta_label:
+      stringValue(
+        source.cta_label,
+        fallback.cta_label ||
+          'View Full Listing'
+      ),
+
+    photo_media_ids:
+      sourcePhotoIds.length >
+      0
+        ? sourcePhotoIds
+        : fallback
+            .photo_media_ids ||
+          [],
+
+    status:
+      editionStatusValue(
+        source.status ??
+        fallback.status
+      ),
+
+    approved_at:
+      stringValue(
+        source.approved_at,
+        fallback.approved_at ||
+          ''
+      ) ||
+      null,
+
+    approved_by:
+      stringValue(
+        source.approved_by,
+        fallback.approved_by ||
+          ''
+      ) ||
+      null,
+
+    manual_override:
+      Boolean(
+        source.manual_override ??
+        fallback.manual_override
+      ),
+  };
+}
+
+const LUXURY_EMAIL_EDITION_DEFAULT_CTA:
+  Record<
+    LuxuryEmailEditionKey,
+    string
+  > = {
+  launch:
+    'View Full Listing',
+
+  views_lifestyle:
+    'Experience the Property',
+
+  design_interiors:
+    'Explore the Interiors',
+
+  property_in_motion:
+    'Watch the Property Film',
+
+  closer_look:
+    'Take a Closer Look',
+
+  agent_spotlight:
+    'Share With Your Buyers',
+
+  fresh_opportunity:
+    'Revisit the Property',
+};
 
 function assignmentRank(
   assignment:
@@ -308,6 +513,83 @@ export default function ListingEmailStudioPanel({
       section?.template_key
     );
 
+  const [
+    luxuryEdition,
+    setLuxuryEdition,
+  ] = useState<
+    LuxuryEmailEditionKey
+  >('launch');
+
+  const editionDraftsRef =
+    useRef<
+      Partial<
+        Record<
+          LuxuryEmailEditionKey,
+          EmailEditionDraft
+        >
+      >
+    >({});
+
+  const [
+    editionPhotoIds,
+    setEditionPhotoIds,
+  ] = useState<
+    string[]
+  >([]);
+
+  const [
+    editionStatus,
+    setEditionStatus,
+  ] = useState<
+    EmailEditionStatus
+  >('not_prepared');
+
+  const activeEditionPhotos =
+    useMemo(() => {
+      const photoById =
+        new Map(
+          photos.map(
+            (photo) => [
+              photo.id,
+              photo,
+            ]
+          )
+        );
+
+      const output:
+        StudioEmailPhoto[] = [];
+
+      const seen =
+        new Set<string>();
+
+      for (
+        const photoId of
+        editionPhotoIds
+      ) {
+        const photo =
+          photoById.get(
+            photoId
+          );
+
+        if (
+          photo &&
+          !seen.has(photo.id)
+        ) {
+          output.push(photo);
+          seen.add(photo.id);
+        }
+      }
+
+      return output.length >
+        0
+        ? output
+        : selectedPhotos;
+    }, [
+      photos,
+      editionPhotoIds,
+      selectedPhotos,
+    ]);
+
   useEffect(() => {
     const content =
       section?.content ||
@@ -325,50 +607,185 @@ export default function ListingEmailStudioPanel({
       listing.description ||
       '';
 
+    const selectedEditionKey =
+      normalizeLuxuryEmailEdition(
+        content.luxury_edition
+      );
+
+    const storedEditions =
+      recordValue(
+        content.editions
+      );
+
+    const launchPhotoIds =
+      selectedPhotos.map(
+        (photo) =>
+          photo.id
+      );
+
+    const legacyLaunch =
+      normalizeEmailEditionDraft(
+        storedEditions.launch,
+        {
+          subject:
+            stringValue(
+              content.subject,
+              `New Listing: ${listing.title}`
+            ),
+
+          preview_text:
+            stringValue(
+              content.preview_text,
+              fallbackBody
+            ),
+
+          headline:
+            stringValue(
+              content.headline,
+              fallbackHeadline
+            ),
+
+          body:
+            stringValue(
+              content.body,
+              fallbackBody
+            ),
+
+          full_description:
+            stringValue(
+              content.full_description,
+              listing.public_remarks ||
+                listing.description ||
+                ''
+            ),
+
+          cta_label:
+            stringValue(
+              content.cta_label,
+              'View Full Listing'
+            ),
+
+          photo_media_ids:
+            launchPhotoIds,
+
+          status:
+            editionStatusValue(
+              section?.status
+            ),
+
+          approved_at:
+            section
+              ?.approved_at ||
+            null,
+
+          approved_by:
+            null,
+
+          manual_override:
+            Boolean(
+              section
+                ?.manual_override
+            ),
+        }
+      );
+
+    const nextDrafts:
+      Partial<
+        Record<
+          LuxuryEmailEditionKey,
+          EmailEditionDraft
+        >
+      > = {};
+
+    for (
+      const edition of
+      LUXURY_EMAIL_EDITIONS
+    ) {
+      const fallbackDraft =
+        edition.value ===
+          'launch'
+          ? legacyLaunch
+          : normalizeEmailEditionDraft(
+              null,
+              {
+                cta_label:
+                  LUXURY_EMAIL_EDITION_DEFAULT_CTA[
+                    edition.value
+                  ],
+
+                status:
+                  'not_prepared',
+
+                photo_media_ids:
+                  [],
+              }
+            );
+
+      nextDrafts[
+        edition.value
+      ] =
+        normalizeEmailEditionDraft(
+          storedEditions[
+            edition.value
+          ],
+          fallbackDraft
+        );
+    }
+
+    editionDraftsRef.current =
+      nextDrafts;
+
+    const activeDraft =
+      nextDrafts[
+        selectedEditionKey
+      ] ||
+      legacyLaunch;
+
+    setLuxuryEdition(
+      selectedEditionKey
+    );
+
     setSubject(
-      stringValue(
-        content.subject,
-        `New Listing: ${listing.title}`
-      )
+      activeDraft.subject
     );
 
     setPreviewText(
-      stringValue(
-        content.preview_text,
-        fallbackBody
-      )
+      activeDraft.preview_text
     );
 
     setHeadline(
-      stringValue(
-        content.headline,
-        fallbackHeadline
-      )
+      activeDraft.headline
     );
 
     setBody(
-      stringValue(
-        content.body,
-        fallbackBody
-      )
+      activeDraft.body
     );
 
     setFullDescription(
-      stringValue(
-        content.full_description,
-        listing.public_remarks ||
-          listing.description ||
-          ''
-      )
+      activeDraft
+        .full_description
     );
 
     setCtaLabel(
-      stringValue(
-        content.cta_label,
-        'View Full Listing'
-      )
+      activeDraft.cta_label
     );
 
+    setEditionPhotoIds(
+      activeDraft
+        .photo_media_ids
+        .length >
+      0
+        ? activeDraft
+            .photo_media_ids
+        : selectedEditionKey ===
+            'launch'
+          ? launchPhotoIds
+          : []
+    );
+
+    setEditionStatus(
+      activeDraft.status
+    );
 
     setDirty(false);
 
@@ -381,6 +798,7 @@ export default function ListingEmailStudioPanel({
   }, [
     listing,
     section,
+    selectedPhotos,
   ]);
 
   useEffect(() => {
@@ -534,18 +952,18 @@ export default function ListingEmailStudioPanel({
         },
 
         photos:
-          selectedPhotos,
+          activeEditionPhotos,
 
         photoCount:
           Math.max(
             1,
-            selectedPhotos.length
+            activeEditionPhotos.length
           ),
 
         headline,
 
         description:
-          '',
+          body,
 
         previewText,
 
@@ -553,6 +971,8 @@ export default function ListingEmailStudioPanel({
           'listing_ad',
 
         templateKey,
+
+        luxuryEdition,
 
         generatedArtworkUrl:
           '',
@@ -568,11 +988,13 @@ export default function ListingEmailStudioPanel({
     }, [
       profile,
       listing,
-      selectedPhotos,
+      activeEditionPhotos,
       headline,
+      body,
       fullDescription,
       previewText,
       templateKey,
+      luxuryEdition,
       ctaLabel,
     ]);
 
@@ -597,6 +1019,146 @@ export default function ListingEmailStudioPanel({
       profile
         ?.marketing_privacy_policy_url
     );
+
+  function switchLuxuryEdition(
+    nextEdition:
+      LuxuryEmailEditionKey
+  ) {
+    if (
+      nextEdition ===
+      luxuryEdition
+    ) {
+      return;
+    }
+
+    const currentWasDirty =
+      dirty;
+
+    const currentStored =
+      normalizeEmailEditionDraft(
+        editionDraftsRef
+          .current[
+          luxuryEdition
+        ],
+        {
+          cta_label:
+            LUXURY_EMAIL_EDITION_DEFAULT_CTA[
+              luxuryEdition
+            ],
+
+          status:
+            editionStatus,
+
+          photo_media_ids:
+            editionPhotoIds,
+        }
+      );
+
+    editionDraftsRef.current[
+      luxuryEdition
+    ] = {
+      ...currentStored,
+
+      subject,
+
+      preview_text:
+        previewText,
+
+      headline,
+
+      body,
+
+      full_description:
+        fullDescription,
+
+      cta_label:
+        ctaLabel,
+
+      photo_media_ids:
+        editionPhotoIds,
+
+      status:
+        editionStatus,
+
+      manual_override:
+        currentStored
+          .manual_override ||
+        currentWasDirty,
+    };
+
+    const nextDraft =
+      normalizeEmailEditionDraft(
+        editionDraftsRef
+          .current[
+          nextEdition
+        ],
+        {
+          cta_label:
+            LUXURY_EMAIL_EDITION_DEFAULT_CTA[
+              nextEdition
+            ],
+
+          status:
+            'not_prepared',
+
+          photo_media_ids:
+            [],
+        }
+      );
+
+    setLuxuryEdition(
+      nextEdition
+    );
+
+    setSubject(
+      nextDraft.subject
+    );
+
+    setPreviewText(
+      nextDraft.preview_text
+    );
+
+    setHeadline(
+      nextDraft.headline
+    );
+
+    setBody(
+      nextDraft.body
+    );
+
+    setFullDescription(
+      nextDraft
+        .full_description
+    );
+
+    setCtaLabel(
+      nextDraft.cta_label
+    );
+
+    setEditionPhotoIds(
+      nextDraft
+        .photo_media_ids
+        .length >
+      0
+        ? nextDraft
+            .photo_media_ids
+        : nextEdition ===
+            'launch'
+          ? selectedPhotos.map(
+              (photo) =>
+                photo.id
+            )
+          : []
+    );
+
+    setEditionStatus(
+      nextDraft.status
+    );
+
+    setDirty(false);
+    setError(null);
+    setNotice(null);
+  }
 
   function changeField(
     setter:
@@ -666,8 +1228,29 @@ export default function ListingEmailStudioPanel({
               .toISOString()
           : null;
 
-      const nextContent = {
-        ...section.content,
+      const storedEdition =
+        normalizeEmailEditionDraft(
+          editionDraftsRef
+            .current[
+            luxuryEdition
+          ],
+          {
+            cta_label:
+              LUXURY_EMAIL_EDITION_DEFAULT_CTA[
+                luxuryEdition
+              ],
+
+            status:
+              editionStatus,
+
+            photo_media_ids:
+              editionPhotoIds,
+          }
+        );
+
+      const nextEditionDraft:
+        EmailEditionDraft = {
+        ...storedEdition,
 
         subject:
           subject.trim(),
@@ -686,6 +1269,87 @@ export default function ListingEmailStudioPanel({
 
         cta_label:
           ctaLabel.trim(),
+
+        photo_media_ids:
+          editionPhotoIds,
+
+        status:
+          nextStatus,
+
+        approved_at:
+          approvedAt,
+
+        approved_by:
+          nextStatus ===
+            'approved'
+            ? userResult
+                .user.id
+            : null,
+
+        manual_override:
+          storedEdition
+            .manual_override ||
+          dirty,
+      };
+
+      const nextEditionDrafts:
+        Partial<
+          Record<
+            LuxuryEmailEditionKey,
+            EmailEditionDraft
+          >
+        > = {
+        ...editionDraftsRef
+          .current,
+
+        [luxuryEdition]:
+          nextEditionDraft,
+      };
+
+      editionDraftsRef.current =
+        nextEditionDrafts;
+
+      const nextEditions = {
+        ...recordValue(
+          section.content
+            .editions
+        ),
+
+        ...nextEditionDrafts,
+      };
+
+      const nextContent = {
+        ...section.content,
+
+        subject:
+          nextEditionDraft
+            .subject,
+
+        preview_text:
+          nextEditionDraft
+            .preview_text,
+
+        headline:
+          nextEditionDraft
+            .headline,
+
+        body:
+          nextEditionDraft
+            .body,
+
+        full_description:
+          nextEditionDraft
+            .full_description,
+
+        cta_label:
+          nextEditionDraft
+            .cta_label,
+
+        luxury_edition:
+          luxuryEdition,
+
+        editions:
+          nextEditions,
 
         generated_asset_id:
           null,
@@ -738,12 +1402,23 @@ export default function ListingEmailStudioPanel({
 
       setDirty(false);
       setEditing(false);
+      setEditionStatus(
+        nextStatus
+      );
+
+      const editionLabel =
+        LUXURY_EMAIL_EDITIONS.find(
+          (edition) =>
+            edition.value ===
+            luxuryEdition
+        )?.label ||
+        'Luxury email edition';
 
       setNotice(
         nextStatus ===
         'approved'
-          ? 'Email advertisement approved.'
-          : 'Email draft saved. Review the preview, then approve it.'
+          ? `${editionLabel} approved.`
+          : `${editionLabel} draft saved. Review the preview, then approve it.`
       );
 
       await onRefresh();
@@ -786,7 +1461,7 @@ export default function ListingEmailStudioPanel({
             </h3>
 
             <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
-              Choose a complete email style, then finalize the subject, wording and selected property photos here.
+              Review each Samantha-created marketing story, its wording and the property photos chosen to support that angle.
             </p>
           </div>
 
@@ -847,13 +1522,104 @@ export default function ListingEmailStudioPanel({
             >
               <Check className="h-4 w-4" />
 
-              {section?.status ===
+              {editionStatus ===
               'approved'
                 ? 'Approved'
-                : 'Approve Email'}
+                : 'Approve Edition'}
             </button>
           </div>
         </div>
+
+        {templateKey ===
+          'luxury' && (
+          <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50/60 p-4">
+            <div className="text-sm font-bold text-slate-950">
+              Luxury Email Edition
+            </div>
+
+            <div className="mt-1 text-sm leading-6 text-slate-600">
+              Samantha creates a different marketing story, message and photo collection for each property angle.
+            </div>
+
+            <div className="mt-4 grid gap-3 lg:grid-cols-3">
+              {LUXURY_EMAIL_EDITIONS.map(
+                (edition) => {
+                  const selected =
+                    luxuryEdition ===
+                    edition.value;
+
+                  const editionState =
+                    selected
+                      ? editionStatus
+                      : editionStatusValue(
+                          editionDraftsRef
+                            .current[
+                            edition.value
+                          ]?.status
+                        );
+
+                  return (
+                    <button
+                      key={
+                        edition.value
+                      }
+                      type="button"
+                      disabled={
+                        saving
+                      }
+                      onClick={() =>
+                        switchLuxuryEdition(
+                          edition.value
+                        )
+                      }
+                      className={`rounded-2xl border p-4 text-left transition disabled:opacity-50 ${
+                        selected
+                          ? 'border-amber-500 bg-white ring-2 ring-amber-100'
+                          : 'border-amber-100 bg-white/70 hover:border-amber-300'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="font-bold text-slate-950">
+                          {edition.label}
+                        </div>
+
+                        {selected && (
+                          <Check className="h-5 w-5 shrink-0 text-amber-700" />
+                        )}
+                      </div>
+
+                      <div className="mt-2 text-sm leading-5 text-slate-600">
+                        {
+                          edition.description
+                        }
+                      </div>
+
+                      <div
+                        className={`mt-3 inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${
+                          editionState ===
+                          'approved'
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : editionState ===
+                              'needs_review'
+                              ? 'bg-amber-100 text-amber-700'
+                              : 'bg-slate-100 text-slate-600'
+                        }`}
+                      >
+                        {editionState ===
+                        'approved'
+                          ? 'Approved'
+                          : editionState ===
+                            'needs_review'
+                            ? 'Needs Review'
+                            : 'Prepare with Samantha'}
+                      </div>
+                    </button>
+                  );
+                }
+              )}
+            </div>
+          </div>
+        )}
 
         <div className="mt-5 grid gap-3 sm:grid-cols-3">
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -862,15 +1628,21 @@ export default function ListingEmailStudioPanel({
             </div>
 
             <div className={`mt-2 font-bold ${
-              section?.status ===
+              editionStatus ===
               'approved'
                 ? 'text-emerald-700'
-                : 'text-amber-700'
+                : editionStatus ===
+                  'needs_review'
+                  ? 'text-amber-700'
+                  : 'text-slate-600'
             }`}>
-              {section?.status ===
+              {editionStatus ===
               'approved'
                 ? 'Approved'
-                : 'Needs Review'}
+                : editionStatus ===
+                  'needs_review'
+                  ? 'Needs Review'
+                  : 'Not Prepared'}
             </div>
           </div>
 

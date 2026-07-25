@@ -24,7 +24,6 @@ import {
   Pencil,
   Play,
   RefreshCw,
-  Send,
   Sparkles,
   X,
 } from 'lucide-react';
@@ -39,6 +38,7 @@ import {
 
 import ListingWebsiteEnrichmentPanel from '../../ListingWebsiteEnrichmentPanel';
 import ListingEmailStudioPanel from '../../ListingEmailStudioPanel';
+import ListingRealtorMatchPanel from '../../ListingRealtorMatchPanel';
 
 const supabase =
   getSupabaseBrowser();
@@ -1987,23 +1987,34 @@ export default function MarketingStudioPage() {
         {sectionKey ===
           'email' &&
         listing ? (
-          <ListingEmailStudioPanel
-            listing={
-              listing
-            }
-            section={
-              section
-            }
-            photos={
-              photos
-            }
-            assignments={
-              assignments
-            }
-            onRefresh={
-              loadStudio
-            }
-          />
+          <>
+            <ListingRealtorMatchPanel
+              listingId={
+                listing.id
+              }
+              listingTitle={
+                listing.title
+              }
+            />
+
+            <ListingEmailStudioPanel
+              listing={
+                listing
+              }
+              section={
+                section
+              }
+              photos={
+                photos
+              }
+              assignments={
+                assignments
+              }
+              onRefresh={
+                loadStudio
+              }
+            />
+          </>
         ) : (
           <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -2166,6 +2177,22 @@ export default function MarketingStudioPage() {
                 <ExternalLink className="h-4 w-4" />
               </a>
             )}
+
+            <button
+              type="button"
+              onClick={() =>
+                void loadStudio()
+              }
+              disabled={
+                loading ||
+                preparing
+              }
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              <RefreshCw className="h-4 w-4" />
+
+              Refresh
+            </button>
 
             <button
               type="button"
@@ -2624,46 +2651,7 @@ export default function MarketingStudioPage() {
         </div>
       )}
 
-      <div className="fixed bottom-4 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-2xl border border-slate-200 bg-white/95 p-2 shadow-xl backdrop-blur">
-        <button
-          type="button"
-          onClick={() =>
-            void loadStudio()
-          }
-          disabled={
-            loading ||
-            preparing
-          }
-          className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-        >
-          <RefreshCw className="h-4 w-4" />
 
-          Refresh
-        </button>
-
-        <button
-          type="button"
-          onClick={() =>
-            void prepareCompletePackage()
-          }
-          disabled={
-            preparing ||
-            marketingPhotos.length ===
-              0
-          }
-          className="inline-flex items-center gap-2 rounded-xl bg-violet-700 px-4 py-2 text-sm font-bold text-white hover:bg-violet-800 disabled:opacity-50"
-        >
-          {preparing ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Send className="h-4 w-4" />
-          )}
-
-          {preparing
-            ? 'Preparing...'
-            : 'Prepare Everything'}
-        </button>
-      </div>
     </div>
   );
 }

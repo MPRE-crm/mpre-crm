@@ -380,6 +380,72 @@ export const EMAIL_TEMPLATES = [
   },
 ] as const;
 
+export const LUXURY_EMAIL_EDITIONS = [
+  {
+    value: 'launch',
+    label: 'Luxury Launch',
+    description:
+      'The original flagship presentation for the first mailing.',
+  },
+  {
+    value: 'views_lifestyle',
+    label: 'Views & Lifestyle',
+    description:
+      'A scenic, atmospheric design emphasizing setting and outdoor living.',
+  },
+  {
+    value: 'design_interiors',
+    label: 'Design & Interiors',
+    description:
+      'An interior-led editorial design emphasizing finishes and living spaces.',
+  },
+  {
+    value: 'property_in_motion',
+    label: 'Property in Motion',
+    description:
+      'A video-first presentation showing how the residence flows and lives.',
+  },
+  {
+    value: 'closer_look',
+    label: 'A Closer Look',
+    description:
+      'A concise visual follow-up centered on selected details and photography.',
+  },
+  {
+    value: 'agent_spotlight',
+    label: 'Agent Spotlight',
+    description:
+      'A share-ready buyer-agent presentation with showing-focused information.',
+  },
+  {
+    value: 'fresh_opportunity',
+    label: 'Fresh Opportunity',
+    description:
+      'A fresh later-stage presentation that never falsely calls the listing new.',
+  },
+] as const;
+
+export type LuxuryEmailEditionKey =
+  (typeof LUXURY_EMAIL_EDITIONS)[number]['value'];
+
+export function normalizeLuxuryEmailEdition(
+  value: unknown
+): LuxuryEmailEditionKey {
+  const normalized =
+    String(value || '').trim();
+
+  return LUXURY_EMAIL_EDITIONS.some(
+    (edition) =>
+      edition.value ===
+      normalized
+  )
+    ? (
+        normalized as
+          LuxuryEmailEditionKey
+      )
+    : 'launch';
+}
+
 export type EmailTemplateKey =
   (typeof EMAIL_TEMPLATES)[number]['value'];
 
@@ -625,7 +691,7 @@ export function buildTextBody(
     .join('\n');
 }
 
-function buildLuxuryEmailHtml({
+function buildLuxuryEditionEmailHtml({
   listing,
   photos,
   photoCount,
@@ -633,6 +699,7 @@ function buildLuxuryEmailHtml({
   description,
   previewText,
   campaignType,
+  luxuryEdition,
   primaryCtaLabel,
   audienceContactType,
   profile,
@@ -644,6 +711,1579 @@ function buildLuxuryEmailHtml({
   description: string;
   previewText: string;
   campaignType: string;
+  luxuryEdition: LuxuryEmailEditionKey;
+  primaryCtaLabel?: string;
+  audienceContactType: string;
+  profile: Profile;
+}) {
+  const chosenPhotos =
+    photos.slice(
+      0,
+      Math.max(
+        1,
+        photoCount
+      )
+    );
+
+  const compactPhotos = (
+    values: Array<
+      | ListingPhoto
+      | null
+      | undefined
+    >
+  ) =>
+    values.filter(
+      (
+        photo
+      ): photo is ListingPhoto =>
+        Boolean(photo)
+    );
+
+  const address =
+    listingAddress(
+      listing
+    );
+
+  const price =
+    formatPrice(
+      listing.list_price
+    );
+
+  const publicUrl =
+    listing
+      .public_url
+      ?.trim() ||
+    '';
+
+  const videoUrl =
+    listing
+      .unbranded_video_url
+      ?.trim() ||
+    '';
+
+  const videoThumbnail =
+    youtubeThumbnailUrl(
+      videoUrl
+    );
+
+  const displayName =
+    profile
+      .marketing_from_name
+      ?.trim() ||
+    'Listing Professional';
+
+  const brokerageName =
+    profile
+      .marketing_brokerage
+      ?.trim() ||
+    profile
+      .marketing_licensed_business_name
+      ?.trim() ||
+    'Distinctive Property Presentation';
+
+  const brokerageLogoUrl =
+    profile
+      .marketing_logo_url
+      ?.trim() ||
+    'https://easyrealtor.homes/HomesofIdahocrm.png';
+
+  const mpreLogoUrl =
+    'https://easyrealtor.homes/MPREcrm.png';
+
+  const buttonText =
+    primaryCtaLabel
+      ?.trim() ||
+    'Explore the Residence';
+
+  const shortStoryDescription =
+    description.trim() ||
+    listing
+      .short_marketing_description
+      ?.trim() ||
+    '';
+
+  const fullStoryDescription =
+    listing
+      .public_remarks
+      ?.trim() ||
+    listing
+      .description
+      ?.trim() ||
+    shortStoryDescription;
+
+  function excerpt(
+    value: string,
+    maximumLength: number
+  ) {
+    const normalized =
+      value
+        .replace(
+          /\s+/g,
+          ' '
+        )
+        .trim();
+
+    if (
+      normalized.length <=
+      maximumLength
+    ) {
+      return normalized;
+    }
+
+    const shortened =
+      normalized.slice(
+        0,
+        maximumLength
+      );
+
+    const lastSpace =
+      shortened.lastIndexOf(
+        ' '
+      );
+
+    return `${
+      shortened.slice(
+        0,
+        lastSpace > 80
+          ? lastSpace
+          : maximumLength
+      )
+    }…`;
+  }
+
+  const conciseDescription =
+    excerpt(
+      fullStoryDescription,
+      900
+    );
+
+  const briefDescription =
+    excerpt(
+      shortStoryDescription ||
+      fullStoryDescription,
+      420
+    );
+
+  const escapedConcise =
+    escapeHtml(
+      conciseDescription
+    ).replace(
+      /\n/g,
+      '<br />'
+    );
+
+  const escapedBrief =
+    escapeHtml(
+      briefDescription
+    ).replace(
+      /\n/g,
+      '<br />'
+    );
+
+  const lotSize =
+    listing.acres !==
+      null &&
+    listing.acres !==
+      undefined
+      ? `${Number(
+          listing.acres
+        ).toLocaleString(
+          'en-US',
+          {
+            maximumFractionDigits:
+              3,
+          }
+        )} Acres`
+      : listing
+          .lot_size_text
+          ?.trim() ||
+        '';
+
+  const statItems = [
+    {
+      label:
+        'Bedrooms',
+
+      value:
+        listing.bedrooms !==
+        null
+          ? String(
+              listing.bedrooms
+            )
+          : '',
+    },
+    {
+      label:
+        'Bathrooms',
+
+      value:
+        listing.bathrooms !==
+        null
+          ? String(
+              listing.bathrooms
+            )
+          : '',
+    },
+    {
+      label:
+        'Interior',
+
+      value:
+        listing.square_feet !==
+        null
+          ? `${new Intl.NumberFormat(
+              'en-US'
+            ).format(
+              listing.square_feet
+            )} SF`
+          : '',
+    },
+    {
+      label:
+        'Lot Size',
+
+      value:
+        lotSize,
+    },
+  ].filter(
+    (item) =>
+      Boolean(
+        item.value
+      )
+  );
+
+  const factCells =
+    statItems
+      .map(
+        (
+          item,
+          index
+        ) => `
+          <td
+            class="luxury-fact-cell"
+            width="${
+              100 /
+              statItems.length
+            }%"
+            valign="top"
+            style="padding:20px 8px;border-right:${
+              index ===
+              statItems.length - 1
+                ? '0'
+                : '1px solid #3a3428'
+            };text-align:center;font-family:Arial,sans-serif;"
+          >
+            <div
+              style="font-size:10px;line-height:1.2;letter-spacing:1.9px;text-transform:uppercase;color:#ad996f;"
+            >
+              ${escapeHtml(
+                item.label
+              )}
+            </div>
+
+            <div
+              style="margin-top:8px;font-family:Georgia,'Times New Roman',serif;font-size:21px;line-height:1.1;color:#ffffff;"
+            >
+              ${escapeHtml(
+                item.value
+              )}
+            </div>
+          </td>
+        `
+      )
+      .join('');
+
+  const factsHtml =
+    statItems.length >
+    0
+      ? `
+        <tr>
+          <td
+            style="background:#171510;"
+          >
+            <table
+              role="presentation"
+              width="100%"
+              cellpadding="0"
+              cellspacing="0"
+              border="0"
+            >
+              <tr>
+                ${factCells}
+              </tr>
+            </table>
+          </td>
+        </tr>
+      `
+      : '';
+
+  function renderImage(
+    photo:
+      | ListingPhoto
+      | null
+      | undefined,
+    width: number
+  ) {
+    if (!photo) {
+      return '';
+    }
+
+    const image = `
+      <img
+        src="${escapeHtml(
+          photo.public_url
+        )}"
+        alt="${escapeHtml(
+          photo.caption ||
+          photo.title ||
+          listing.title
+        )}"
+        width="${width}"
+        style="display:block;width:100%;height:auto;border:0;"
+      />
+    `;
+
+    if (!publicUrl) {
+      return image;
+    }
+
+    return `
+      <a
+        href="${escapeHtml(
+          publicUrl
+        )}"
+        style="display:block;text-decoration:none;"
+      >
+        ${image}
+      </a>
+    `;
+  }
+
+  function renderTwoColumnGallery(
+    galleryPhotos:
+      ListingPhoto[]
+  ) {
+    if (
+      galleryPhotos.length ===
+      0
+    ) {
+      return '';
+    }
+
+    let rows = '';
+
+    for (
+      let index = 0;
+      index <
+      galleryPhotos.length;
+      index += 2
+    ) {
+      const left =
+        galleryPhotos[index];
+
+      const right =
+        galleryPhotos[
+          index + 1
+        ];
+
+      rows += `
+        <tr>
+          <td
+            class="luxury-stack-cell"
+            width="50%"
+            valign="top"
+            style="padding:0 7px 14px 0;"
+          >
+            ${renderImage(
+              left,
+              315
+            )}
+          </td>
+
+          <td
+            class="luxury-stack-cell"
+            width="50%"
+            valign="top"
+            style="padding:0 0 14px 7px;"
+          >
+            ${
+              right
+                ? renderImage(
+                    right,
+                    315
+                  )
+                : '&nbsp;'
+            }
+          </td>
+        </tr>
+      `;
+    }
+
+    return `
+      <table
+        role="presentation"
+        width="100%"
+        cellpadding="0"
+        cellspacing="0"
+        border="0"
+      >
+        ${rows}
+      </table>
+    `;
+  }
+
+  function renderWideGallery(
+    galleryPhotos:
+      ListingPhoto[]
+  ) {
+    if (
+      galleryPhotos.length ===
+      0
+    ) {
+      return '';
+    }
+
+    return `
+      <table
+        role="presentation"
+        width="100%"
+        cellpadding="0"
+        cellspacing="0"
+        border="0"
+      >
+        ${galleryPhotos
+          .map(
+            (photo) => `
+              <tr>
+                <td
+                  style="padding:0 0 18px;"
+                >
+                  ${renderImage(
+                    photo,
+                    652
+                  )}
+                </td>
+              </tr>
+            `
+          )
+          .join('')}
+      </table>
+    `;
+  }
+
+  const websiteButtonHtml =
+    publicUrl
+      ? `
+        <table
+          role="presentation"
+          cellpadding="0"
+          cellspacing="0"
+          border="0"
+          align="center"
+          style="margin:24px auto 0;"
+        >
+          <tr>
+            <td
+              style="border:1px solid #a88445;background:#ffffff;"
+            >
+              <a
+                href="${escapeHtml(
+                  publicUrl
+                )}"
+                style="display:inline-block;padding:13px 27px;font-family:Arial,sans-serif;font-size:10px;font-weight:bold;letter-spacing:1.8px;text-transform:uppercase;color:#6f5327;text-decoration:none;"
+              >
+                ${escapeHtml(
+                  buttonText
+                )}
+              </a>
+            </td>
+          </tr>
+        </table>
+      `
+      : '';
+
+  const videoHtml =
+    videoUrl
+      ? `
+        <tr>
+          <td
+            class="luxury-pad"
+            style="padding:38px 34px;background:#11100e;"
+          >
+            <table
+              role="presentation"
+              width="100%"
+              cellpadding="0"
+              cellspacing="0"
+              border="0"
+            >
+              ${
+                videoThumbnail
+                  ? `
+                    <tr>
+                      <td>
+                        <a
+                          href="${escapeHtml(
+                            videoUrl
+                          )}"
+                          style="display:block;text-decoration:none;"
+                        >
+                          <img
+                            src="${escapeHtml(
+                              videoThumbnail
+                            )}"
+                            alt="Property film preview"
+                            width="652"
+                            style="display:block;width:100%;height:auto;border:0;"
+                          />
+                        </a>
+                      </td>
+                    </tr>
+                  `
+                  : ''
+              }
+
+              <tr>
+                <td
+                  style="padding:27px 24px 3px;text-align:center;font-family:Arial,sans-serif;"
+                >
+                  <div
+                    style="font-size:10px;font-weight:bold;letter-spacing:2.5px;text-transform:uppercase;color:#b99a5e;"
+                  >
+                    Property Film
+                  </div>
+
+                  <div
+                    style="margin-top:10px;font-family:Georgia,'Times New Roman',serif;font-size:26px;line-height:1.25;color:#ffffff;"
+                  >
+                    Experience the residence in motion
+                  </div>
+
+                  <div
+                    style="margin-top:15px;"
+                  >
+                    <a
+                      href="${escapeHtml(
+                        videoUrl
+                      )}"
+                      style="font-family:Arial,sans-serif;font-size:11px;font-weight:bold;letter-spacing:1.5px;text-transform:uppercase;color:#d5bd8d;text-decoration:none;"
+                    >
+                      Watch the property film &rarr;
+                    </a>
+                  </div>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      `
+      : '';
+
+  const primaryPhoto =
+    chosenPhotos[0] ||
+    null;
+
+  const viewsHero =
+    chosenPhotos[5] ||
+    chosenPhotos[3] ||
+    primaryPhoto;
+
+  const viewsGallery =
+    compactPhotos([
+      chosenPhotos[3],
+      chosenPhotos[0],
+      chosenPhotos[4],
+      chosenPhotos[1],
+    ]).filter(
+      (photo) =>
+        photo.id !==
+        viewsHero?.id
+    );
+
+  const designHero =
+    chosenPhotos[1] ||
+    primaryPhoto;
+
+  const designSecondary =
+    chosenPhotos[2] ||
+    chosenPhotos[3] ||
+    null;
+
+  const designLeadPhotos =
+    compactPhotos([
+      designHero,
+      designSecondary,
+    ]);
+
+  const designLeadIds =
+    new Set(
+      designLeadPhotos.map(
+        (photo) =>
+          photo.id
+      )
+    );
+
+  const designGallery =
+    chosenPhotos
+      .filter(
+        (photo) =>
+          !designLeadIds.has(
+            photo.id
+          )
+      )
+      .slice(
+        0,
+        4
+      );
+
+  const motionGallery =
+    chosenPhotos
+      .slice(
+        1,
+        5
+      );
+
+  const closerLead =
+    chosenPhotos[2] ||
+    chosenPhotos[1] ||
+    primaryPhoto;
+
+  const closerGallery =
+    chosenPhotos
+      .filter(
+        (photo) =>
+          photo.id !==
+          closerLead?.id
+      )
+      .slice(
+        0,
+        4
+      );
+
+  const agentGallery =
+    chosenPhotos
+      .slice(
+        1,
+        5
+      );
+
+  const freshHero =
+    chosenPhotos[5] ||
+    primaryPhoto;
+
+  const freshGallery =
+    chosenPhotos
+      .filter(
+        (photo) =>
+          photo.id !==
+          freshHero?.id
+      )
+      .slice(
+        0,
+        4
+      );
+
+  const realtorAudience =
+    audienceContactType ===
+    'realtor';
+
+  let editionBodyHtml = '';
+
+  if (
+    luxuryEdition ===
+    'views_lifestyle'
+  ) {
+    editionBodyHtml = `
+      ${
+        viewsHero
+          ? `
+            <tr>
+              <td>
+                ${renderImage(
+                  viewsHero,
+                  720
+                )}
+              </td>
+            </tr>
+          `
+          : ''
+      }
+
+      <tr>
+        <td
+          class="luxury-pad"
+          style="padding:48px 58px 44px;background:#11100e;text-align:center;"
+        >
+          <div
+            style="font-family:Arial,sans-serif;font-size:10px;font-weight:bold;letter-spacing:3px;text-transform:uppercase;color:#c7af7d;"
+          >
+            Views &amp; Lifestyle
+          </div>
+
+          <h1
+            class="luxury-title"
+            style="margin:20px 0 0;font-family:Georgia,'Times New Roman',serif;font-size:47px;font-weight:normal;line-height:1.08;color:#ffffff;"
+          >
+            ${escapeHtml(
+              headline
+            )}
+          </h1>
+
+          <div
+            style="margin-top:20px;font-family:Georgia,'Times New Roman',serif;font-size:26px;color:#d5bd8d;"
+          >
+            ${escapeHtml(
+              price
+            )}
+          </div>
+
+          <div
+            style="margin-top:11px;font-family:Arial,sans-serif;font-size:13px;color:#d8d0c3;"
+          >
+            ${escapeHtml(
+              address
+            )}
+          </div>
+
+          <div
+            style="margin:24px auto 0;max-width:550px;font-family:Georgia,'Times New Roman',serif;font-size:19px;line-height:1.65;color:#eee8dd;"
+          >
+            Explore the setting, outdoor spaces and the way this property creates an experience beyond the front door.
+          </div>
+        </td>
+      </tr>
+
+      ${factsHtml}
+
+      <tr>
+        <td
+          class="luxury-pad"
+          style="padding:46px 58px;background:#ffffff;text-align:center;"
+        >
+          <div
+            style="font-family:Arial,sans-serif;font-size:10px;font-weight:bold;letter-spacing:2.4px;text-transform:uppercase;color:#9b7a3b;"
+          >
+            Setting &amp; Everyday Living
+          </div>
+
+          ${
+            escapedBrief
+              ? `
+                <div
+                  style="margin:18px auto 0;max-width:560px;font-family:Georgia,'Times New Roman',serif;font-size:19px;line-height:1.7;color:#494338;"
+                >
+                  ${escapedBrief}
+                </div>
+              `
+              : ''
+          }
+
+          ${websiteButtonHtml}
+        </td>
+      </tr>
+
+      ${
+        viewsGallery.length >
+        0
+          ? `
+            <tr>
+              <td
+                class="luxury-pad"
+                style="padding:38px 34px 20px;background:#f5f0e7;"
+              >
+                ${renderWideGallery(
+                  viewsGallery
+                )}
+              </td>
+            </tr>
+          `
+          : ''
+      }
+
+      ${videoHtml}
+    `;
+  }
+
+  if (
+    luxuryEdition ===
+    'design_interiors'
+  ) {
+    editionBodyHtml = `
+      ${
+        designLeadPhotos.length >
+        0
+          ? `
+            <tr>
+              <td
+                style="padding:18px;background:#11100e;"
+              >
+                ${renderTwoColumnGallery(
+                  designLeadPhotos
+                )}
+              </td>
+            </tr>
+          `
+          : ''
+      }
+
+      <tr>
+        <td
+          class="luxury-pad"
+          style="padding:45px 58px 41px;background:#eee7da;text-align:left;"
+        >
+          <div
+            style="font-family:Arial,sans-serif;font-size:10px;font-weight:bold;letter-spacing:3px;text-transform:uppercase;color:#8f6a2c;"
+          >
+            Design &amp; Interiors
+          </div>
+
+          <div
+            style="margin-top:17px;width:58px;height:1px;background:#b99a5e;"
+          ></div>
+
+          <h1
+            class="luxury-title"
+            style="margin:22px 0 0;font-family:Georgia,'Times New Roman',serif;font-size:47px;font-weight:normal;line-height:1.08;color:#15130f;"
+          >
+            ${escapeHtml(
+              headline
+            )}
+          </h1>
+
+          <div
+            style="margin-top:21px;font-family:Georgia,'Times New Roman',serif;font-size:26px;color:#9b6b23;"
+          >
+            ${escapeHtml(
+              price
+            )}
+          </div>
+
+          <div
+            style="margin-top:10px;font-family:Arial,sans-serif;font-size:13px;color:#625b50;"
+          >
+            ${escapeHtml(
+              address
+            )}
+          </div>
+        </td>
+      </tr>
+
+      ${factsHtml}
+
+      <tr>
+        <td
+          class="luxury-pad"
+          style="padding:46px 58px;background:#ffffff;text-align:left;"
+        >
+          <div
+            style="font-family:Arial,sans-serif;font-size:10px;font-weight:bold;letter-spacing:2.4px;text-transform:uppercase;color:#9b7a3b;"
+          >
+            Materials, Finishes &amp; Flow
+          </div>
+
+          <div
+            style="margin-top:14px;font-family:Georgia,'Times New Roman',serif;font-size:26px;line-height:1.3;color:#1c1914;"
+          >
+            Spaces composed for both everyday living and memorable gatherings.
+          </div>
+
+          ${
+            escapedConcise
+              ? `
+                <div
+                  style="margin-top:20px;padding-top:20px;border-top:1px solid #e4ddd0;font-family:Arial,sans-serif;font-size:14px;line-height:1.8;color:#5a5348;"
+                >
+                  ${escapedConcise}
+                </div>
+              `
+              : ''
+          }
+
+          ${websiteButtonHtml}
+        </td>
+      </tr>
+
+      ${
+        designGallery.length >
+        0
+          ? `
+            <tr>
+              <td
+                class="luxury-pad"
+                style="padding:38px 34px 26px;background:#f5f0e7;"
+              >
+                ${renderTwoColumnGallery(
+                  designGallery
+                )}
+              </td>
+            </tr>
+          `
+          : ''
+      }
+
+      ${videoHtml}
+    `;
+  }
+
+  if (
+    luxuryEdition ===
+    'property_in_motion'
+  ) {
+    editionBodyHtml = `
+      ${videoHtml}
+
+      <tr>
+        <td
+          class="luxury-pad"
+          style="padding:46px 58px 42px;background:#f8f4ec;text-align:center;"
+        >
+          <div
+            style="font-family:Arial,sans-serif;font-size:10px;font-weight:bold;letter-spacing:3px;text-transform:uppercase;color:#9b7a3b;"
+          >
+            Property in Motion
+          </div>
+
+          <h1
+            class="luxury-title"
+            style="margin:21px 0 0;font-family:Georgia,'Times New Roman',serif;font-size:47px;font-weight:normal;line-height:1.08;color:#15130f;"
+          >
+            ${escapeHtml(
+              headline
+            )}
+          </h1>
+
+          <div
+            style="margin-top:20px;font-family:Georgia,'Times New Roman',serif;font-size:26px;color:#9b6b23;"
+          >
+            ${escapeHtml(
+              price
+            )}
+          </div>
+
+          <div
+            style="margin-top:10px;font-family:Arial,sans-serif;font-size:13px;color:#625b50;"
+          >
+            ${escapeHtml(
+              address
+            )}
+          </div>
+        </td>
+      </tr>
+
+      ${factsHtml}
+
+      ${
+        primaryPhoto
+          ? `
+            <tr>
+              <td>
+                ${renderImage(
+                  primaryPhoto,
+                  720
+                )}
+              </td>
+            </tr>
+          `
+          : ''
+      }
+
+      <tr>
+        <td
+          class="luxury-pad"
+          style="padding:45px 58px;background:#ffffff;text-align:center;"
+        >
+          <div
+            style="font-family:Georgia,'Times New Roman',serif;font-size:26px;line-height:1.35;color:#1c1914;"
+          >
+            See how the rooms connect, how the natural light moves and how the property feels from one space to the next.
+          </div>
+
+          ${
+            escapedBrief
+              ? `
+                <div
+                  style="margin:20px auto 0;max-width:560px;font-family:Arial,sans-serif;font-size:14px;line-height:1.8;color:#5a5348;"
+                >
+                  ${escapedBrief}
+                </div>
+              `
+              : ''
+          }
+
+          ${websiteButtonHtml}
+        </td>
+      </tr>
+
+      ${
+        motionGallery.length >
+        0
+          ? `
+            <tr>
+              <td
+                class="luxury-pad"
+                style="padding:36px 34px 24px;background:#f5f0e7;"
+              >
+                ${renderTwoColumnGallery(
+                  motionGallery
+                )}
+              </td>
+            </tr>
+          `
+          : ''
+      }
+    `;
+  }
+
+  if (
+    luxuryEdition ===
+    'closer_look'
+  ) {
+    editionBodyHtml = `
+      <tr>
+        <td
+          class="luxury-pad"
+          style="padding:48px 58px 43px;background:#f8f4ec;text-align:center;"
+        >
+          <div
+            style="font-family:Arial,sans-serif;font-size:10px;font-weight:bold;letter-spacing:3px;text-transform:uppercase;color:#9b7a3b;"
+          >
+            A Closer Look
+          </div>
+
+          <h1
+            class="luxury-title"
+            style="margin:20px 0 0;font-family:Georgia,'Times New Roman',serif;font-size:46px;font-weight:normal;line-height:1.08;color:#15130f;"
+          >
+            ${escapeHtml(
+              headline
+            )}
+          </h1>
+
+          <div
+            style="margin-top:19px;font-family:Georgia,'Times New Roman',serif;font-size:25px;color:#9b6b23;"
+          >
+            ${escapeHtml(
+              price
+            )}
+          </div>
+
+          <div
+            style="margin-top:10px;font-family:Arial,sans-serif;font-size:13px;color:#625b50;"
+          >
+            ${escapeHtml(
+              address
+            )}
+          </div>
+        </td>
+      </tr>
+
+      ${factsHtml}
+
+      ${
+        closerLead
+          ? `
+            <tr>
+              <td
+                style="background:#11100e;"
+              >
+                ${renderImage(
+                  closerLead,
+                  720
+                )}
+              </td>
+            </tr>
+          `
+          : ''
+      }
+
+      ${
+        closerGallery.length >
+        0
+          ? `
+            <tr>
+              <td
+                class="luxury-pad"
+                style="padding:34px 34px 18px;background:#f5f0e7;"
+              >
+                ${renderTwoColumnGallery(
+                  closerGallery
+                )}
+              </td>
+            </tr>
+          `
+          : ''
+      }
+
+      <tr>
+        <td
+          class="luxury-pad"
+          style="padding:42px 58px 46px;background:#ffffff;text-align:center;"
+        >
+          <div
+            style="font-family:Georgia,'Times New Roman',serif;font-size:25px;line-height:1.4;color:#1c1914;"
+          >
+            A focused return to the details that make this property worth another look.
+          </div>
+
+          ${
+            escapedBrief
+              ? `
+                <div
+                  style="margin:18px auto 0;max-width:550px;font-family:Arial,sans-serif;font-size:14px;line-height:1.8;color:#5a5348;"
+                >
+                  ${escapedBrief}
+                </div>
+              `
+              : ''
+          }
+
+          ${websiteButtonHtml}
+        </td>
+      </tr>
+
+      ${videoHtml}
+    `;
+  }
+
+  if (
+    luxuryEdition ===
+    'agent_spotlight'
+  ) {
+    editionBodyHtml = `
+      <tr>
+        <td
+          class="luxury-pad"
+          style="padding:46px 58px 43px;background:#11100e;text-align:left;"
+        >
+          <div
+            style="font-family:Arial,sans-serif;font-size:10px;font-weight:bold;letter-spacing:3px;text-transform:uppercase;color:#c7af7d;"
+          >
+            Agent Spotlight
+          </div>
+
+          <div
+            style="margin-top:16px;font-family:Georgia,'Times New Roman',serif;font-size:32px;line-height:1.25;color:#ffffff;"
+          >
+            A share-ready property presentation for buyers and their agents.
+          </div>
+
+          <div
+            style="margin-top:17px;font-family:Arial,sans-serif;font-size:14px;line-height:1.8;color:#d8d0c3;"
+          >
+            ${
+              realtorAudience
+                ? `Preview the property, share the presentation with your clients and contact ${escapeHtml(
+                    displayName
+                  )} directly for questions or showing coordination.`
+                : `Review the property highlights and contact ${escapeHtml(
+                    displayName
+                  )} directly for questions or private-showing coordination.`
+            }
+          </div>
+        </td>
+      </tr>
+
+      ${factsHtml}
+
+      ${
+        primaryPhoto
+          ? `
+            <tr>
+              <td>
+                ${renderImage(
+                  primaryPhoto,
+                  720
+                )}
+              </td>
+            </tr>
+          `
+          : ''
+      }
+
+      <tr>
+        <td
+          class="luxury-pad"
+          style="padding:46px 58px;background:#ffffff;text-align:center;"
+        >
+          <div
+            style="font-family:Arial,sans-serif;font-size:10px;font-weight:bold;letter-spacing:2.4px;text-transform:uppercase;color:#9b7a3b;"
+          >
+            Featured Residence
+          </div>
+
+          <h1
+            class="luxury-title"
+            style="margin:18px 0 0;font-family:Georgia,'Times New Roman',serif;font-size:43px;font-weight:normal;line-height:1.1;color:#15130f;"
+          >
+            ${escapeHtml(
+              headline
+            )}
+          </h1>
+
+          <div
+            style="margin-top:18px;font-family:Georgia,'Times New Roman',serif;font-size:25px;color:#9b6b23;"
+          >
+            ${escapeHtml(
+              price
+            )}
+          </div>
+
+          <div
+            style="margin-top:9px;font-family:Arial,sans-serif;font-size:13px;color:#625b50;"
+          >
+            ${escapeHtml(
+              address
+            )}
+          </div>
+
+          ${
+            escapedBrief
+              ? `
+                <div
+                  style="margin:22px auto 0;max-width:555px;font-family:Arial,sans-serif;font-size:14px;line-height:1.8;color:#5a5348;"
+                >
+                  ${escapedBrief}
+                </div>
+              `
+              : ''
+          }
+
+          ${websiteButtonHtml}
+        </td>
+      </tr>
+
+      ${videoHtml}
+
+      ${
+        agentGallery.length >
+        0
+          ? `
+            <tr>
+              <td
+                class="luxury-pad"
+                style="padding:38px 34px 24px;background:#f5f0e7;"
+              >
+                ${renderTwoColumnGallery(
+                  agentGallery
+                )}
+              </td>
+            </tr>
+          `
+          : ''
+      }
+    `;
+  }
+
+  if (
+    luxuryEdition ===
+    'fresh_opportunity'
+  ) {
+    editionBodyHtml = `
+      <tr>
+        <td
+          style="padding:16px 28px;background:#9b7a3b;text-align:center;font-family:Arial,sans-serif;font-size:10px;font-weight:bold;letter-spacing:3px;text-transform:uppercase;color:#ffffff;"
+        >
+          Fresh Opportunity
+        </td>
+      </tr>
+
+      ${
+        freshHero
+          ? `
+            <tr>
+              <td>
+                ${renderImage(
+                  freshHero,
+                  720
+                )}
+              </td>
+            </tr>
+          `
+          : ''
+      }
+
+      <tr>
+        <td
+          class="luxury-pad"
+          style="padding:47px 58px 43px;background:#f8f4ec;text-align:center;"
+        >
+          <div
+            style="font-family:Arial,sans-serif;font-size:10px;font-weight:bold;letter-spacing:2.8px;text-transform:uppercase;color:#9b7a3b;"
+          >
+            Worth Another Look
+          </div>
+
+          <h1
+            class="luxury-title"
+            style="margin:20px 0 0;font-family:Georgia,'Times New Roman',serif;font-size:47px;font-weight:normal;line-height:1.08;color:#15130f;"
+          >
+            ${escapeHtml(
+              headline
+            )}
+          </h1>
+
+          <div
+            style="margin-top:20px;font-family:Georgia,'Times New Roman',serif;font-size:26px;color:#9b6b23;"
+          >
+            ${escapeHtml(
+              price
+            )}
+          </div>
+
+          <div
+            style="margin-top:10px;font-family:Arial,sans-serif;font-size:13px;color:#625b50;"
+          >
+            ${escapeHtml(
+              address
+            )}
+          </div>
+        </td>
+      </tr>
+
+      ${factsHtml}
+
+      <tr>
+        <td
+          class="luxury-pad"
+          style="padding:44px 58px;background:#ffffff;text-align:center;"
+        >
+          <div
+            style="font-family:Georgia,'Times New Roman',serif;font-size:25px;line-height:1.4;color:#1c1914;"
+          >
+            A fresh presentation of the property, its strongest spaces and the opportunity it offers.
+          </div>
+
+          ${
+            escapedBrief
+              ? `
+                <div
+                  style="margin:19px auto 0;max-width:555px;font-family:Arial,sans-serif;font-size:14px;line-height:1.8;color:#5a5348;"
+                >
+                  ${escapedBrief}
+                </div>
+              `
+              : ''
+          }
+
+          ${websiteButtonHtml}
+        </td>
+      </tr>
+
+      ${
+        freshGallery.length >
+        0
+          ? `
+            <tr>
+              <td
+                class="luxury-pad"
+                style="padding:38px 34px 24px;background:#f5f0e7;"
+              >
+                ${renderTwoColumnGallery(
+                  freshGallery
+                )}
+              </td>
+            </tr>
+          `
+          : ''
+      }
+
+      ${videoHtml}
+    `;
+  }
+
+  return `
+<!doctype html>
+<html>
+  <head>
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1"
+    />
+
+    <meta
+      http-equiv="Content-Type"
+      content="text/html; charset=UTF-8"
+    />
+
+    <style>
+      @media only screen and (max-width:640px) {
+        .luxury-shell {
+          width:100% !important;
+        }
+
+        .luxury-pad {
+          padding-left:24px !important;
+          padding-right:24px !important;
+        }
+
+        .luxury-title {
+          font-size:37px !important;
+          line-height:1.08 !important;
+        }
+
+        .luxury-fact-cell {
+          display:block !important;
+          width:100% !important;
+          border-right:0 !important;
+          border-bottom:1px solid #3a3428 !important;
+        }
+
+        .luxury-stack-cell {
+          display:block !important;
+          width:100% !important;
+          padding:0 0 14px !important;
+        }
+      }
+    </style>
+  </head>
+
+  <body
+    style="margin:0;padding:0;background:#d8d1c5;"
+  >
+    <div
+      style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;"
+    >
+      ${escapeHtml(
+        previewText
+      )}
+    </div>
+
+    <table
+      role="presentation"
+      width="100%"
+      cellpadding="0"
+      cellspacing="0"
+      border="0"
+      style="width:100%;background:#d8d1c5;"
+    >
+      <tr>
+        <td
+          align="center"
+          style="padding:28px 10px;"
+        >
+          <table
+            class="luxury-shell"
+            role="presentation"
+            width="720"
+            cellpadding="0"
+            cellspacing="0"
+            border="0"
+            style="width:720px;max-width:720px;background:#f8f4ec;box-shadow:0 22px 60px rgba(26,22,16,0.24);"
+          >
+            <tr>
+              <td
+                class="luxury-pad"
+                style="padding:34px 48px 30px;background:#11100e;border-bottom:1px solid #5b4a2f;"
+              >
+                <table
+                  role="presentation"
+                  width="100%"
+                  cellpadding="0"
+                  cellspacing="0"
+                  border="0"
+                >
+                  <tr>
+                    <td
+                      valign="middle"
+                    >
+                      <table
+                        role="presentation"
+                        cellpadding="0"
+                        cellspacing="0"
+                        border="0"
+                      >
+                        <tr>
+                          <td
+                            valign="middle"
+                            style="padding-right:14px;"
+                          >
+                            <img
+                              src="${escapeHtml(
+                                mpreLogoUrl
+                              )}"
+                              alt="MPRE"
+                              style="display:block;max-width:116px;max-height:52px;width:auto;height:auto;border:0;background:transparent;"
+                            />
+                          </td>
+
+                          <td
+                            valign="middle"
+                          >
+                            <img
+                              src="${escapeHtml(
+                                brokerageLogoUrl
+                              )}"
+                              alt="${escapeHtml(
+                                brokerageName
+                              )}"
+                              style="display:block;max-width:128px;max-height:52px;width:auto;height:auto;border:0;background:transparent;"
+                            />
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+
+                    <td
+                      valign="middle"
+                      align="right"
+                      style="font-family:Arial,sans-serif;"
+                    >
+                      <div
+                        style="font-size:10px;font-weight:bold;letter-spacing:2.2px;text-transform:uppercase;color:#c7af7d;"
+                      >
+                        Luxury Listing Presentation
+                      </div>
+
+                      <div
+                        style="margin-top:7px;font-size:11px;color:#aaa296;"
+                      >
+                        ${escapeHtml(
+                          typeLabel(
+                            campaignType
+                          )
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            ${editionBodyHtml}
+
+            ${buildMarketingFooterHtml(
+              profile
+            )}
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
+  `.trim();
+}
+
+function buildLuxuryEmailHtml({
+  listing,
+  photos,
+  photoCount,
+  headline,
+  description,
+  previewText,
+  campaignType,
+  luxuryEdition,
+  primaryCtaLabel,
+  audienceContactType,
+  profile,
+}: {
+  listing: Listing;
+  photos: ListingPhoto[];
+  photoCount: number;
+  headline: string;
+  description: string;
+  previewText: string;
+  campaignType: string;
+  luxuryEdition: LuxuryEmailEditionKey;
   primaryCtaLabel?: string;
   audienceContactType: string;
   profile: Profile;
@@ -722,6 +2362,7 @@ function buildLuxuryEmailHtml({
 
   const mpreLogoUrl =
     'https://easyrealtor.homes/MPREcrm.png';
+
 
 const buttonText =
     primaryCtaLabel
@@ -1630,6 +3271,7 @@ export function buildEmailHtml({
   previewText,
   campaignType,
   templateKey,
+  luxuryEdition = 'launch',
   generatedArtworkUrl,
   primaryCtaLabel,
   audienceContactType,
@@ -1643,6 +3285,7 @@ export function buildEmailHtml({
   previewText: string;
   campaignType: string;
   templateKey: EmailTemplateKey;
+  luxuryEdition?: LuxuryEmailEditionKey;
   generatedArtworkUrl: string;
   primaryCtaLabel?: string;
   audienceContactType: string;
@@ -1652,6 +3295,25 @@ export function buildEmailHtml({
     templateKey ===
     'luxury'
   ) {
+    if (
+      luxuryEdition !==
+      'launch'
+    ) {
+      return buildLuxuryEditionEmailHtml({
+        listing,
+        photos,
+        photoCount,
+        headline,
+        description,
+        previewText,
+        campaignType,
+        luxuryEdition,
+        primaryCtaLabel,
+        audienceContactType,
+        profile,
+      });
+    }
+
     return buildLuxuryEmailHtml({
       listing,
       photos,
@@ -1660,6 +3322,7 @@ export function buildEmailHtml({
       description,
       previewText,
       campaignType,
+      luxuryEdition,
       primaryCtaLabel,
       audienceContactType,
       profile,

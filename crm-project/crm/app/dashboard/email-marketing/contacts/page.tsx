@@ -7,7 +7,9 @@ import {
   useState,
 } from 'react';
 import {
+  AlertTriangle,
   ArrowLeft,
+  Building2,
   CheckCircle2,
   RefreshCw,
   Search,
@@ -15,6 +17,7 @@ import {
   Users,
 } from 'lucide-react';
 import { getSupabaseBrowser } from '../../../../lib/supabase-browser';
+import ContactEnrichmentReviewPanel from './ContactEnrichmentReviewPanel';
 
 const supabase = getSupabaseBrowser();
 
@@ -33,9 +36,14 @@ type Contact = {
   last_name: string | null;
   display_name: string | null;
   company: string | null;
+  company_normalized: string | null;
   job_title: string | null;
   email: string | null;
   phone: string | null;
+  mls_agent_id: string | null;
+  mls_office_id: string | null;
+  license_number: string | null;
+  contact_review_status: string;
   contact_type: string;
   lifecycle_stage: string;
   tags: string[];
@@ -52,6 +60,9 @@ type Mapping = {
   phone: string;
   company: string;
   job_title: string;
+  mls_agent_id: string;
+  mls_office_id: string;
+  license_number: string;
 };
 
 const CONTACT_TYPES = [
@@ -94,6 +105,9 @@ const EMPTY_MAPPING: Mapping = {
   phone: '',
   company: '',
   job_title: '',
+  mls_agent_id: '',
+  mls_office_id: '',
+  license_number: '',
 };
 
 function normalizeHeader(value: string) {
@@ -237,7 +251,7 @@ function detectMapping(headers: string[]): Mapping {
     company: findHeaderIndex(headers, [
       'company',
       'brokerage',
-      'office',
+      'office name',
       'organization',
     ]),
 
@@ -246,6 +260,29 @@ function detectMapping(headers: string[]): Mapping {
       'title',
       'position',
       'role',
+    ]),
+
+    mls_agent_id: findHeaderIndex(headers, [
+      'mls agent id',
+      'agent mls id',
+      'mls user code',
+      'user code',
+      'member mls id',
+      'external agent id',
+    ]),
+
+    mls_office_id: findHeaderIndex(headers, [
+      'mls office id',
+      'office mls id',
+      'office code',
+      'external office id',
+    ]),
+
+    license_number: findHeaderIndex(headers, [
+      'license number',
+      'license',
+      'agent license',
+      'realtor license',
     ]),
   };
 }
@@ -295,6 +332,28 @@ function formatDate(value: string) {
   });
 }
 
+function reviewStatusLabel(value: string) {
+  if (value === 'needs_review') {
+    return 'Directory Pending';
+  }
+
+  return value
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function reviewStatusClasses(value: string) {
+  if (value === 'ready') {
+    return 'bg-emerald-50 text-emerald-700';
+  }
+
+  if (value === 'needs_review') {
+    return 'bg-amber-50 text-amber-700';
+  }
+
+  return 'bg-slate-100 text-slate-600';
+}
+
 export default function MarketingContactsPage() {
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
@@ -313,7 +372,7 @@ export default function MarketingContactsPage() {
     useState<Mapping>(EMPTY_MAPPING);
 
   const [defaultCompany, setDefaultCompany] =
-    useState('Homes of Idaho');
+    useState('');
 
   const [defaultContactType, setDefaultContactType] =
     useState('realtor');
@@ -322,6 +381,10 @@ export default function MarketingContactsPage() {
     useState('prospect');
 
   const [search, setSearch] = useState('');
+  const [brokerageFilter, setBrokerageFilter] =
+    useState('all');
+  const [reviewFilter, setReviewFilter] =
+    useState('all');
 
   const parsed = useMemo(
     () => parseDelimitedText(rawText),
@@ -379,9 +442,14 @@ export default function MarketingContactsPage() {
           last_name,
           display_name,
           company,
+          company_normalized,
           job_title,
           email,
           phone,
+          mls_agent_id,
+          mls_office_id,
+          license_number,
+          contact_review_status,
           contact_type,
           lifecycle_stage,
           tags,
@@ -522,11 +590,22 @@ export default function MarketingContactsPage() {
             mappedValue(row, mapping.phone) ||
             null,
 
+          mls_agent_id:
+            mappedValue(row, mapping.mls_agent_id) ||
+            null,
+
+          mls_office_id:
+            mappedValue(row, mapping.mls_office_id) ||
+            null,
+
+          license_number:
+            mappedValue(row, mapping.license_number) ||
+            null,
+
           contact_type: defaultContactType,
           lifecycle_stage: defaultLifecycle,
 
           tags: [
-            'Homes of Idaho',
             'Listing advertisements',
           ],
 
@@ -549,74 +628,61 @@ export default function MarketingContactsPage() {
         );
       }
 
-      const importedEmails = payload.map(
-        (row) => row.email
+      const {
+        data: sessionData,
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      const accessToken =
+        sessionData.session?.access_token;
+
+      if (sessionError || !accessToken) {
+        throw new Error(
+          'Your login session could not be verified. Refresh the page and try again.'
+        );
+      }
+
+      const response = await fetch(
+        '/api/marketing/contact-import',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            rows: payload,
+            file_name: fileName || null,
+          }),
+        }
       );
 
-      const existingEmails = new Set<string>();
+      const result = await response
+        .json()
+        .catch(() => null);
 
-      for (
-        let start = 0;
-        start < importedEmails.length;
-        start += 500
-      ) {
-        const emailBatch = importedEmails.slice(
-          start,
-          start + 500
+      if (!response.ok || !result?.ok) {
+        throw new Error(
+          result?.error ||
+          'Contact import failed.'
         );
-
-        const { data: existing, error: existingError } =
-          await supabase
-            .from('contacts')
-            .select('email_normalized')
-            .eq('org_id', profile.org_id)
-            .in('email_normalized', emailBatch);
-
-        if (existingError) {
-          throw new Error(existingError.message);
-        }
-
-        for (const contact of existing || []) {
-          if (contact.email_normalized) {
-            existingEmails.add(
-              String(contact.email_normalized)
-            );
-          }
-        }
       }
-
-      for (
-        let start = 0;
-        start < payload.length;
-        start += 250
-      ) {
-        const batch = payload.slice(
-          start,
-          start + 250
-        );
-
-        const { error: importError } = await supabase
-          .from('contacts')
-          .upsert(batch, {
-            onConflict: 'org_id,email_normalized',
-            ignoreDuplicates: true,
-          });
-
-        if (importError) {
-          throw new Error(importError.message);
-        }
-      }
-
-      const newCount =
-        payload.length - existingEmails.size;
 
       await loadContacts();
 
+      const totalInvalidRows =
+        invalidEmailCount +
+        Number(result.invalid_rows || 0);
+
       setNotice(
         [
-          `${newCount} new contacts imported.`,
-          `${existingEmails.size} existing emails skipped.`,
-          `${invalidEmailCount} rows without valid emails skipped.`,
+          `${Number(result.new_contacts || 0)} new contacts imported.`,
+          `${Number(result.enriched_contacts || 0)} existing contacts safely enriched.`,
+          `${Number(result.existing_unchanged || 0)} existing contacts already current.`,
+          `${Number(result.conflicts_found || 0)} conflicts found.`,
+          `${Number(result.reviews_queued || 0)} review items queued.`,
+          `${Number(result.access_skipped || 0)} contacts outside your ownership skipped.`,
+          `${totalInvalidRows} rows without valid emails skipped.`,
         ].join(' ')
       );
     } catch (err: any) {
@@ -665,27 +731,89 @@ export default function MarketingContactsPage() {
     }
   }
 
+  const brokerageOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          contacts
+            .map((contact) => contact.company?.trim())
+            .filter(
+              (company): company is string =>
+                Boolean(company)
+            )
+        )
+      ).sort((first, second) =>
+        first.localeCompare(second)
+      ),
+    [contacts]
+  );
+
   const filteredContacts = useMemo(() => {
     const term = search.trim().toLowerCase();
 
-    if (!term) return contacts;
+    return contacts.filter((contact) => {
+      const brokerageMatches =
+        brokerageFilter === 'all'
+          ? true
+          : brokerageFilter === 'unknown'
+            ? !contact.company?.trim()
+            : contact.company === brokerageFilter;
 
-    return contacts.filter((contact) =>
-      [
-        displayName(contact),
-        contact.company,
-        contact.job_title,
-        contact.email,
-        contact.phone,
-        contact.contact_type,
-        contact.lifecycle_stage,
-      ]
-        .filter(Boolean)
-        .some((value) =>
-          String(value).toLowerCase().includes(term)
-        )
-    );
-  }, [contacts, search]);
+      const reviewMatches =
+        reviewFilter === 'all'
+          ? true
+          : contact.contact_review_status === reviewFilter;
+
+      const searchMatches =
+        !term ||
+        [
+          displayName(contact),
+          contact.company,
+          contact.job_title,
+          contact.email,
+          contact.phone,
+          contact.mls_agent_id,
+          contact.mls_office_id,
+          contact.license_number,
+          contact.contact_type,
+          contact.lifecycle_stage,
+          contact.contact_review_status,
+        ]
+          .filter(Boolean)
+          .some((value) =>
+            String(value).toLowerCase().includes(term)
+          );
+
+      return (
+        brokerageMatches &&
+        reviewMatches &&
+        searchMatches
+      );
+    });
+  }, [
+    contacts,
+    search,
+    brokerageFilter,
+    reviewFilter,
+  ]);
+
+  const unknownBrokerageCount = useMemo(
+    () =>
+      contacts.filter(
+        (contact) => !contact.company?.trim()
+      ).length,
+    [contacts]
+  );
+
+  const needsReviewCount = useMemo(
+    () =>
+      contacts.filter(
+        (contact) =>
+          contact.contact_review_status ===
+          'needs_review'
+      ).length,
+    [contacts]
+  );
 
   const eligibleCount = useMemo(
     () =>
@@ -754,7 +882,7 @@ export default function MarketingContactsPage() {
         </div>
       )}
 
-      <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
             Total Contacts
@@ -773,6 +901,29 @@ export default function MarketingContactsPage() {
           </div>
         </div>
 
+        <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <Building2 className="h-4 w-4 text-violet-600" />
+            Brokerages
+          </div>
+          <div className="mt-2 text-3xl font-bold text-slate-900">
+            {brokerageOptions.length}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <AlertTriangle className="h-4 w-4 text-amber-600" />
+            Directory Data Pending
+          </div>
+          <div className="mt-2 text-3xl font-bold text-slate-900">
+            {needsReviewCount}
+          </div>
+          <div className="mt-1 text-xs text-slate-500">
+            {unknownBrokerageCount} awaiting MLS verification
+          </div>
+        </div>
+
         <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
             Import Rows Detected
@@ -782,6 +933,10 @@ export default function MarketingContactsPage() {
           </div>
         </div>
       </section>
+
+      <ContactEnrichmentReviewPanel
+        onDirectoryChanged={loadContacts}
+      />
 
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-5">
@@ -817,7 +972,7 @@ export default function MarketingContactsPage() {
 
           <label className="lg:col-span-3">
             <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Default Company
+              Fallback Brokerage
             </span>
 
             <input
@@ -825,6 +980,7 @@ export default function MarketingContactsPage() {
               onChange={(event) =>
                 setDefaultCompany(event.target.value)
               }
+              placeholder="Optional - CSV brokerage takes priority"
               className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 text-sm"
             />
           </label>
@@ -883,6 +1039,9 @@ export default function MarketingContactsPage() {
                   ['phone', 'Phone'],
                   ['company', 'Company / Brokerage'],
                   ['job_title', 'Job Title'],
+                  ['mls_agent_id', 'MLS User Code'],
+                  ['mls_office_id', 'MLS Office Code'],
+                  ['license_number', 'License Number'],
                 ] as const
               ).map(([field, label]) => (
                 <label key={field}>
@@ -972,17 +1131,53 @@ export default function MarketingContactsPage() {
             </p>
           </div>
 
-          <div className="relative w-full md:w-80">
-            <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+          <div className="grid w-full gap-2 md:w-auto md:grid-cols-[minmax(240px,320px)_220px_170px]">
+            <div className="relative">
+              <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
 
-            <input
-              value={search}
+              <input
+                value={search}
+                onChange={(event) =>
+                  setSearch(event.target.value)
+                }
+                placeholder="Search contacts..."
+                className="w-full rounded-2xl border border-slate-200 py-2.5 pl-9 pr-3 text-sm"
+              />
+            </div>
+
+            <select
+              value={brokerageFilter}
               onChange={(event) =>
-                setSearch(event.target.value)
+                setBrokerageFilter(event.target.value)
               }
-              placeholder="Search contacts..."
-              className="w-full rounded-2xl border border-slate-200 py-2.5 pl-9 pr-3 text-sm"
-            />
+              className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-sm"
+            >
+              <option value="all">All Brokerages</option>
+              <option value="unknown">
+                Unknown Brokerage ({unknownBrokerageCount})
+              </option>
+
+              {brokerageOptions.map((brokerage) => (
+                <option key={brokerage} value={brokerage}>
+                  {brokerage}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={reviewFilter}
+              onChange={(event) =>
+                setReviewFilter(event.target.value)
+              }
+              className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-sm"
+            >
+              <option value="all">All Review Statuses</option>
+              <option value="ready">Ready</option>
+              <option value="needs_review">
+                Directory Data Pending
+              </option>
+              <option value="unreviewed">Unreviewed</option>
+            </select>
           </div>
         </div>
 
@@ -991,9 +1186,11 @@ export default function MarketingContactsPage() {
             <thead className="bg-slate-50 text-left">
               <tr>
                 <th className="px-4 py-3">Contact</th>
-                <th className="px-4 py-3">Company</th>
+                <th className="px-4 py-3">Brokerage</th>
+                <th className="px-4 py-3">MLS ID</th>
                 <th className="px-4 py-3">Email</th>
                 <th className="px-4 py-3">Phone</th>
+                <th className="px-4 py-3">Review</th>
                 <th className="px-4 py-3">Type</th>
                 <th className="px-4 py-3">Lifecycle</th>
                 <th className="px-4 py-3">Email Status</th>
@@ -1018,7 +1215,15 @@ export default function MarketingContactsPage() {
                   </td>
 
                   <td className="px-4 py-3">
-                    {contact.company || '-'}
+                    {contact.company || (
+                      <span className="font-medium text-amber-700">
+                        Unknown Brokerage
+                      </span>
+                    )}
+                  </td>
+
+                  <td className="px-4 py-3">
+                    {contact.mls_agent_id || '-'}
                   </td>
 
                   <td className="px-4 py-3">
@@ -1027,6 +1232,18 @@ export default function MarketingContactsPage() {
 
                   <td className="px-4 py-3">
                     {contact.phone || '-'}
+                  </td>
+
+                  <td className="px-4 py-3">
+                    <span
+                      className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${reviewStatusClasses(
+                        contact.contact_review_status
+                      )}`}
+                    >
+                      {reviewStatusLabel(
+                        contact.contact_review_status
+                      )}
+                    </span>
                   </td>
 
                   <td className="px-4 py-3">
@@ -1106,7 +1323,7 @@ export default function MarketingContactsPage() {
               {!loading && filteredContacts.length === 0 && (
                 <tr>
                   <td
-                    colSpan={8}
+                    colSpan={10}
                     className="px-4 py-8 text-center text-slate-500"
                   >
                     No contacts found.
