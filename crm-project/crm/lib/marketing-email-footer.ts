@@ -14,6 +14,19 @@ export type MarketingIdentityForEmail = {
   marketing_signature_image_url: string | null;
 
   marketing_logo_url: string | null;
+
+  brokerage_logo_url?:
+    | string
+    | null;
+
+  brokerage_office_address?:
+    | string
+    | null;
+
+  brokerage_compliance_mailing_address?:
+    | string
+    | null;
+
   marketing_office_phone: string | null;
   marketing_office_address: string | null;
   marketing_appointment_url: string | null;
@@ -126,21 +139,31 @@ function formatPhoneDisplay(
   )}-${nationalDigits.slice(6)}`;
 }
 
+export type MarketingSocialSurface =
+  | 'light'
+  | 'dark';
+
 function socialLinks(
   profile:
-    MarketingIdentityForEmail
+    MarketingIdentityForEmail,
+  surface:
+    MarketingSocialSurface =
+      'dark'
 ) {
   const links: Array<{
     label: string;
     url: string | null;
-    iconUrl: string;
+    lightIconUrl: string;
+    darkIconUrl: string;
   }> = [
     {
       label: 'Facebook',
       url:
         profile
           .marketing_facebook_url,
-      iconUrl:
+      lightIconUrl:
+        'https://img.icons8.com/color/96/facebook-new.png',
+      darkIconUrl:
         'https://img.icons8.com/ios-filled/96/ffffff/facebook-new.png',
     },
     {
@@ -148,7 +171,9 @@ function socialLinks(
       url:
         profile
           .marketing_instagram_url,
-      iconUrl:
+      lightIconUrl:
+        'https://img.icons8.com/color/96/instagram-new--v1.png',
+      darkIconUrl:
         'https://img.icons8.com/ios-filled/96/ffffff/instagram-new--v1.png',
     },
     {
@@ -156,7 +181,9 @@ function socialLinks(
       url:
         profile
           .marketing_linkedin_url,
-      iconUrl:
+      lightIconUrl:
+        'https://img.icons8.com/color/96/linkedin.png',
+      darkIconUrl:
         'https://img.icons8.com/ios-filled/96/ffffff/linkedin.png',
     },
     {
@@ -164,7 +191,9 @@ function socialLinks(
       url:
         profile
           .marketing_youtube_url,
-      iconUrl:
+      lightIconUrl:
+        'https://img.icons8.com/color/96/youtube-play.png',
+      darkIconUrl:
         'https://img.icons8.com/ios-filled/96/ffffff/youtube-play.png',
     },
     {
@@ -172,7 +201,9 @@ function socialLinks(
       url:
         profile
           .marketing_tiktok_url,
-      iconUrl:
+      lightIconUrl:
+        'https://img.icons8.com/color/96/tiktok--v1.png',
+      darkIconUrl:
         'https://img.icons8.com/ios-filled/96/ffffff/tiktok--v1.png',
     },
     {
@@ -180,7 +211,9 @@ function socialLinks(
       url:
         profile
           .marketing_x_url,
-      iconUrl:
+      lightIconUrl:
+        'https://img.icons8.com/ios-filled/96/000000/twitterx--v2.png',
+      darkIconUrl:
         'https://img.icons8.com/ios-filled/96/ffffff/twitterx--v2.png',
     },
   ].filter(
@@ -210,9 +243,14 @@ function socialLinks(
                 item.url?.trim() ||
                 '';
 
+              const iconUrl =
+                surface === 'light'
+                  ? item.lightIconUrl
+                  : item.darkIconUrl;
+
               return `
                 <td
-                  style="padding-right:8px;"
+                  style="padding-right:10px;"
                 >
                   <a
                     href="${escapeHtml(
@@ -227,14 +265,14 @@ function socialLinks(
                   >
                     <img
                       src="${escapeHtml(
-                        item.iconUrl
+                        iconUrl
                       )}"
                       alt="${escapeHtml(
                         item.label
                       )}"
-                      width="16"
-                      height="16"
-                      style="display:block;width:16px;height:16px;margin:7px;border:0;"
+                      width="26"
+                      height="26"
+                      style="display:block;width:26px;height:26px;margin:2px;border:0;"
                     />
                   </a>
                 </td>
@@ -247,6 +285,388 @@ function socialLinks(
   `;
 }
 
+export function buildMarketingSocialLinksHtml(
+  profile:
+    MarketingIdentityForEmail,
+  surface:
+    MarketingSocialSurface =
+      'light'
+) {
+  return socialLinks(
+    profile,
+    surface
+  );
+}
+
+export type MarketingComplianceLinks = {
+  preferences_url?:
+    | string
+    | null;
+
+  unsubscribe_url?:
+    | string
+    | null;
+};
+
+export function buildMarketingBrandLogosHtml(
+  profile:
+    MarketingIdentityForEmail
+) {
+  const displayName =
+    profile
+      .marketing_from_name
+      ?.trim() ||
+    'Real Estate Professional';
+
+  const businessName =
+    profile
+      .marketing_licensed_business_name
+      ?.trim() ||
+    profile
+      .marketing_brokerage
+      ?.trim() ||
+    'Real Estate Brokerage';
+
+  const teamLogoUrl =
+    'https://easyrealtor.homes/MPREcrm.png';
+
+  const brokerageLogoUrl =
+    profile
+      .brokerage_logo_url
+      ?.trim() ||
+    profile
+      .marketing_logo_url
+      ?.trim() ||
+    'https://easyrealtor.homes/HomesofIdahocrm.png';
+
+  const logoItems = [
+    {
+      url:
+        teamLogoUrl,
+      alt:
+        `${displayName} team logo`,
+    },
+    {
+      url:
+        brokerageLogoUrl,
+      alt:
+        `${businessName} brokerage logo`,
+    },
+  ]
+    .filter(
+      (item) =>
+        Boolean(
+          item.url
+        )
+    )
+    .filter(
+      (
+        item,
+        index,
+        items
+      ) =>
+        items.findIndex(
+          (candidate) =>
+            candidate.url ===
+            item.url
+        ) === index
+    );
+
+  if (
+    logoItems.length === 0
+  ) {
+    return '';
+  }
+
+  return `
+    <table
+      role="presentation"
+      cellpadding="0"
+      cellspacing="0"
+      border="0"
+      style="margin:18px 0 14px;"
+    >
+      <tr>
+        ${logoItems
+          .map(
+            (item) => `
+              <td
+                valign="middle"
+                style="padding:0 24px 8px 0;"
+              >
+                <img
+                  src="${escapeHtml(
+                    item.url
+                  )}"
+                  alt="${escapeHtml(
+                    item.alt
+                  )}"
+                  style="display:block;max-width:175px;max-height:64px;width:auto;height:auto;border:0;"
+                />
+              </td>
+            `
+          )
+          .join('')}
+      </tr>
+    </table>
+  `;
+}
+
+export function buildMarketingComplianceFooterHtml(
+  profile:
+    MarketingIdentityForEmail,
+  links:
+    MarketingComplianceLinks = {}
+) {
+  const business =
+    profile
+      .marketing_licensed_business_name
+      ?.trim() ||
+    profile
+      .marketing_brokerage
+      ?.trim() ||
+    'Licensed Real Estate Brokerage';
+
+  const address =
+    profile
+      .marketing_physical_address
+      ?.trim() ||
+    profile
+      .brokerage_compliance_mailing_address
+      ?.trim() ||
+    profile
+      .brokerage_office_address
+      ?.trim() ||
+    profile
+      .marketing_office_address
+      ?.trim() ||
+    '';
+
+  const brokerLicense = [
+    profile
+      .marketing_broker_license_number
+      ?.trim(),
+    profile
+      .marketing_license_state
+      ?.trim(),
+  ]
+    .filter(Boolean)
+    .join(' | ');
+
+  const advertisement =
+    profile
+      .marketing_advertisement_label
+      ?.trim() ||
+    'Advertisement';
+
+  const standardDisclaimer =
+    profile
+      .marketing_standard_disclaimer
+      ?.trim() ||
+    DEFAULT_PROPERTY_DISCLAIMER;
+
+  const personalDisclaimer =
+    profile
+      .marketing_disclaimer
+      ?.trim() ||
+    '';
+
+  const mlsAttribution =
+    profile
+      .marketing_mls_attribution
+      ?.trim() ||
+    '';
+
+  const privacyUrl =
+    profile
+      .marketing_privacy_policy_url
+      ?.trim() ||
+    '';
+
+  const preferencesUrl =
+    links
+      .preferences_url
+      ?.trim() ||
+    '';
+
+  const unsubscribeUrl =
+    links
+      .unsubscribe_url
+      ?.trim() ||
+    '';
+
+  const footerLinks = [
+    preferencesUrl
+      ? `
+        <a
+          href="${escapeHtml(
+            preferencesUrl
+          )}"
+          style="color:#475569;text-decoration:underline;"
+        >Email preferences</a>
+      `
+      : '',
+    unsubscribeUrl
+      ? `
+        <a
+          href="${escapeHtml(
+            unsubscribeUrl
+          )}"
+          style="color:#475569;text-decoration:underline;"
+        >Unsubscribe</a>
+      `
+      : '',
+    privacyUrl
+      ? `
+        <a
+          href="${escapeHtml(
+            webUrl(
+              privacyUrl
+            )
+          )}"
+          style="color:#475569;text-decoration:underline;"
+        >Privacy Policy</a>
+      `
+      : '',
+  ].filter(Boolean);
+
+  const brandLogos =
+    buildMarketingBrandLogosHtml(
+      profile
+    );
+
+  return `
+    <div
+      style="margin-top:28px;padding-top:18px;border-top:1px solid #dbe3ec;font-family:Arial,Helvetica,sans-serif;color:#64748b;"
+    >
+      ${brandLogos}
+
+      <div
+        style="font-size:10px;line-height:1.55;color:#475569;"
+      >
+        <strong>${escapeHtml(
+          advertisement
+        )}</strong>
+
+        &middot;
+
+        ${escapeHtml(
+          business
+        )}
+
+        ${
+          address
+            ? `
+              &middot;
+              ${escapeHtml(
+                address
+              )}
+            `
+            : ''
+        }
+      </div>
+
+      ${
+        brokerLicense
+          ? `
+            <div
+              style="margin-top:4px;font-size:9px;line-height:1.5;color:#64748b;"
+            >
+              Brokerage license:
+              ${escapeHtml(
+                brokerLicense
+              )}
+            </div>
+          `
+          : ''
+      }
+
+      <div
+        style="margin-top:8px;font-size:8px;line-height:1.55;color:#7c8798;"
+      >
+        ${escapeHtml(
+          standardDisclaimer
+        )}
+
+        ${
+          personalDisclaimer &&
+          personalDisclaimer !==
+            standardDisclaimer
+            ? `
+              ${escapeHtml(
+                personalDisclaimer
+              )}
+            `
+            : ''
+        }
+
+        easyrealtor.homes is a technology platform and is not the real-estate brokerage representing this property.
+      </div>
+
+      ${
+        mlsAttribution
+          ? `
+            <div
+              style="margin-top:5px;font-size:8px;line-height:1.5;color:#7c8798;"
+            >
+              ${escapeHtml(
+                mlsAttribution
+              )}
+            </div>
+          `
+          : ''
+      }
+
+      ${
+        footerLinks.length
+          ? `
+            <div
+              style="margin-top:8px;font-size:9px;line-height:1.5;color:#64748b;"
+            >
+              ${footerLinks.join(
+                ' &middot; '
+              )}
+            </div>
+          `
+          : ''
+      }
+
+      <table
+        role="presentation"
+        width="100%"
+        cellpadding="0"
+        cellspacing="0"
+        border="0"
+        style="margin-top:14px;"
+      >
+        <tr>
+          <td
+            valign="middle"
+          >
+            <img
+              src="${PLATFORM_LOGO_URL}"
+              alt="easyRealtor"
+              width="105"
+              style="display:block;width:105px;height:auto;border:0;"
+            />
+          </td>
+
+          <td
+            valign="middle"
+            align="right"
+          >
+            <img
+              src="${EQUAL_HOUSING_LOGO_URL}"
+              alt="Equal Housing Opportunity"
+              width="28"
+              style="display:block;width:28px;height:auto;margin-left:auto;border:0;"
+            />
+          </td>
+        </tr>
+      </table>
+    </div>
+  `;
+}
 export function buildMarketingFooterHtml(
   profile:
     MarketingIdentityForEmail

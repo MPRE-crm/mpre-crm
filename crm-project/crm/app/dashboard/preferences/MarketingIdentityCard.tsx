@@ -1038,7 +1038,7 @@ export default function MarketingIdentityCard() {
 
           <label className="block">
             <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Email Signature or Tagline
+              Personal Email Signature Message
             </span>
 
             <textarea
@@ -1057,6 +1057,81 @@ export default function MarketingIdentityCard() {
               className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 text-sm"
             />
           </label>
+          <div className="rounded-2xl border border-blue-200 bg-blue-50/40 p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h3 className="text-base font-semibold text-slate-900">
+                  Personal Email Signature Image
+                </h3>
+
+                <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600">
+                  Upload a completed JPEG or PNG email signature. The uploaded image replaces the typed name, title, phone and website block in HTML emails.
+                </p>
+              </div>
+
+              {form.marketing_signature_image_url ? (
+                <span className="inline-flex w-fit rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
+                  Signature Image Active
+                </span>
+              ) : (
+                <span className="inline-flex w-fit rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-600">
+                  Typed Fallback Active
+                </span>
+              )}
+            </div>
+
+            {form.marketing_signature_image_url ? (
+              <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
+                <img
+                  src={
+                    form
+                      .marketing_signature_image_url
+                  }
+                  alt="Uploaded personal email signature"
+                  className="max-h-40 max-w-full object-contain"
+                />
+              </div>
+            ) : (
+              <div className="mt-4 rounded-2xl border border-dashed border-slate-300 bg-white p-4 text-sm leading-6 text-slate-500">
+                No signature image is uploaded. Emails will use the typed contact-information fallback.
+              </div>
+            )}
+
+            <label className="mt-4 inline-flex cursor-pointer items-center justify-center rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white">
+              {uploadingSignature
+                ? 'Uploading...'
+                : form.marketing_signature_image_url
+                  ? 'Replace Signature Image'
+                  : 'Upload Signature Image'}
+
+              <input
+                type="file"
+                accept="image/jpeg,image/png,.jpg,.jpeg,.png"
+                className="hidden"
+                disabled={
+                  uploadingSignature
+                }
+                onChange={(event) => {
+                  const file =
+                    event.target
+                      .files?.[0];
+
+                  if (file) {
+                    void uploadSignatureImage(
+                      file
+                    );
+                  }
+
+                  event.target.value =
+                    '';
+                }}
+              />
+            </label>
+
+            <p className="mt-2 text-xs text-slate-500">
+              JPEG or PNG. A wide horizontal image with a transparent or white background works best.
+            </p>
+          </div>
 
           <div className="rounded-2xl border border-slate-200 bg-white p-4">
             <h3 className="text-base font-semibold text-slate-900">

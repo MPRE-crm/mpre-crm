@@ -34,6 +34,8 @@ import {
   type Profile,
 } from '../../../../lib/listing-email-creative';
 
+import ListingQuickNotePanel from './ListingQuickNotePanel';
+
 
 const supabase =
   getSupabaseBrowser();
@@ -868,6 +870,43 @@ export default function ListingEmailStudioPanel({
           );
         }
 
+        const identityResponse =
+          await fetch(
+            `/api/preferences/marketing-identity?listing_id=${encodeURIComponent(
+              listing.id
+            )}`,
+            {
+              method:
+                'GET',
+
+              headers: {
+                Authorization:
+                  `Bearer ${sessionResult.session.access_token}`,
+              },
+
+              cache:
+                'no-store',
+            }
+          );
+
+        const identityResult =
+          await identityResponse
+            .json()
+            .catch(
+              () => ({})
+            );
+
+        if (
+          !identityResponse.ok ||
+          !identityResult?.ok ||
+          !identityResult?.profile
+        ) {
+          throw new Error(
+            identityResult?.error ||
+              'Could not load the saved marketing identity.'
+          );
+        }
+
         const response =
           await fetch(
             '/api/preferences/organization-compliance',
@@ -903,9 +942,18 @@ export default function ListingEmailStudioPanel({
         }
 
         if (mounted) {
+          const organizationProfile =
+            (
+              result.organization ||
+              {}
+            ) as Partial<Profile>;
+
+          const personalProfile =
+            identityResult.profile as Profile;
+
           setProfile({
-            ...result.organization,
-            ...profileRow,
+            ...organizationProfile,
+            ...personalProfile,
           } as Profile);
         }
       } catch (
@@ -1781,6 +1829,20 @@ export default function ListingEmailStudioPanel({
           </div>
         </section>
       )}
+
+      <ListingQuickNotePanel
+        listing={listing}
+        profile={profile}
+        luxuryEdition={
+          luxuryEdition
+        }
+        editionHeadline={
+          headline
+        }
+        editionBody={
+          body
+        }
+      />
 
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">

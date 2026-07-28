@@ -46,6 +46,9 @@ type Contact = {
   contact_review_status: string;
   contact_type: string;
   lifecycle_stage: string;
+  relationship_status: string | null;
+  prospect_temperature: string | null;
+  is_archived: boolean;
   tags: string[];
   email_marketing_status: string;
   do_not_contact: boolean;
@@ -66,28 +69,87 @@ type Mapping = {
 };
 
 const CONTACT_TYPES = [
-  { value: 'consumer', label: 'Consumer' },
+  { value: 'prospect', label: 'Prospect' },
+  { value: 'buyer', label: 'Buyer' },
+  { value: 'seller', label: 'Seller' },
+  { value: 'buyer_seller', label: 'Buyer & Seller' },
+  {
+    value: 'past_client',
+    label: 'Past or Closed Client',
+  },
+  { value: 'sphere', label: 'Sphere of Influence' },
   { value: 'realtor', label: 'Realtor' },
   { value: 'lender', label: 'Lender' },
-  { value: 'builder', label: 'Builder' },
-  { value: 'vendor', label: 'Vendor' },
-  { value: 'title_escrow', label: 'Title / Escrow' },
+  {
+    value: 'title_escrow',
+    label: 'Title / Escrow',
+  },
+  {
+    value: 'vendor_partner',
+    label: 'Vendor or Partner',
+  },
   { value: 'professional', label: 'Professional' },
-  { value: 'other', label: 'Other' },
+  {
+    value: 'other',
+    label: 'Other / General Contact',
+  },
 ];
 
-const LIFECYCLE_STAGES = [
-  { value: 'prospect', label: 'Prospect' },
-  { value: 'active_buyer', label: 'Active Buyer' },
-  { value: 'active_seller', label: 'Active Seller' },
-  { value: 'under_contract', label: 'Under Contract' },
-  { value: 'closed_client', label: 'Closed Client' },
-  { value: 'past_client', label: 'Past Client' },
-  { value: 'sphere', label: 'Sphere' },
-  { value: 'referral_partner', label: 'Referral Partner' },
-  { value: 'lost', label: 'Lost' },
-  { value: 'archived', label: 'Archived' },
+const PROSPECT_TEMPERATURES = [
+  { value: 'hot', label: 'Hot' },
+  { value: 'warm', label: 'Warm' },
+  { value: 'cold', label: 'Cold' },
 ];
+
+const RELATIONSHIP_STATUSES = [
+  { value: 'active', label: 'Active' },
+  {
+    value: 'under_contract',
+    label: 'Under Contract',
+  },
+  { value: 'lost', label: 'Lost' },
+];
+
+function usesRelationshipStatus(
+  contactType: string
+): boolean {
+  return [
+    'buyer',
+    'seller',
+    'buyer_seller',
+  ].includes(contactType);
+}
+
+function legacyLifecycleForCategory(
+  contactType: string,
+  relationshipStatus: string | null = null
+): string {
+  if (relationshipStatus === 'under_contract') {
+    return 'under_contract';
+  }
+
+  if (relationshipStatus === 'lost') {
+    return 'lost';
+  }
+
+  switch (contactType) {
+    case 'buyer':
+    case 'buyer_seller':
+      return 'active_buyer';
+
+    case 'seller':
+      return 'active_seller';
+
+    case 'past_client':
+      return 'past_client';
+
+    case 'sphere':
+      return 'sphere';
+
+    default:
+      return 'prospect';
+  }
+}
 
 const EMAIL_STATUSES = [
   { value: 'active', label: 'Active' },
@@ -377,8 +439,15 @@ export default function MarketingContactsPage() {
   const [defaultContactType, setDefaultContactType] =
     useState('realtor');
 
-  const [defaultLifecycle, setDefaultLifecycle] =
-    useState('prospect');
+  const [
+    defaultProspectTemperature,
+    setDefaultProspectTemperature,
+  ] = useState('hot');
+
+  const [
+    defaultRelationshipStatus,
+    setDefaultRelationshipStatus,
+  ] = useState('active');
 
   const [search, setSearch] = useState('');
   const [brokerageFilter, setBrokerageFilter] =
@@ -452,6 +521,9 @@ export default function MarketingContactsPage() {
           contact_review_status,
           contact_type,
           lifecycle_stage,
+          relationship_status,
+          prospect_temperature,
+          is_archived,
           tags,
           email_marketing_status,
           do_not_contact,
@@ -603,7 +675,24 @@ export default function MarketingContactsPage() {
             null,
 
           contact_type: defaultContactType,
-          lifecycle_stage: defaultLifecycle,
+
+          lifecycle_stage:
+            legacyLifecycleForCategory(
+              defaultContactType,
+              defaultRelationshipStatus
+            ),
+
+          relationship_status:
+            usesRelationshipStatus(defaultContactType)
+              ? defaultRelationshipStatus
+              : null,
+
+          prospect_temperature:
+            defaultContactType === 'prospect'
+              ? defaultProspectTemperature
+              : null,
+
+          is_archived: false,
 
           tags: [
             'Listing advertisements',
@@ -776,7 +865,11 @@ export default function MarketingContactsPage() {
           contact.mls_office_id,
           contact.license_number,
           contact.contact_type,
-          contact.lifecycle_stage,
+          contact.relationship_status,
+          contact.prospect_temperature,
+          contact.is_archived
+            ? 'archived'
+            : '',
           contact.contact_review_status,
         ]
           .filter(Boolean)
@@ -822,7 +915,7 @@ export default function MarketingContactsPage() {
           contact.email &&
           contact.email_marketing_status === 'active' &&
           contact.do_not_contact !== true &&
-          contact.lifecycle_stage !== 'archived'
+          contact.is_archived !== true
       ).length,
     [contacts]
   );
@@ -987,7 +1080,7 @@ export default function MarketingContactsPage() {
 
           <label className="lg:col-span-3">
             <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Contact Type
+              Contact Category
             </span>
 
             <select
@@ -1073,28 +1166,65 @@ export default function MarketingContactsPage() {
                 </label>
               ))}
 
-              <label>
-                <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Default Lifecycle
-                </span>
+              {defaultContactType === 'prospect' && (
+                <label>
+                  <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Default Temperature
+                  </span>
 
-                <select
-                  value={defaultLifecycle}
-                  onChange={(event) =>
-                    setDefaultLifecycle(event.target.value)
-                  }
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                >
-                  {LIFECYCLE_STAGES.map((stage) => (
-                    <option
-                      key={stage.value}
-                      value={stage.value}
-                    >
-                      {stage.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                  <select
+                    value={defaultProspectTemperature}
+                    onChange={(event) =>
+                      setDefaultProspectTemperature(
+                        event.target.value
+                      )
+                    }
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                  >
+                    {PROSPECT_TEMPERATURES.map(
+                      (temperature) => (
+                        <option
+                          key={temperature.value}
+                          value={temperature.value}
+                        >
+                          {temperature.label}
+                        </option>
+                      )
+                    )}
+                  </select>
+                </label>
+              )}
+
+              {usesRelationshipStatus(
+                defaultContactType
+              ) && (
+                <label>
+                  <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Default Status
+                  </span>
+
+                  <select
+                    value={defaultRelationshipStatus}
+                    onChange={(event) =>
+                      setDefaultRelationshipStatus(
+                        event.target.value
+                      )
+                    }
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                  >
+                    {RELATIONSHIP_STATUSES.map(
+                      (status) => (
+                        <option
+                          key={status.value}
+                          value={status.value}
+                        >
+                          {status.label}
+                        </option>
+                      )
+                    )}
+                  </select>
+                </label>
+              )}
             </div>
 
             <div className="mt-5">
@@ -1191,8 +1321,12 @@ export default function MarketingContactsPage() {
                 <th className="px-4 py-3">Email</th>
                 <th className="px-4 py-3">Phone</th>
                 <th className="px-4 py-3">Review</th>
-                <th className="px-4 py-3">Type</th>
-                <th className="px-4 py-3">Lifecycle</th>
+                <th className="px-4 py-3">
+                  Contact Category
+                </th>
+                <th className="px-4 py-3">
+                  Status / Temperature
+                </th>
                 <th className="px-4 py-3">Email Status</th>
                 <th className="px-4 py-3">Added</th>
               </tr>
@@ -1250,11 +1384,40 @@ export default function MarketingContactsPage() {
                     <select
                       value={contact.contact_type}
                       disabled={savingContactId === contact.id}
-                      onChange={(event) =>
+                      onChange={(event) => {
+                        const nextContactType =
+                          event.target.value;
+
+                        const nextRelationshipStatus =
+                          usesRelationshipStatus(
+                            nextContactType
+                          )
+                            ? contact.relationship_status ||
+                              'active'
+                            : null;
+
                         updateContact(contact.id, {
-                          contact_type: event.target.value,
-                        })
-                      }
+                          contact_type:
+                            nextContactType,
+
+                          relationship_status:
+                            nextRelationshipStatus,
+
+                          prospect_temperature:
+                            nextContactType === 'prospect'
+                              ? contact.prospect_temperature ||
+                                'hot'
+                              : null,
+
+                          lifecycle_stage:
+                            contact.is_archived
+                              ? 'archived'
+                              : legacyLifecycleForCategory(
+                                  nextContactType,
+                                  nextRelationshipStatus
+                                ),
+                        });
+                      }}
                       className="rounded-xl border border-slate-200 px-2 py-1.5 text-xs"
                     >
                       {CONTACT_TYPES.map((type) => (
@@ -1269,26 +1432,112 @@ export default function MarketingContactsPage() {
                   </td>
 
                   <td className="px-4 py-3">
-                    <select
-                      value={contact.lifecycle_stage}
-                      disabled={savingContactId === contact.id}
-                      onChange={(event) =>
-                        updateContact(contact.id, {
-                          lifecycle_stage:
-                            event.target.value,
-                        })
-                      }
-                      className="rounded-xl border border-slate-200 px-2 py-1.5 text-xs"
-                    >
-                      {LIFECYCLE_STAGES.map((stage) => (
-                        <option
-                          key={stage.value}
-                          value={stage.value}
+                    <div className="space-y-2">
+                      {contact.contact_type ===
+                      'prospect' ? (
+                        <select
+                          value={
+                            contact.prospect_temperature ||
+                            'hot'
+                          }
+                          disabled={
+                            savingContactId === contact.id
+                          }
+                          onChange={(event) =>
+                            updateContact(contact.id, {
+                              prospect_temperature:
+                                event.target.value,
+                            })
+                          }
+                          className="rounded-xl border border-slate-200 px-2 py-1.5 text-xs"
                         >
-                          {stage.label}
-                        </option>
-                      ))}
-                    </select>
+                          {PROSPECT_TEMPERATURES.map(
+                            (temperature) => (
+                              <option
+                                key={temperature.value}
+                                value={temperature.value}
+                              >
+                                {temperature.label}
+                              </option>
+                            )
+                          )}
+                        </select>
+                      ) : usesRelationshipStatus(
+                          contact.contact_type
+                        ) ? (
+                        <select
+                          value={
+                            contact.relationship_status ||
+                            'active'
+                          }
+                          disabled={
+                            savingContactId === contact.id
+                          }
+                          onChange={(event) => {
+                            const nextStatus =
+                              event.target.value;
+
+                            updateContact(contact.id, {
+                              relationship_status:
+                                nextStatus,
+
+                              lifecycle_stage:
+                                contact.is_archived
+                                  ? 'archived'
+                                  : legacyLifecycleForCategory(
+                                      contact.contact_type,
+                                      nextStatus
+                                    ),
+                            });
+                          }}
+                          className="rounded-xl border border-slate-200 px-2 py-1.5 text-xs"
+                        >
+                          {RELATIONSHIP_STATUSES.map(
+                            (status) => (
+                              <option
+                                key={status.value}
+                                value={status.value}
+                              >
+                                {status.label}
+                              </option>
+                            )
+                          )}
+                        </select>
+                      ) : (
+                        <span className="text-xs text-slate-400">
+                          Not applicable
+                        </span>
+                      )}
+
+                      <label className="flex items-center gap-2 text-xs text-slate-600">
+                        <input
+                          type="checkbox"
+                          checked={contact.is_archived}
+                          disabled={
+                            savingContactId === contact.id
+                          }
+                          onChange={(event) => {
+                            const isArchived =
+                              event.target.checked;
+
+                            updateContact(contact.id, {
+                              is_archived: isArchived,
+
+                              lifecycle_stage:
+                                isArchived
+                                  ? 'archived'
+                                  : legacyLifecycleForCategory(
+                                      contact.contact_type,
+                                      contact.relationship_status
+                                    ),
+                            });
+                          }}
+                          className="h-3.5 w-3.5 rounded border-slate-300"
+                        />
+
+                        Archived
+                      </label>
+                    </div>
                   </td>
 
                   <td className="px-4 py-3">

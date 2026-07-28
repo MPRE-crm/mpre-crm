@@ -290,7 +290,17 @@ type Contact = {
     | null;
 
   contact_type: string;
-  lifecycle_stage: string;
+
+  relationship_status:
+    | string
+    | null;
+
+  prospect_temperature:
+    | string
+    | null;
+
+  is_archived:
+    boolean;
 
   company:
     | string
@@ -306,6 +316,233 @@ type Contact = {
     | string[]
     | null;
 };
+
+const CAMPAIGN_CONTACT_CATEGORIES = [
+  {
+    value: 'prospect',
+    label: 'Prospects',
+  },
+  {
+    value: 'buyer',
+    label: 'Buyers',
+  },
+  {
+    value: 'seller',
+    label: 'Sellers',
+  },
+  {
+    value: 'buyer_seller',
+    label: 'Buyers & Sellers',
+  },
+  {
+    value: 'past_client',
+    label: 'Past or Closed Clients',
+  },
+  {
+    value: 'sphere',
+    label: 'Sphere of Influence',
+  },
+  {
+    value: 'realtor',
+    label: 'Realtors',
+  },
+  {
+    value: 'lender',
+    label: 'Lenders',
+  },
+  {
+    value: 'title_escrow',
+    label: 'Title / Escrow',
+  },
+  {
+    value: 'vendor_partner',
+    label: 'Vendors or Partners',
+  },
+  {
+    value: 'professional',
+    label: 'Professionals',
+  },
+  {
+    value: 'other',
+    label: 'Other / General Contacts',
+  },
+];
+
+const CAMPAIGN_PROSPECT_TEMPERATURES = [
+  {
+    value: 'hot',
+    label: 'Hot',
+  },
+  {
+    value: 'warm',
+    label: 'Warm',
+  },
+  {
+    value: 'cold',
+    label: 'Cold',
+  },
+];
+
+const CAMPAIGN_RELATIONSHIP_STATUSES = [
+  {
+    value: 'active',
+    label: 'Active',
+  },
+  {
+    value: 'under_contract',
+    label: 'Under Contract',
+  },
+  {
+    value: 'lost',
+    label: 'Lost',
+  },
+];
+
+function campaignCategoryUsesStatus(
+  contactType: string
+): boolean {
+  return [
+    'buyer',
+    'seller',
+    'buyer_seller',
+  ].includes(contactType);
+}
+
+function normalizeCampaignContactCategory(
+  value: unknown,
+  legacyLifecycle: unknown = ''
+): string {
+  const contactType =
+    typeof value === 'string'
+      ? value
+      : '';
+
+  const lifecycle =
+    typeof legacyLifecycle === 'string'
+      ? legacyLifecycle
+      : '';
+
+  if (contactType === 'all') {
+    return 'all';
+  }
+
+  if (contactType === 'vendor') {
+    return 'vendor_partner';
+  }
+
+  if (contactType === 'consumer') {
+    switch (lifecycle) {
+      case 'active_buyer':
+        return 'buyer';
+
+      case 'active_seller':
+        return 'seller';
+
+      case 'closed_client':
+      case 'past_client':
+        return 'past_client';
+
+      case 'sphere':
+        return 'sphere';
+
+      case 'referral_partner':
+        return 'vendor_partner';
+
+      default:
+        return 'prospect';
+    }
+  }
+
+  const isSupported =
+    CAMPAIGN_CONTACT_CATEGORIES.some(
+      (category) =>
+        category.value === contactType
+    );
+
+  return isSupported
+    ? contactType
+    : 'all';
+}
+
+function normalizeCampaignSecondaryFilter(
+  contactType: string,
+  audienceFilter:
+    | Record<string, any>
+    | null
+    | undefined
+): string {
+  if (contactType === 'prospect') {
+    const temperature =
+      String(
+        audienceFilter
+          ?.prospect_temperature ||
+          ''
+      );
+
+    return [
+      'hot',
+      'warm',
+      'cold',
+    ].includes(temperature)
+      ? temperature
+      : 'all';
+  }
+
+  if (
+    campaignCategoryUsesStatus(
+      contactType
+    )
+  ) {
+    const relationshipStatus =
+      String(
+        audienceFilter
+          ?.relationship_status ||
+          ''
+      );
+
+    if (
+      [
+        'active',
+        'under_contract',
+        'lost',
+      ].includes(relationshipStatus)
+    ) {
+      return relationshipStatus;
+    }
+
+    const legacyLifecycle =
+      String(
+        audienceFilter
+          ?.lifecycle_stage ||
+          ''
+      );
+
+    if (
+      legacyLifecycle ===
+      'under_contract'
+    ) {
+      return 'under_contract';
+    }
+
+    if (
+      legacyLifecycle ===
+      'lost'
+    ) {
+      return 'lost';
+    }
+
+    if (
+      legacyLifecycle ===
+        'active_buyer' ||
+      legacyLifecycle ===
+        'active_seller'
+    ) {
+      return 'active';
+    }
+  }
+
+  return 'all';
+}
 
 type Campaign = {
   id: string;
@@ -1611,8 +1848,8 @@ export default function CampaignsPage() {
   ] = useState('realtor');
 
   const [
-    lifecycleFilter,
-    setLifecycleFilter,
+    secondaryAudienceFilter,
+    setSecondaryAudienceFilter,
   ] = useState('all');
 
   const [
@@ -1726,9 +1963,7 @@ export default function CampaignsPage() {
           }
 
           if (
-            contact
-              .lifecycle_stage ===
-            'archived'
+            contact.is_archived
           ) {
             return false;
           }
@@ -1751,11 +1986,26 @@ export default function CampaignsPage() {
           }
 
           if (
-            lifecycleFilter !==
+            contactTypeFilter ===
+              'prospect' &&
+            secondaryAudienceFilter !==
               'all' &&
             contact
-              .lifecycle_stage !==
-              lifecycleFilter
+              .prospect_temperature !==
+              secondaryAudienceFilter
+          ) {
+            return false;
+          }
+
+          if (
+            campaignCategoryUsesStatus(
+              contactTypeFilter
+            ) &&
+            secondaryAudienceFilter !==
+              'all' &&
+            contact
+              .relationship_status !==
+              secondaryAudienceFilter
           ) {
             return false;
           }
@@ -1776,7 +2026,7 @@ export default function CampaignsPage() {
       contacts,
       suppressionEmails,
       contactTypeFilter,
-      lifecycleFilter,
+      secondaryAudienceFilter,
       companyFilter,
     ]);
 
@@ -2110,7 +2360,9 @@ export default function CampaignsPage() {
             id,
             email,
             contact_type,
-            lifecycle_stage,
+            relationship_status,
+            prospect_temperature,
+            is_archived,
             company,
             email_marketing_status,
             do_not_contact,
@@ -2456,7 +2708,7 @@ export default function CampaignsPage() {
       'realtor'
     );
 
-    setLifecycleFilter(
+    setSecondaryAudienceFilter(
       'all'
     );
 
@@ -2504,18 +2756,25 @@ export default function CampaignsPage() {
         ''
     );
 
+    const restoredContactType =
+      normalizeCampaignContactCategory(
+        campaign
+          .audience_filter
+          ?.contact_type,
+        campaign
+          .audience_filter
+          ?.lifecycle_stage
+      );
+
     setContactTypeFilter(
-      campaign
-        .audience_filter
-        ?.contact_type ||
-        'all'
+      restoredContactType
     );
 
-    setLifecycleFilter(
-      campaign
-        .audience_filter
-        ?.lifecycle_stage ||
-        'all'
+    setSecondaryAudienceFilter(
+      normalizeCampaignSecondaryFilter(
+        restoredContactType,
+        campaign.audience_filter
+      )
     );
 
     setCompanyFilter(
@@ -2689,14 +2948,26 @@ export default function CampaignsPage() {
           contact_type:
             contactTypeFilter,
 
-          lifecycle_stage:
-            lifecycleFilter,
+          prospect_temperature:
+            contactTypeFilter ===
+              'prospect'
+              ? secondaryAudienceFilter
+              : 'all',
+
+          relationship_status:
+            campaignCategoryUsesStatus(
+              contactTypeFilter
+            )
+              ? secondaryAudienceFilter
+              : 'all',
 
           company:
             companyFilter,
 
+          is_archived: false,
+
           eligibility:
-            'active_not_suppressed',
+            'active_not_suppressed_not_archived',
         },
 
         design_settings: {
@@ -3198,91 +3469,111 @@ export default function CampaignsPage() {
             <div className="mt-4 grid grid-cols-1 gap-3">
               <label>
                 <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Contact Type
+                  Contact Category
                 </span>
 
                 <select
                   value={
                     contactTypeFilter
                   }
-                  onChange={(event) =>
+                  onChange={(event) => {
                     setContactTypeFilter(
                       event.target.value
-                    )
-                  }
+                    );
+
+                    setSecondaryAudienceFilter(
+                      'all'
+                    );
+                  }}
                   className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 text-sm"
                 >
                   <option value="all">
-                    All Contact Types
+                    All Contact Categories
                   </option>
 
-                  <option value="realtor">
-                    Realtors
-                  </option>
-
-                  <option value="consumer">
-                    Consumers
-                  </option>
-
-                  <option value="lender">
-                    Lenders
-                  </option>
-
-                  <option value="builder">
-                    Builders
-                  </option>
-
-                  <option value="vendor">
-                    Vendors
-                  </option>
-
-                  <option value="professional">
-                    Professionals
-                  </option>
-                </select>
-              </label>
-
-              <label>
-                <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Lifecycle
-                </span>
-
-                <select
-                  value={
-                    lifecycleFilter
-                  }
-                  onChange={(event) =>
-                    setLifecycleFilter(
-                      event.target.value
+                  {CAMPAIGN_CONTACT_CATEGORIES.map(
+                    (category) => (
+                      <option
+                        key={category.value}
+                        value={category.value}
+                      >
+                        {category.label}
+                      </option>
                     )
-                  }
-                  className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 text-sm"
-                >
-                  <option value="all">
-                    All Lifecycles
-                  </option>
-
-                  <option value="prospect">
-                    Prospect
-                  </option>
-
-                  <option value="sphere">
-                    Sphere
-                  </option>
-
-                  <option value="past_client">
-                    Past Client
-                  </option>
-
-                  <option value="closed_client">
-                    Closed Client
-                  </option>
-
-                  <option value="referral_partner">
-                    Referral Partner
-                  </option>
+                  )}
                 </select>
               </label>
+
+              {contactTypeFilter ===
+              'prospect' ? (
+                <label>
+                  <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Prospect Temperature
+                  </span>
+
+                  <select
+                    value={
+                      secondaryAudienceFilter
+                    }
+                    onChange={(event) =>
+                      setSecondaryAudienceFilter(
+                        event.target.value
+                      )
+                    }
+                    className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 text-sm"
+                  >
+                    <option value="all">
+                      All Temperatures
+                    </option>
+
+                    {CAMPAIGN_PROSPECT_TEMPERATURES.map(
+                      (temperature) => (
+                        <option
+                          key={temperature.value}
+                          value={temperature.value}
+                        >
+                          {temperature.label}
+                        </option>
+                      )
+                    )}
+                  </select>
+                </label>
+              ) : campaignCategoryUsesStatus(
+                  contactTypeFilter
+                ) ? (
+                <label>
+                  <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Status
+                  </span>
+
+                  <select
+                    value={
+                      secondaryAudienceFilter
+                    }
+                    onChange={(event) =>
+                      setSecondaryAudienceFilter(
+                        event.target.value
+                      )
+                    }
+                    className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 text-sm"
+                  >
+                    <option value="all">
+                      All Statuses
+                    </option>
+
+                    {CAMPAIGN_RELATIONSHIP_STATUSES.map(
+                      (status) => (
+                        <option
+                          key={status.value}
+                          value={status.value}
+                        >
+                          {status.label}
+                        </option>
+                      )
+                    )}
+                  </select>
+                </label>
+              ) : null}
 
               <label>
                 <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">

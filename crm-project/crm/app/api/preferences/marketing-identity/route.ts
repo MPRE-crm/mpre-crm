@@ -250,11 +250,15 @@ export async function GET(
       adminClient();
 
     const {
-      data: profile,
-      error,
+      data: requesterProfile,
+      error: requesterError,
     } = await admin
       .from('profiles')
-      .select(PROFILE_FIELDS)
+      .select(`
+        id,
+        role,
+        org_id
+      `)
       .eq(
         'id',
         auth.user.id
@@ -262,12 +266,162 @@ export async function GET(
       .single();
 
     if (
+      requesterError ||
+      !requesterProfile
+    ) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            requesterError?.message ||
+            'Requesting profile not found.',
+        },
+        {
+          status: 404,
+        }
+      );
+    }
+
+    const listingId =
+      new URL(
+        request.url
+      ).searchParams
+        .get('listing_id')
+        ?.trim() ||
+      '';
+
+    let targetProfileId =
+      auth.user.id;
+
+    if (listingId) {
+      const {
+        data: listing,
+        error: listingError,
+      } = await admin
+        .from('listings')
+        .select(`
+          id,
+          org_id,
+          owner_user_id
+        `)
+        .eq(
+          'id',
+          listingId
+        )
+        .single();
+
+      if (
+        listingError ||
+        !listing
+      ) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error:
+              listingError?.message ||
+              'Listing not found.',
+          },
+          {
+            status: 404,
+          }
+        );
+      }
+
+      if (
+        !listing.owner_user_id
+      ) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error:
+              'This listing does not have an assigned owner.',
+          },
+          {
+            status: 400,
+          }
+        );
+      }
+
+      const requesterRole =
+        String(
+          requesterProfile.role ||
+          ''
+        )
+          .trim()
+          .toLowerCase();
+
+      const sameOrganization =
+        Boolean(
+          requesterProfile.org_id &&
+          listing.org_id &&
+          requesterProfile.org_id ===
+            listing.org_id
+        );
+
+      const canUseListingOwner =
+        requesterRole ===
+          'platform_admin' ||
+        (
+          (
+            requesterRole ===
+              'admin' ||
+            requesterRole ===
+              'org_admin'
+          ) &&
+          sameOrganization
+        ) ||
+        (
+          requesterRole ===
+            'agent' &&
+          listing.owner_user_id ===
+            auth.user.id
+        );
+
+      if (
+        !canUseListingOwner
+      ) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error:
+              'You do not have access to this listing owner’s marketing identity.',
+          },
+          {
+            status: 403,
+          }
+        );
+      }
+
+      targetProfileId =
+        listing.owner_user_id;
+    }
+
+    const {
+      data: profile,
+      error,
+    } = await admin
+      .from('profiles')
+      .select(PROFILE_FIELDS)
+      .eq(
+        'id',
+        targetProfileId
+      )
+      .single();
+
+    if (
       error ||
       !profile
     ) {
-      throw new Error(
-        error?.message ||
-          'Profile not found.'
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            error?.message ||
+            'Marketing profile not found.',
+        },
+        {
+          status: 404,
+        }
       );
     }
 
@@ -289,7 +443,6 @@ export async function GET(
     );
   }
 }
-
 export async function PATCH(
   request: Request
 ) {
