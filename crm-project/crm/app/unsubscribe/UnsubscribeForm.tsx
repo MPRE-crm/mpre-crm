@@ -88,15 +88,15 @@ export default function UnsubscribeForm({
 
   if (status === 'success') {
     return (
-      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-6">
-        <h2 className="text-xl font-black text-emerald-900">
+      <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
+        <h2 className="text-base font-semibold text-emerald-900">
           {result
             ?.already_unsubscribed
             ? 'Already unsubscribed'
             : 'You are unsubscribed'}
         </h2>
 
-        <p className="mt-3 leading-7 text-emerald-800">
+        <p className="mt-2 text-sm leading-6 text-emerald-800">
           Marketing emails have been
           disabled for{' '}
           <strong>
@@ -110,7 +110,7 @@ export default function UnsubscribeForm({
 
   return (
     <div>
-      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 text-sm leading-6 text-slate-700">
+      <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-[13px] leading-5 text-slate-700">
         Selecting the button below will
         unsubscribe this email address
         from all MPRE Boise marketing
@@ -118,7 +118,7 @@ export default function UnsubscribeForm({
       </div>
 
       {status === 'error' ? (
-        <p className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
+        <p className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-xs font-semibold text-red-700">
           {result?.error ||
             'Your unsubscribe request could not be completed.'}
         </p>
@@ -128,7 +128,7 @@ export default function UnsubscribeForm({
         type="button"
         onClick={unsubscribe}
         disabled={status === 'pending'}
-        className="mt-6 w-full rounded-xl bg-slate-950 px-6 py-4 text-sm font-black text-white shadow-lg transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+        className="mt-3 w-full rounded-lg border border-slate-900 bg-slate-900 px-5 py-2.5 text-[13px] font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {status === 'pending'
           ? 'Processing unsubscribe...'

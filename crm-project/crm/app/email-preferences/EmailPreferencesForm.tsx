@@ -31,31 +31,31 @@ const preferenceOptions: Array<{
     key: 'allow_listing_ads',
     label: 'Listing announcements',
     description:
-      'New listings, coming-soon properties, just-sold announcements and similar property marketing.',
+      'New, coming-soon and just-sold property announcements.',
   },
   {
     key: 'allow_open_house',
     label: 'Open-house announcements',
     description:
-      'Upcoming open houses and property-tour opportunities.',
+      'Open houses and property-tour opportunities.',
   },
   {
     key: 'allow_price_changes',
     label: 'Price-change notices',
     description:
-      'Listing price improvements and related property updates.',
+      'Price improvements and important listing updates.',
   },
   {
     key: 'allow_market_updates',
     label: 'Market updates',
     description:
-      'Real-estate market information, statistics and client updates.',
+      'Local market statistics, trends and client updates.',
   },
   {
     key: 'allow_newsletters',
     label: 'Newsletters',
     description:
-      'General real-estate newsletters and educational content.',
+      'Real-estate guidance, resources and general newsletters.',
   },
 ];
 
@@ -271,15 +271,15 @@ export default function EmailPreferencesForm({
   if (!canUpdate) {
     return (
       <div>
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6">
-          <h2 className="text-lg font-black text-amber-900">
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+          <h2 className="text-sm font-semibold text-amber-900">
             {marketingStatus ===
             'unsubscribed'
               ? 'Marketing email is turned off'
               : 'These preferences cannot be changed'}
           </h2>
 
-          <p className="mt-3 text-sm leading-6 text-amber-800">
+          <p className="mt-1.5 text-xs leading-5 text-amber-800">
             {marketingStatus ===
             'unsubscribed'
               ? `Marketing emails are disabled for ${initial.email_masked}.`
@@ -288,7 +288,7 @@ export default function EmailPreferencesForm({
         </div>
 
         {notice ? (
-          <p className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-800">
+          <p className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs font-semibold text-emerald-800">
             {notice.message}
           </p>
         ) : null}
@@ -298,19 +298,19 @@ export default function EmailPreferencesForm({
 
   return (
     <div>
-      <p className="mb-5 text-sm leading-6 text-slate-600">
+      <p className="mb-3 flex flex-wrap items-center justify-between gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
         Managing preferences for{' '}
-        <strong className="text-slate-900">
+        <strong className="rounded-full bg-white px-2.5 py-1 font-semibold text-slate-900 shadow-sm">
           {initial.email_masked}
         </strong>
       </p>
 
-      <div className="space-y-3">
+      <div className="grid gap-1.5 sm:grid-cols-2">
         {preferenceOptions.map(
           (option) => (
             <label
               key={option.key}
-              className="flex cursor-pointer gap-4 rounded-2xl border border-slate-200 p-4 transition hover:border-slate-400"
+              className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-slate-200 bg-white px-3 py-2.5 transition hover:border-amber-500 hover:shadow-sm sm:last:col-span-2"
             >
               <input
                 type="checkbox"
@@ -328,15 +328,15 @@ export default function EmailPreferencesForm({
                   pendingAction !==
                   null
                 }
-                className="mt-1 h-5 w-5 rounded border-slate-300"
+                className="mt-0.5 h-4 w-4 rounded border-slate-300 accent-amber-600"
               />
 
               <span>
-                <span className="block font-black text-slate-900">
+                <span className="block text-[13px] font-semibold leading-5 text-slate-900">
                   {option.label}
                 </span>
 
-                <span className="mt-1 block text-sm leading-6 text-slate-600">
+                <span className="block text-[11px] leading-[17px] text-slate-600">
                   {option.description}
                 </span>
               </span>
@@ -350,15 +350,15 @@ export default function EmailPreferencesForm({
           className={
             notice.kind ===
             'success'
-              ? 'mt-5 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-800'
-              : 'mt-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700'
+              ? 'mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs font-semibold text-emerald-800'
+              : 'mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-xs font-semibold text-red-700'
           }
         >
           {notice.message}
         </p>
       ) : null}
 
-      <div className="mt-6 grid gap-3 sm:grid-cols-2">
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
         <button
           type="button"
           onClick={
@@ -368,7 +368,7 @@ export default function EmailPreferencesForm({
             pendingAction !==
             null
           }
-          className="rounded-xl bg-slate-950 px-6 py-4 text-sm font-black text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+          className="rounded-lg border border-slate-900 bg-slate-900 px-4 py-2.5 text-[13px] font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {pendingAction ===
           'save'
@@ -385,7 +385,7 @@ export default function EmailPreferencesForm({
             pendingAction !==
             null
           }
-          className="rounded-xl border border-red-300 bg-white px-6 py-4 text-sm font-black text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+          className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-[13px] font-semibold text-slate-700 transition hover:border-rose-300 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {pendingAction ===
           'unsubscribe'

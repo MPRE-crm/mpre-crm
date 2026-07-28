@@ -7,6 +7,7 @@ type PublicEmailComplianceShellProps = {
   title: string;
   description?: string;
   children: ReactNode;
+  wide?: boolean;
 };
 
 export function PublicEmailComplianceShell({
@@ -14,45 +15,55 @@ export function PublicEmailComplianceShell({
   title,
   description,
   children,
+  wide = false,
 }: PublicEmailComplianceShellProps) {
+  const widthClass =
+    wide
+      ? 'max-w-5xl'
+      : 'max-w-xl';
+
   return (
-    <main className="min-h-screen bg-slate-950 px-5 py-12 text-slate-950">
-      <div className="mx-auto w-full max-w-2xl rounded-3xl border border-white/10 bg-white p-7 shadow-2xl sm:p-10">
-        <header className="mb-8 border-b border-slate-200 pb-7 text-center">
-          <p className="text-sm font-black uppercase tracking-[0.22em] text-amber-700">
-            MPRE Boise
-          </p>
+    <main className="min-h-screen bg-slate-950 px-3 py-3 text-slate-950 sm:px-5 sm:py-5">
+      <div className="mx-auto flex min-h-[calc(100vh-1.5rem)] w-full items-center justify-center sm:min-h-[calc(100vh-2.5rem)]">
+        <div
+          className={`w-full overflow-hidden rounded-2xl border border-white/10 bg-white shadow-[0_24px_60px_rgba(15,23,42,0.34)] sm:rounded-3xl ${widthClass}`}
+        >
+          <header className="flex min-w-0 items-center justify-between gap-2 border-b border-slate-200 bg-white px-4 py-3 sm:gap-4 sm:px-6">
+            <img
+              src="/MPREcrm.png"
+              alt="MPRE Boise"
+              className="h-auto w-[108px] shrink-0 sm:w-[144px]"
+            />
 
-          <p className="mt-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-            Homes of Idaho &middot; EasyRealtor.homes
-          </p>
-        </header>
+            <span className="min-w-0 max-w-[132px] rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-center text-[9px] font-semibold uppercase leading-4 tracking-[0.11em] text-amber-800 sm:max-w-none sm:px-3 sm:text-[10px]">
+              {eyebrow}
+            </span>
+          </header>
 
-        <section>
-          <p className="text-sm font-bold uppercase tracking-[0.16em] text-amber-700">
-            {eyebrow}
-          </p>
+          <section className="px-4 py-4 sm:px-6 sm:py-5">
+            <div className="max-w-3xl">
+              <h1 className="text-[25px] font-semibold leading-[1.18] tracking-tight text-slate-950 sm:text-[30px]">
+                {title}
+              </h1>
 
-          <h1 className="mt-3 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">
-            {title}
-          </h1>
+              {description ? (
+                <p className="mt-2 max-w-2xl text-[13px] leading-5 text-slate-600 sm:text-sm">
+                  {description}
+                </p>
+              ) : null}
+            </div>
 
-          {description ? (
-            <p className="mt-4 text-base leading-7 text-slate-600">
-              {description}
-            </p>
-          ) : null}
+            <div className="mt-4">
+              {children}
+            </div>
+          </section>
 
-          <div className="mt-8">
-            {children}
-          </div>
-        </section>
-
-        <footer className="mt-10 border-t border-slate-200 pt-6 text-center text-xs leading-5 text-slate-500">
-          This page controls marketing-email preferences only.
-          Transactional or legally required messages may still
-          be delivered when applicable.
-        </footer>
+          <footer className="border-t border-slate-200 bg-slate-50 px-4 py-2.5 text-center text-[10px] leading-[15px] text-slate-500 sm:px-6">
+            This page controls marketing-email preferences only.
+            Transactional or legally required messages may still
+            be delivered when applicable.
+          </footer>
+        </div>
       </div>
     </main>
   );

@@ -118,9 +118,10 @@ export default async function EmailPreferencesPage({
 
   return (
     <PublicEmailComplianceShell
+      wide
       eyebrow="Email Preferences"
       title="Choose the emails you receive"
-      description="Update individual marketing categories or unsubscribe from all marketing email."
+      description="Choose the updates that matter to you, or opt out of all marketing email."
     >
       <EmailPreferencesForm
         token={token}

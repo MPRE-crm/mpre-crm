@@ -70,7 +70,7 @@ export default async function UnsubscribePage({
     <PublicEmailComplianceShell
       eyebrow="Unsubscribe"
       title="Stop marketing emails"
-      description="Confirm below to stop all MPRE Boise marketing emails for this recipient."
+      description="Confirm once to stop all MPRE Boise marketing email for this address."
     >
       <UnsubscribeForm
         token={token}
