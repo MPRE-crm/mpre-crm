@@ -31,7 +31,7 @@ export function PublicEmailComplianceShell({
           <header className="flex min-w-0 items-center justify-between gap-2 border-b border-slate-200 bg-white px-4 py-3 sm:gap-4 sm:px-6">
             <img
               src="/MPREcrm.png"
-              alt="MPRE Boise"
+              alt="MPRE"
               className="h-auto w-[108px] shrink-0 sm:w-[144px]"
             />
 

@@ -12,6 +12,7 @@ import type {
 type EmailPreferencesFormProps = {
   token: string;
   initial: LoadedEmailPreferences;
+  organizationDisplay: string;
 };
 
 type ApiResponse = {
@@ -62,6 +63,7 @@ const preferenceOptions: Array<{
 export default function EmailPreferencesForm({
   token,
   initial,
+  organizationDisplay,
 }: EmailPreferencesFormProps) {
   const [
     preferences,
@@ -213,7 +215,7 @@ export default function EmailPreferencesForm({
   async function unsubscribe() {
     const confirmed =
       window.confirm(
-        'Unsubscribe this email address from all MPRE Boise marketing emails?'
+        `Unsubscribe this email address from all ${organizationDisplay} marketing emails?`
       );
 
     if (!confirmed) {

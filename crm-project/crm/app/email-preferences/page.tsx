@@ -14,6 +14,10 @@ import {
 } from '../../lib/email-compliance-public';
 
 import {
+  loadEmailComplianceOrganizationDisplay,
+} from '../../lib/email-compliance-organization';
+
+import {
   supabaseAdmin,
 } from '../../lib/supabaseAdmin';
 
@@ -23,7 +27,7 @@ export const dynamic =
 export const metadata:
   Metadata = {
     title:
-      'Email Preferences | MPRE Boise',
+      'Email Preferences | MPRE',
 
     robots: {
       index: false,
@@ -116,6 +120,13 @@ export default async function EmailPreferencesPage({
     );
   }
 
+  const organizationDisplay =
+    await loadEmailComplianceOrganizationDisplay({
+      token,
+      tokenColumn:
+        'preferences_token',
+    });
+
   return (
     <PublicEmailComplianceShell
       wide
@@ -126,6 +137,7 @@ export default async function EmailPreferencesPage({
       <EmailPreferencesForm
         token={token}
         initial={loaded}
+        organizationDisplay={organizationDisplay}
       />
     </PublicEmailComplianceShell>
   );

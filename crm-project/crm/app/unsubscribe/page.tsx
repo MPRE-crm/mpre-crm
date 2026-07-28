@@ -10,6 +10,10 @@ import {
   cleanEmailComplianceToken,
 } from '../../lib/email-compliance-public';
 
+import {
+  loadEmailComplianceOrganizationDisplay,
+} from '../../lib/email-compliance-organization';
+
 import UnsubscribeForm from './UnsubscribeForm';
 
 export const dynamic =
@@ -18,7 +22,7 @@ export const dynamic =
 export const metadata:
   Metadata = {
     title:
-      'Unsubscribe | MPRE Boise',
+      'Unsubscribe | MPRE',
 
     robots: {
       index: false,
@@ -66,14 +70,22 @@ export default async function UnsubscribePage({
     );
   }
 
+  const organizationDisplay =
+    await loadEmailComplianceOrganizationDisplay({
+      token,
+      tokenColumn:
+        'unsubscribe_token',
+    });
+
   return (
     <PublicEmailComplianceShell
       eyebrow="Unsubscribe"
       title="Stop marketing emails"
-      description="Confirm once to stop all MPRE Boise marketing email for this address."
+      description={`Confirm once to stop all ${organizationDisplay} marketing email for this address.`}
     >
       <UnsubscribeForm
         token={token}
+        organizationDisplay={organizationDisplay}
       />
     </PublicEmailComplianceShell>
   );

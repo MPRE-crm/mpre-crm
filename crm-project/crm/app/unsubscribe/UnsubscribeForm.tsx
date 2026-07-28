@@ -13,10 +13,12 @@ type ApiResponse = {
 
 type UnsubscribeFormProps = {
   token: string;
+  organizationDisplay: string;
 };
 
 export default function UnsubscribeForm({
   token,
+  organizationDisplay,
 }: UnsubscribeFormProps) {
   const [
     status,
@@ -113,7 +115,7 @@ export default function UnsubscribeForm({
       <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-[13px] leading-5 text-slate-700">
         Selecting the button below will
         unsubscribe this email address
-        from all MPRE Boise marketing
+        from all {organizationDisplay} marketing
         emails.
       </div>
 
