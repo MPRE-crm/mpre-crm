@@ -1019,6 +1019,72 @@ function buildTypedSignature(
   ].filter(Boolean);
 }
 
+export type RecipientSpecificQuickNoteContact = {
+  first_name?:
+    | string
+    | null;
+
+  contact_type?:
+    | string
+    | null;
+
+  verified_listing_buyer_match?:
+    boolean;
+
+  unsubscribe_url?:
+    | string
+    | null;
+
+  preferences_url?:
+    | string
+    | null;
+};
+
+type BuildRecipientSpecificQuickNoteInput =
+  Omit<
+    BuildQuickNoteInput,
+    | 'contact'
+    | 'audience'
+    | 'unsubscribe_url'
+    | 'preferences_url'
+  > & {
+    recipient:
+      RecipientSpecificQuickNoteContact;
+  };
+
+export function buildRecipientSpecificQuickNoteEmail(
+  input:
+    BuildRecipientSpecificQuickNoteInput
+): QuickNoteDraft {
+  const {
+    recipient,
+    ...draftInput
+  } = input;
+
+  return buildQuickNoteEmail({
+    ...draftInput,
+
+    contact: {
+      first_name:
+        recipient.first_name,
+
+      contact_type:
+        recipient.contact_type,
+
+      reverse_prospecting_match:
+        recipient
+          .verified_listing_buyer_match ===
+        true,
+    },
+
+    unsubscribe_url:
+      recipient.unsubscribe_url,
+
+    preferences_url:
+      recipient.preferences_url,
+  });
+}
+
 export function buildQuickNoteEmail(
   input: BuildQuickNoteInput
 ): QuickNoteDraft {

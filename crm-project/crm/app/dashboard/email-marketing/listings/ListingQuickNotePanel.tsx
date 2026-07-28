@@ -645,7 +645,7 @@ export default function ListingQuickNotePanel({
         </div>
 
         <p className="mt-1 text-sm leading-6 text-slate-600">
-          Samantha will choose the correct version from the contact type, lifecycle stage, tags, source and verified reverse-prospecting information.
+          Samantha will choose the correct version from the Contact Category and verified listing-specific Buyer Match information.
         </p>
 
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -705,7 +705,7 @@ export default function ListingQuickNotePanel({
         <div className="rounded-2xl border border-slate-200 bg-white p-4">
           <label>
             <span className="block text-xs font-bold uppercase tracking-wide text-slate-500">
-              Preview First Name
+              Preview First Name (Studio Only)
             </span>
 
             <input
@@ -718,6 +718,10 @@ export default function ListingQuickNotePanel({
               placeholder="Sarah"
               className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"
             />
+
+            <p className="mt-2 text-xs leading-5 text-slate-500">
+              This changes only the Studio preview. Live recipient rendering uses each Contact record&apos;s real first name.
+            </p>
           </label>
 
           <div className="mt-5">
