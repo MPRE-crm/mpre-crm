@@ -1,16 +1,18 @@
 'use client';
 
 import {
-  type CSSProperties,
   type ReactNode,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import {
   AlertTriangle,
   Check,
   CheckCircle2,
+  Copy,
+  Download,
   Image as ImageIcon,
   Images,
   Loader2,
@@ -25,24 +27,29 @@ import {
   isListingPhotoCategory,
 } from '../../../../lib/listing-photo-categories';
 import {
-  FIRST_PHASE_SOCIAL_TARGET,
   FIRST_PHASE_SOCIAL_TEMPLATES,
   SOCIAL_CAMPAIGN_LABELS,
+  SOCIAL_CREATIVE_TARGETS,
   SOCIAL_FORMAT_LABELS,
   SOCIAL_PLATFORM_LABELS,
+  SOCIAL_SUITE_PHOTO_COUNT,
   buildSocialCreativeViewModel,
-  socialTemplateForSelection,
+  socialTemplateForTarget,
   verifiedPhotoLabel,
   type SocialAgentBrand,
   type SocialBrokerageBrand,
-  type SocialCarouselSlide,
+  type SocialCreativeAsset,
   type SocialCreativePhoto,
+  type SocialCreativeTargetKey,
   type SocialListingFacts,
   type SocialOrganizationBrand,
   type SocialReadinessIssue,
-  type SocialTemplateDefinition,
   type SocialVisualStyle,
 } from '../../../../lib/listing-social-creative';
+import ListingSocialCreativePreview, {
+  downloadSocialCreativePng,
+  socialCreativeRequiredImageUrls,
+} from './ListingSocialCreativePreview';
 
 const supabase = getSupabaseBrowser();
 
@@ -106,13 +113,6 @@ type MarketingIdentityPayload = {
 };
 type Loaded<T> = { requestKey: string; value: T };
 
-const TWO_LINES: CSSProperties = {
-  display: '-webkit-box',
-  WebkitBoxOrient: 'vertical',
-  WebkitLineClamp: 2,
-  overflow: 'hidden',
-};
-
 function text(value: unknown) {
   return typeof value === 'string' ? value.trim() : '';
 }
@@ -154,398 +154,14 @@ function categoryLabel(analysis: PhotoAnalysis | undefined) {
     : '';
 }
 
-function BrandMark({
-  brand,
-  fallbackLabel,
-  compact = false,
-  prominent = false,
-  suppressLogo = false,
-}: {
-  brand: SocialOrganizationBrand | SocialBrokerageBrand;
-  fallbackLabel: string;
-  compact?: boolean;
-  prominent?: boolean;
-  suppressLogo?: boolean;
-}) {
-  if (brand.logoUrl && !suppressLogo) {
-    return (
-      <img
-        src={brand.logoUrl}
-        alt={`${brand.name || fallbackLabel} logo`}
-        loading="lazy"
-        className={`shrink-0 object-contain drop-shadow-[0_1px_1px_rgba(255,255,255,0.85)] drop-shadow-[0_2px_3px_rgba(0,0,0,0.85)] ${
-          prominent
-            ? compact
-              ? 'max-h-10 max-w-32'
-              : 'max-h-12 max-w-36'
-            : compact
-            ? 'max-h-7 max-w-20'
-            : 'max-h-10 max-w-28'
-        }`}
-      />
-    );
-  }
-
-  return (
-    <span
-      className={`min-w-0 font-bold uppercase tracking-[0.1em] ${
-        compact ? 'text-[8px]' : 'text-[9px]'
-      }`}
-      style={TWO_LINES}
-    >
-      {brand.name || fallbackLabel}
-    </span>
-  );
-}
-
-function BrandFooter({
-  organization,
-  brokerage,
-  borderColor,
-}: {
-  organization: SocialOrganizationBrand;
-  brokerage: SocialBrokerageBrand;
-  borderColor: string;
-}) {
-  const duplicateLogo = Boolean(
-    organization.logoUrl &&
-      brokerage.logoUrl &&
-      organization.logoUrl === brokerage.logoUrl
-  );
-
-  return (
-    <div
-      className="mt-3 flex min-h-10 min-w-0 items-center justify-between gap-3 border-t pt-2.5"
-      style={{ borderColor }}
-    >
-      <div className="flex min-w-0 flex-1 items-center">
-        <BrandMark
-          brand={organization}
-          fallbackLabel="Organization"
-          compact
-        />
-      </div>
-      <div className="flex min-w-0 flex-[1.35] items-center justify-end text-right">
-        <BrandMark
-          brand={brokerage}
-          fallbackLabel="Licensed Brokerage"
-          compact
-          prominent
-          suppressLogo={duplicateLogo}
-        />
-      </div>
-    </div>
-  );
-}
-
-function SlidePreview({
-  slide,
-  template,
-  agent,
-  organization,
-  brokerage,
-}: {
-  slide: SocialCarouselSlide;
-  template: SocialTemplateDefinition;
-  agent: SocialAgentBrand;
-  organization: SocialOrganizationBrand;
-  brokerage: SocialBrokerageBrand;
-}) {
-  const tokens = template.tokens;
-  const editorial = tokens.layout === 'editorial';
-  const banded = tokens.layout === 'banded';
-  const framed = tokens.layout === 'framed';
-  const headlineLength = Array.from(
-    slide.headline.trim()
-  ).length;
-  const headlineNeedsRoom = headlineLength > 42;
-  const headlineIsDense = headlineLength > 88;
-  const imageClass = framed
-    ? 'absolute left-[6%] right-[6%] top-[6%] h-[52%] w-[88%] object-cover'
-    : 'absolute inset-0 h-full w-full object-cover';
-  const overlayClass = framed
-    ? 'absolute left-[6%] right-[6%] top-[6%] h-[52%]'
-    : 'absolute inset-0';
-  const contentClass = editorial
-    ? `absolute bottom-[4%] left-[4%] right-[8%] overflow-hidden border-l-4 p-4 backdrop-blur-[2px] ${
-        slide.showContactCard
-          ? 'max-h-[64%]'
-          : headlineIsDense
-          ? 'max-h-[66%]'
-          : headlineNeedsRoom
-          ? 'max-h-[59%]'
-          : 'max-h-[51%]'
-      }`
-    : banded
-    ? `absolute bottom-0 left-0 right-0 overflow-hidden px-4 pb-4 pt-3 ${
-        slide.showContactCard
-          ? 'max-h-[60%]'
-          : headlineIsDense
-          ? 'max-h-[62%]'
-          : headlineNeedsRoom
-          ? 'max-h-[55%]'
-          : 'max-h-[47%]'
-      }`
-    : `absolute bottom-[4%] left-[6%] right-[6%] overflow-hidden border-t-2 pt-3 ${
-        slide.showContactCard
-          ? 'top-[46%]'
-          : headlineIsDense
-          ? 'top-[44%]'
-          : headlineNeedsRoom
-          ? 'top-[53%]'
-          : 'top-[62%]'
-      }`;
-  const headingClass = editorial
-    ? 'whitespace-normal break-words font-normal leading-[1.08] tracking-[-0.02em] [overflow-wrap:anywhere]'
-    : banded
-    ? 'whitespace-normal break-words font-black uppercase leading-[1.06] tracking-[0.01em] [overflow-wrap:anywhere]'
-    : 'whitespace-normal break-words font-semibold leading-[1.08] tracking-[-0.035em] [overflow-wrap:anywhere]';
-  const headingFontSize = editorial
-    ? headlineIsDense
-      ? 'clamp(0.8rem, 4.2cqi, 1rem)'
-      : headlineNeedsRoom
-      ? 'clamp(0.95rem, 5.4cqi, 1.25rem)'
-      : 'clamp(1.1rem, 6.8cqi, 1.5rem)'
-    : banded
-    ? headlineIsDense
-      ? 'clamp(0.75rem, 4cqi, 0.95rem)'
-      : headlineNeedsRoom
-      ? 'clamp(0.9rem, 5.2cqi, 1.15rem)'
-      : 'clamp(1.05rem, 6.4cqi, 1.4rem)'
-    : headlineIsDense
-    ? 'clamp(0.78rem, 4.1cqi, 0.98rem)'
-    : headlineNeedsRoom
-    ? 'clamp(0.92rem, 5.2cqi, 1.18rem)'
-    : 'clamp(1.05rem, 6.2cqi, 1.35rem)';
-  const personalLogoDuplicates = Boolean(
-    agent.logoUrl &&
-      [organization.logoUrl, brokerage.logoUrl].includes(
-        agent.logoUrl
-      )
-  );
-
-  return (
-    <article
-      aria-label={`Slide ${slide.index + 1} of ${slide.totalSlides}: ${slide.headline}`}
-      className="relative min-w-0 overflow-hidden border shadow-lg"
-      style={{
-        aspectRatio: `${template.width} / ${template.height}`,
-        backgroundColor: tokens.canvas,
-        borderColor: tokens.border,
-        borderRadius: tokens.radius,
-        color: tokens.foreground,
-        containerType: 'inline-size',
-        fontFamily: tokens.bodyFont,
-      }}
-    >
-      {slide.photo ? (
-        <img
-          src={slide.photo.url}
-          alt={
-            slide.photo.verifiedLabel
-              ? `${slide.photo.verifiedLabel} listing photo`
-              : 'Listing property photo'
-          }
-          loading="lazy"
-          className={imageClass}
-          style={{
-            filter: tokens.imageFilter,
-            borderRadius: framed ? tokens.radius : undefined,
-          }}
-        />
-      ) : (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-slate-800 px-8 text-center text-slate-200">
-          <ImageIcon aria-hidden="true" className="h-9 w-9" />
-          <span className="text-sm font-semibold">
-            Assign this carousel photo above
-          </span>
-        </div>
-      )}
-      <div
-        aria-hidden="true"
-        className={overlayClass}
-        style={{ background: tokens.overlay }}
-      />
-
-      <div
-        className={`absolute flex items-start justify-between gap-3 ${
-          framed
-            ? 'left-[8%] right-[8%] top-[8%]'
-            : 'left-4 right-4 top-4 sm:left-5 sm:right-5 sm:top-5'
-        }`}
-      >
-        <span
-          className={`max-w-[75%] px-3 py-1.5 text-[10px] font-black uppercase ${
-            editorial
-              ? 'rounded-sm tracking-[0.2em]'
-              : banded
-              ? 'rounded-md tracking-[0.14em]'
-              : 'rounded-none tracking-[0.18em]'
-          }`}
-          style={{
-            ...TWO_LINES,
-            backgroundColor: tokens.chipBackground,
-            color: tokens.chipForeground,
-          }}
-        >
-          {slide.eyebrow}
-        </span>
-        <span
-          className={`shrink-0 px-2.5 py-1 text-[10px] font-bold ${
-            framed
-              ? 'bg-white/85 text-slate-950'
-              : 'bg-black/65 text-white'
-          }`}
-        >
-          {slide.index + 1}/{slide.totalSlides}
-        </span>
-      </div>
-
-      <div
-        className={contentClass}
-        style={{
-          background: tokens.contentBackground,
-          borderColor: tokens.border,
-        }}
-      >
-        <h4
-          className={headingClass}
-          style={{
-            fontFamily: tokens.headingFont,
-            fontSize: headingFontSize,
-          }}
-        >
-          {slide.headline}
-        </h4>
-        {slide.detail && (
-          <p
-            className={`mt-2 break-words ${
-              editorial
-                ? 'text-xs leading-[1.45]'
-                : banded
-                ? 'text-xs leading-4 sm:text-sm'
-                : 'text-[11px] leading-4 sm:text-xs'
-            }`}
-            style={{ ...TWO_LINES, color: tokens.muted }}
-          >
-            {slide.detail}
-          </p>
-        )}
-        {slide.facts.length > 0 && (
-          <div
-            className={`mt-3 flex flex-wrap ${
-              framed ? 'gap-x-3 gap-y-1' : 'gap-1.5'
-            }`}
-          >
-            {slide.facts.map((fact, index) => (
-              <span
-                key={`${index}:${fact}`}
-                title={fact}
-                className={`max-w-full text-[10px] font-bold [overflow-wrap:anywhere] ${
-                  editorial
-                    ? 'border-b px-0.5 py-1'
-                    : banded
-                    ? 'rounded-md px-2.5 py-1'
-                    : 'border-b px-0 py-1 uppercase tracking-[0.08em]'
-                }`}
-                style={{
-                  ...TWO_LINES,
-                  borderColor: tokens.border,
-                  backgroundColor: banded
-                    ? tokens.accent
-                    : 'transparent',
-                  color: banded
-                    ? tokens.accentForeground
-                    : tokens.foreground,
-                }}
-              >
-                {fact}
-              </span>
-            ))}
-          </div>
-        )}
-
-        {slide.showContactCard ? (
-          <>
-            <div className="mt-3 flex min-w-0 items-center gap-3">
-              {agent.headshotUrl ? (
-                <img
-                  src={agent.headshotUrl}
-                  alt={`${agent.name || 'Listing agent'} headshot`}
-                  loading="lazy"
-                  className={`h-12 w-12 shrink-0 object-cover ${
-                    framed
-                      ? 'rounded-sm'
-                      : 'rounded-full'
-                  }`}
-                />
-              ) : (
-                <span
-                  aria-hidden="true"
-                  className={`flex h-12 w-12 shrink-0 items-center justify-center text-sm font-black ${
-                    framed
-                      ? 'rounded-sm'
-                      : 'rounded-full'
-                  }`}
-                  style={{
-                    backgroundColor: tokens.accent,
-                    color: tokens.accentForeground,
-                  }}
-                >
-                  {agent.name.slice(0, 1).toUpperCase() || 'A'}
-                </span>
-              )}
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-bold">
-                  {agent.name || 'Listing Agent'}
-                </div>
-                {agent.title && (
-                  <div
-                    className="truncate text-[10px]"
-                    style={{ color: tokens.muted }}
-                  >
-                    {agent.title}
-                  </div>
-                )}
-                {(agent.phone || agent.websiteUrl) && (
-                  <div
-                    className="mt-1 text-[9px] font-semibold"
-                    style={{
-                      ...TWO_LINES,
-                      color: tokens.muted,
-                    }}
-                  >
-                    {[agent.phone, agent.websiteUrl]
-                      .filter(Boolean)
-                      .join(' • ')}
-                  </div>
-                )}
-              </div>
-              {agent.logoUrl && !personalLogoDuplicates && (
-                <img
-                  src={agent.logoUrl}
-                  alt={`${agent.name || 'Agent'} personal brand logo`}
-                  loading="lazy"
-                  className="max-h-9 max-w-20 shrink-0 object-contain drop-shadow-[0_1px_1px_rgba(255,255,255,0.85)] drop-shadow-[0_2px_3px_rgba(0,0,0,0.85)]"
-                />
-              )}
-            </div>
-            <BrandFooter
-              organization={organization}
-              brokerage={brokerage}
-              borderColor={tokens.border}
-            />
-          </>
-        ) : (
-          <BrandFooter
-            organization={organization}
-            brokerage={brokerage}
-            borderColor={tokens.border}
-          />
-        )}
-      </div>
-    </article>
-  );
+function filenamePart(value: string) {
+  return value
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64);
 }
 
 function ReadinessCard({
@@ -580,7 +196,14 @@ function ReadinessCard({
 }
 
 function Readiness({ issues }: { issues: SocialReadinessIssue[] }) {
-  const ready = issues.length === 0;
+  const ready = !issues.some(
+    ({ severity }) =>
+      severity === 'blocking'
+  );
+  const hasWarnings = issues.some(
+    ({ severity }) =>
+      severity === 'warning'
+  );
 
   return (
     <div
@@ -588,7 +211,7 @@ function Readiness({ issues }: { issues: SocialReadinessIssue[] }) {
       role="status"
       aria-live="polite"
       className={`mt-5 rounded-2xl border p-4 ${
-        ready
+        ready && !hasWarnings
           ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
           : 'border-amber-200 bg-amber-50 text-amber-950'
       }`}
@@ -600,10 +223,12 @@ function Readiness({ issues }: { issues: SocialReadinessIssue[] }) {
           <AlertTriangle aria-hidden="true" className="h-5 w-5" />
         )}
         {ready
-          ? 'Ready for Social-section approval.'
+          ? hasWarnings
+            ? 'Ready with review notes.'
+            : 'Ready for Social-section approval.'
           : 'Review before approval'}
       </div>
-      {!ready && (
+      {issues.length > 0 && (
         <ul className="mt-3 space-y-2 text-sm">
           {issues.map((issue) => (
             <li key={issue.code} className="flex items-start gap-2">
@@ -621,6 +246,81 @@ function Readiness({ issues }: { issues: SocialReadinessIssue[] }) {
           ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+function TargetSelector({
+  selected,
+  onSelect,
+}: {
+  selected: SocialCreativeTargetKey;
+  onSelect: (
+    target: SocialCreativeTargetKey
+  ) => void;
+}) {
+  return (
+    <div className="mt-6">
+      <div className="flex items-center gap-2">
+        <Images
+          aria-hidden="true"
+          className="h-5 w-5 text-fuchsia-700"
+        />
+        <h4 className="font-bold text-slate-950">
+          Creative Target
+        </h4>
+      </div>
+      <p className="mt-1 text-sm text-slate-600">
+        Platform and format selection stay local to this preview and do not
+        change the prepared Social section.
+      </p>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {SOCIAL_CREATIVE_TARGETS.map(
+          (target) => {
+            const active =
+              target.key === selected;
+
+            return (
+              <button
+                key={target.key}
+                type="button"
+                aria-pressed={active}
+                onClick={() =>
+                  onSelect(target.key)
+                }
+                className={`rounded-2xl border p-4 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fuchsia-600 focus-visible:ring-offset-2 ${
+                  active
+                    ? 'border-fuchsia-500 bg-white ring-2 ring-fuchsia-100'
+                    : 'border-slate-200 bg-white/80 hover:border-fuchsia-300'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <strong className="text-slate-950">
+                    {target.shortName}
+                  </strong>
+                  {active && (
+                    <CheckCircle2
+                      aria-hidden="true"
+                      className="h-5 w-5 shrink-0 text-fuchsia-700"
+                    />
+                  )}
+                </div>
+                <p className="mt-2 text-sm leading-5 text-slate-600">
+                  {target.description}
+                </p>
+                <div className="mt-3 text-xs font-bold text-fuchsia-700">
+                  {target.assetCount}{' '}
+                  {target.assetCount === 1
+                    ? 'asset'
+                    : 'assets'}{' '}
+                  · {target.width} ×{' '}
+                  {target.height}
+                </div>
+              </button>
+            );
+          }
+        )}
+      </div>
     </div>
   );
 }
@@ -688,6 +388,10 @@ export default function ListingSocialStudioPanel({
   onApprove,
 }: PanelProps) {
   const [style, setStyle] = useState<SocialVisualStyle>('luxury');
+  const [targetKey, setTargetKey] =
+    useState<SocialCreativeTargetKey>(
+      'instagram_carousel'
+    );
   const [analyses, setAnalyses] =
     useState<Loaded<Record<string, PhotoAnalysis>> | null>(null);
   const [identity, setIdentity] =
@@ -698,15 +402,30 @@ export default function ListingSocialStudioPanel({
   const [identityError, setIdentityError] = useState<string | null>(null);
   const [confirmedCampaign, setConfirmedCampaign] =
     useState<string | null>(null);
+  const [exporting, setExporting] =
+    useState<string | null>(null);
+  const [exportError, setExportError] =
+    useState<string | null>(null);
+  const [exportNotice, setExportNotice] =
+    useState<string | null>(null);
+  const [copyNotice, setCopyNotice] =
+    useState<string | null>(null);
+  const previewRefs = useRef<
+    Map<number, SVGSVGElement>
+  >(new Map());
 
-  const selectedTemplate = socialTemplateForSelection({
-    ...FIRST_PHASE_SOCIAL_TARGET,
-    visualStyle: style,
-  });
+  const selectedTemplate =
+    socialTemplateForTarget(
+      targetKey,
+      style
+    );
   const photoIds = useMemo(
     () =>
-      socialPhotoIds(assignments, selectedTemplate?.slideCount || 0),
-    [assignments, selectedTemplate?.slideCount]
+      socialPhotoIds(
+        assignments,
+        SOCIAL_SUITE_PHOTO_COUNT
+      ),
+    [assignments]
   );
   const photoKey = [listing.id, ...photoIds].join('|');
   const identityKey = [
@@ -715,8 +434,6 @@ export default function ListingSocialStudioPanel({
   ].join('|');
   const campaignKey = [
     identityKey,
-    selectedTemplate?.selection.platform || '',
-    selectedTemplate?.selection.format || '',
     selectedTemplate?.selection.campaignPurpose || '',
     selectedTemplate?.selection.version || '',
   ].join('|');
@@ -920,7 +637,18 @@ export default function ListingSocialStudioPanel({
     name: text(savedBranding?.brokerage.name),
     logoUrl: text(savedBranding?.brokerage.logo_url),
   };
-  const instagramCaption = text(section?.content?.instagram_caption);
+  const preparedHeadline = text(
+    section?.content?.headline
+  );
+  const instagramCaption = text(
+    section?.content?.instagram_caption
+  );
+  const facebookCaption = text(
+    section?.content?.facebook_caption
+  );
+  const linkedinCaption = text(
+    section?.content?.linkedin_caption
+  );
   const hashtags = stringList(section?.content?.hashtags);
   const creative = buildSocialCreativeViewModel(selectedTemplate, {
     listing,
@@ -928,15 +656,22 @@ export default function ListingSocialStudioPanel({
     agentBrand: agent,
     organizationBrand: organization,
     brokerageBrand: brokerage,
-    instagramCaption,
+    preparedCopy: {
+      headline: preparedHeadline,
+      instagramCaption,
+      facebookCaption,
+      linkedinCaption,
+      hashtags,
+    },
     sectionStatus: section?.status || null,
-    studioTemplateKey: section?.template_key || null,
     campaignConfirmed,
   });
   const template = creative.template;
-  const supportedLayout = Boolean(
-    template && section?.template_key === template.studioTemplateKey
-  );
+  const target =
+    SOCIAL_CREATIVE_TARGETS.find(
+      (candidate) =>
+        candidate.key === targetKey
+    ) || null;
   const platform = template
     ? SOCIAL_PLATFORM_LABELS[template.selection.platform]
     : 'Social';
@@ -950,7 +685,7 @@ export default function ListingSocialStudioPanel({
   const required = creative.metrics.requiredPhotoCount;
   const cards = [
     {
-      label: 'Carousel Photos',
+      label: 'Social Photos',
       value: `${creative.metrics.uniquePhotoCount}/${required} unique`,
       detail: `${creative.metrics.filledPhotoCount} slots filled`,
       ready: required > 0 && creative.metrics.uniquePhotoCount === required,
@@ -977,6 +712,141 @@ export default function ListingSocialStudioPanel({
     },
   ];
 
+  function exportFilename(
+    asset: SocialCreativeAsset
+  ) {
+    const listingSlug =
+      filenamePart(
+        listing.property_address ||
+          listing.title
+      ) || 'listing';
+    const platformSlug =
+      filenamePart(
+        template?.selection.platform ||
+          'social'
+      );
+    const formatSlug =
+      filenamePart(
+        template?.selection.format ||
+          'creative'
+      );
+    const styleSlug =
+      filenamePart(style);
+    const sequence =
+      String(asset.index + 1).padStart(
+        2,
+        '0'
+      );
+
+    return `${listingSlug}_${platformSlug}_${formatSlug}_${styleSlug}_just-listed_${sequence}_${template?.width || 0}x${template?.height || 0}.png`;
+  }
+
+  async function exportAsset(
+    asset: SocialCreativeAsset
+  ) {
+    if (
+      !template ||
+      !creative.canExport
+    ) {
+      setExportError(
+        'Approve the Social section and resolve every required readiness item before export.'
+      );
+      return false;
+    }
+
+    const svg = previewRefs.current.get(
+      asset.index
+    );
+
+    if (!svg) {
+      setExportError(
+        'The selected creative preview is not ready for export.'
+      );
+      return false;
+    }
+
+    const exportKey = `${template.key}:${asset.index}`;
+    setExporting(exportKey);
+    setExportError(null);
+    setExportNotice(null);
+
+    try {
+      await downloadSocialCreativePng({
+        svg,
+        template,
+        filename:
+          exportFilename(asset),
+        requiredImageUrls:
+          socialCreativeRequiredImageUrls(
+            asset,
+            agent,
+            organization,
+            brokerage
+          ),
+      });
+      return true;
+    } catch (error: unknown) {
+      setExportError(
+        error instanceof Error
+          ? error.message
+          : 'The PNG export could not be prepared.'
+      );
+      return false;
+    } finally {
+      setExporting(null);
+    }
+  }
+
+  async function exportAllAssets() {
+    if (creative.assets.length < 2) {
+      return;
+    }
+
+    let completed = 0;
+
+    for (const asset of creative.assets) {
+      const exported =
+        await exportAsset(asset);
+
+      if (!exported) {
+        return;
+      }
+
+      completed += 1;
+    }
+
+    setExportNotice(
+      `${completed} PNG assets were prepared for manual download.`
+    );
+  }
+
+  async function copyPreparedText(
+    value: string,
+    label: string
+  ) {
+    setCopyNotice(null);
+
+    if (!value.trim()) {
+      setCopyNotice(
+        `${label} is not available.`
+      );
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(
+        value
+      );
+      setCopyNotice(
+        `${label} copied.`
+      );
+    } catch {
+      setCopyNotice(
+        `${label} could not be copied in this browser.`
+      );
+    }
+  }
+
   return (
     <section
       aria-labelledby="social-studio-title"
@@ -996,8 +866,8 @@ export default function ListingSocialStudioPanel({
             {campaign} Social Studio
           </h3>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
-            Review a coordinated, factual carousel using verified photos,
-            labels and listing-owner branding.
+            Review factual, branded creative for manual cross-platform export.
+            Platform, format and style choices remain local to this studio.
           </p>
         </div>
         <button
@@ -1035,6 +905,23 @@ export default function ListingSocialStudioPanel({
           {message}
         </div>
       ))}
+      {exportError && (
+        <div
+          role="alert"
+          className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-800"
+        >
+          {exportError}
+        </div>
+      )}
+      {exportNotice && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800"
+        >
+          {exportNotice}
+        </div>
+      )}
 
       <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {cards.map((card) => (
@@ -1064,98 +951,290 @@ export default function ListingSocialStudioPanel({
         </p>
       </fieldset>
 
-      {!supportedLayout && (
-        <div
-          role="alert"
-          className="mt-5 flex items-start gap-3 rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-900"
-        >
-          <AlertTriangle
-            aria-hidden="true"
-            className="mt-0.5 h-5 w-5 shrink-0"
-          />
-          <div>
-            <strong>Choose Photo Carousel above</strong>
-            <p className="mt-1 leading-6">
-              This phase supports only the selected template’s {format} layout.
-            </p>
-          </div>
-        </div>
-      )}
-
       <Readiness issues={creative.issues} />
-      <StyleSelector selected={style} onSelect={setStyle} />
+      <TargetSelector
+        selected={targetKey}
+        onSelect={(nextTarget) => {
+          setTargetKey(nextTarget);
+          setExportError(null);
+          setExportNotice(null);
+          setCopyNotice(null);
+          previewRefs.current.clear();
+        }}
+      />
+      <StyleSelector
+        selected={style}
+        onSelect={(nextStyle) => {
+          setStyle(nextStyle);
+          setExportError(null);
+          setExportNotice(null);
+          previewRefs.current.clear();
+        }}
+      />
 
-      {template && supportedLayout ? (
+      {template && target ? (
         <div className="mt-6">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
               <h4 className="font-bold text-slate-950">
-                {template.name} Carousel Preview
+                {template.name} {target.name}
               </h4>
               <p className="mt-1 text-sm text-slate-600">
-                {template.slideCount} coordinated slides · {template.width} ×{' '}
+                {target.assetCount}{' '}
+                {target.assetCount === 1
+                  ? 'manual PNG asset'
+                  : 'coordinated manual PNG assets'}{' '}
+                · {template.width} ×{' '}
                 {template.height}
               </p>
             </div>
-            <span className="rounded-full bg-fuchsia-100 px-3 py-1.5 text-xs font-bold text-fuchsia-700">
-              Preview only
-            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-full bg-fuchsia-100 px-3 py-1.5 text-xs font-bold text-fuchsia-700">
+                Local preview
+              </span>
+              <span
+                className={`rounded-full px-3 py-1.5 text-xs font-bold ${
+                  creative.canExport
+                    ? 'bg-emerald-100 text-emerald-700'
+                    : 'bg-slate-100 text-slate-600'
+                }`}
+              >
+                {creative.canExport
+                  ? 'Approved for export'
+                  : 'Export locked'}
+              </span>
+              {creative.assets.length > 1 && (
+                <button
+                  type="button"
+                  disabled={
+                    !creative.canExport ||
+                    Boolean(exporting)
+                  }
+                  onClick={() =>
+                    void exportAllAssets()
+                  }
+                  className="inline-flex items-center gap-2 rounded-xl bg-fuchsia-700 px-3.5 py-2 text-xs font-bold text-white hover:bg-fuchsia-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fuchsia-700 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {exporting ? (
+                    <Loader2
+                      aria-hidden="true"
+                      className="h-4 w-4 animate-spin"
+                    />
+                  ) : (
+                    <Download
+                      aria-hidden="true"
+                      className="h-4 w-4"
+                    />
+                  )}
+                  Download all PNGs
+                </button>
+              )}
+            </div>
           </div>
 
-          {creative.slides.length > 0 ? (
-            <div className="mt-4 grid min-w-0 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {creative.slides.map((slide) => (
-                <SlidePreview
-                  key={slide.index}
-                  slide={slide}
-                  template={template}
-                  agent={agent}
-                  organization={organization}
-                  brokerage={brokerage}
-                />
-              ))}
+          {!creative.canExport && (
+            <div className="mt-4 rounded-2xl border border-slate-200 bg-white/80 p-4 text-sm leading-6 text-slate-600">
+              Preview remains available while incomplete. Manual PNG export
+              requires an approved Social section, all five unique verified
+              photos, complete required branding, and campaign confirmation.
+            </div>
+          )}
+
+          {creative.assets.length > 0 ? (
+            <div
+              className={
+                creative.assets.length > 1
+                  ? 'mt-4 grid min-w-0 gap-4 sm:grid-cols-2 xl:grid-cols-3'
+                  : template.composition ===
+                    'story_reel'
+                  ? 'mx-auto mt-4 max-w-sm'
+                  : template.composition ===
+                    'instagram_single'
+                  ? 'mx-auto mt-4 max-w-xl'
+                  : template.composition ===
+                    'facebook_mosaic'
+                  ? 'mx-auto mt-4 max-w-3xl'
+                  : 'mx-auto mt-4 max-w-5xl'
+              }
+            >
+              {creative.assets.map((asset) => {
+                const exportKey = `${template.key}:${asset.index}`;
+
+                return (
+                  <div
+                    key={asset.index}
+                    className="min-w-0"
+                  >
+                    <ListingSocialCreativePreview
+                      ref={(node) => {
+                        if (node) {
+                          previewRefs.current.set(
+                            asset.index,
+                            node
+                          );
+                        } else {
+                          previewRefs.current.delete(
+                            asset.index
+                          );
+                        }
+                      }}
+                      asset={asset}
+                      template={template}
+                      agent={agent}
+                      organization={
+                        organization
+                      }
+                      brokerage={brokerage}
+                      showSafeArea
+                    />
+                    <button
+                      type="button"
+                      disabled={
+                        !creative.canExport ||
+                        Boolean(exporting)
+                      }
+                      onClick={() =>
+                        void exportAsset(asset)
+                      }
+                      className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-fuchsia-200 bg-white px-3 py-2.5 text-sm font-bold text-fuchsia-700 hover:bg-fuchsia-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fuchsia-700 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {exporting === exportKey ? (
+                        <Loader2
+                          aria-hidden="true"
+                          className="h-4 w-4 animate-spin"
+                        />
+                      ) : (
+                        <Download
+                          aria-hidden="true"
+                          className="h-4 w-4"
+                        />
+                      )}
+                      Download PNG
+                      {asset.totalAssets > 1
+                        ? ` ${asset.index + 1}`
+                        : ''}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <div
               role="alert"
               className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"
             >
-              The selected template could not produce its configured slides.
+              The selected target could not produce its configured creative.
             </div>
           )}
         </div>
       ) : (
         <div className="mt-6 flex min-h-40 items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white/70 p-8 text-center text-sm text-slate-600">
-          Select the supported Photo Carousel layout to display the preview.
+          Select an available creative target to display the preview.
         </div>
       )}
 
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
-        <div className="flex items-center gap-2">
-          <Images aria-hidden="true" className="h-5 w-5 text-fuchsia-700" />
-          <h4 className="font-bold text-slate-950">
-            Existing Instagram Caption
-          </h4>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <Copy
+                aria-hidden="true"
+                className="h-5 w-5 text-fuchsia-700"
+              />
+              <h4 className="font-bold text-slate-950">
+                {platform} Manual Copy
+              </h4>
+            </div>
+            <p className="mt-1 text-sm text-slate-600">
+              Copy is prepared for manual review and posting. Nothing is
+              published or scheduled from this studio.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2 text-xs font-bold">
+            <span className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-700">
+              {creative.postCopy.characterCount}{' '}
+              characters
+            </span>
+            {creative.postCopy.source ===
+              'deterministic' && (
+              <span className="rounded-full bg-amber-100 px-3 py-1.5 text-amber-800">
+                Local draft
+              </span>
+            )}
+          </div>
         </div>
-        {instagramCaption ? (
+        {creative.postCopy.caption ? (
           <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-slate-700 [overflow-wrap:anywhere]">
-            {instagramCaption}
+            {creative.postCopy.caption}
           </p>
         ) : (
           <div className="mt-3 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600">
-            Prepare the complete marketing package to create the Social caption.
+            Prepare the complete marketing package to create this platform’s
+            Social caption.
           </div>
         )}
-        {hashtags.length > 0 && (
+        {creative.postCopy.hashtags.length > 0 && (
           <div className="mt-4 flex flex-wrap gap-2">
-            {hashtags.map((hashtag) => (
+            {creative.postCopy.hashtags.map((hashtag) => (
               <span
                 key={hashtag}
                 className="max-w-full rounded-full bg-fuchsia-50 px-3 py-1.5 text-xs font-semibold text-fuchsia-700 [overflow-wrap:anywhere]"
               >
-                {hashtag.startsWith('#') ? hashtag : `#${hashtag}`}
+                {hashtag}
               </span>
             ))}
+          </div>
+        )}
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={
+              !creative.postCopy.caption
+            }
+            onClick={() =>
+              void copyPreparedText(
+                creative.postCopy.caption,
+                `${platform} caption`
+              )
+            }
+            className="inline-flex items-center gap-2 rounded-xl border border-fuchsia-200 bg-fuchsia-50 px-3.5 py-2 text-sm font-bold text-fuchsia-700 hover:bg-fuchsia-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fuchsia-700 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Copy
+              aria-hidden="true"
+              className="h-4 w-4"
+            />
+            Copy caption
+          </button>
+          <button
+            type="button"
+            disabled={
+              creative.postCopy.hashtags
+                .length === 0
+            }
+            onClick={() =>
+              void copyPreparedText(
+                creative.postCopy.hashtags.join(
+                  ' '
+                ),
+                'Hashtags'
+              )
+            }
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm font-bold text-slate-700 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Copy
+              aria-hidden="true"
+              className="h-4 w-4"
+            />
+            Copy hashtags
+          </button>
+        </div>
+        {copyNotice && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="mt-3 text-sm font-medium text-slate-700"
+          >
+            {copyNotice}
           </div>
         )}
       </div>

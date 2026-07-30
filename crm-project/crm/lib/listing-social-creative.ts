@@ -41,6 +41,25 @@ export const SOCIAL_VISUAL_STYLES = [
 export type SocialVisualStyle =
   (typeof SOCIAL_VISUAL_STYLES)[number];
 
+export const SOCIAL_CREATIVE_TARGET_KEYS = [
+  'instagram_carousel',
+  'facebook_post',
+  'instagram_single',
+  'instagram_story_reel',
+  'linkedin_post',
+  'x_post',
+] as const;
+export type SocialCreativeTargetKey =
+  (typeof SOCIAL_CREATIVE_TARGET_KEYS)[number];
+
+export type SocialCreativeComposition =
+  | 'instagram_carousel'
+  | 'facebook_mosaic'
+  | 'instagram_single'
+  | 'story_reel'
+  | 'linkedin_landscape'
+  | 'x_landscape';
+
 export const SOCIAL_PLATFORM_LABELS: Record<
   SocialPlatform,
   string
@@ -113,12 +132,29 @@ export type SocialTemplateDefinition = {
   name: string;
   description: string;
   selection: SocialTemplateSelection;
-  studioTemplateKey: string;
-  composition: 'just_listed_photo_carousel';
+  targetKey: SocialCreativeTargetKey;
+  composition: SocialCreativeComposition;
   width: number;
   height: number;
-  slideCount: number;
+  assetCount: number;
+  photoCount: number;
   tokens: SocialStyleTokens;
+};
+
+export type SocialCreativeTargetDefinition = {
+  key: SocialCreativeTargetKey;
+  name: string;
+  shortName: string;
+  description: string;
+  platform: SocialPlatform;
+  format: SocialFormat;
+  campaignPurpose: SocialCampaignPurpose;
+  version: number;
+  composition: SocialCreativeComposition;
+  width: number;
+  height: number;
+  assetCount: number;
+  photoCount: number;
 };
 
 export type SocialListingFacts = {
@@ -185,22 +221,35 @@ export type SocialCreativeInput = {
   agentBrand: SocialAgentBrand;
   organizationBrand: SocialOrganizationBrand;
   brokerageBrand: SocialBrokerageBrand;
-  instagramCaption: string;
+  preparedCopy: {
+    headline: string;
+    instagramCaption: string;
+    facebookCaption: string;
+    linkedinCaption: string;
+    hashtags: string[];
+  };
   sectionStatus: string | null;
-  studioTemplateKey: string | null;
   campaignConfirmed: boolean;
 };
 
-export type SocialCarouselSlide = {
+export type SocialCreativeAsset = {
   index: number;
-  totalSlides: number;
-  photo: SocialCreativePhoto | null;
+  totalAssets: number;
+  role:
+    | 'hero'
+    | 'details'
+    | 'feature'
+    | 'contact'
+    | 'mosaic';
+  photos: SocialCreativePhoto[];
   eyebrow: string;
   headline: string;
   detail: string;
   facts: string[];
   showContactCard: boolean;
 };
+
+export type SocialCarouselSlide = SocialCreativeAsset;
 
 export type SocialReadinessIssue = {
   code: string;
@@ -210,16 +259,26 @@ export type SocialReadinessIssue = {
 
 export type SocialCreativeViewModel = {
   template: SocialTemplateDefinition | null;
-  slides: SocialCarouselSlide[];
+  assets: SocialCreativeAsset[];
   issues: SocialReadinessIssue[];
+  postCopy: {
+    caption: string;
+    hashtags: string[];
+    characterCount: number;
+    source: 'prepared' | 'deterministic';
+  };
   metrics: {
     requiredPhotoCount: number;
     filledPhotoCount: number;
     uniquePhotoCount: number;
     verifiedLabelCount: number;
     brandingReady: boolean;
+    targetPhotoCount: number;
+    expectedAssetCount: number;
+    renderedAssetCount: number;
   };
   canApprove: boolean;
+  canExport: boolean;
 };
 
 export const FIRST_PHASE_SOCIAL_TARGET = {
@@ -229,7 +288,117 @@ export const FIRST_PHASE_SOCIAL_TARGET = {
   version: 1,
 } as const;
 
-const JUST_LISTED_SLIDE_COUNT = 5;
+export const SOCIAL_SUITE_PHOTO_COUNT = 5;
+
+export const SOCIAL_CREATIVE_TARGETS:
+  readonly SocialCreativeTargetDefinition[] = [
+  {
+    key: 'instagram_carousel',
+    name: 'Instagram 4:5 Carousel',
+    shortName: 'Instagram Carousel',
+    description:
+      'The original coordinated five-slide listing story.',
+    platform: 'instagram',
+    format: 'carousel_4_5',
+    campaignPurpose: 'just_listed',
+    version: 1,
+    composition: 'instagram_carousel',
+    width: 1080,
+    height: 1350,
+    assetCount: 5,
+    photoCount: 5,
+  },
+  {
+    key: 'facebook_post',
+    name: 'Facebook Post',
+    shortName: 'Facebook',
+    description:
+      'A square three-photo mosaic prepared for a manual Facebook post.',
+    platform: 'facebook',
+    format: 'multi_image',
+    campaignPurpose: 'just_listed',
+    version: 1,
+    composition: 'facebook_mosaic',
+    width: 1200,
+    height: 1200,
+    assetCount: 1,
+    photoCount: 3,
+  },
+  {
+    key: 'instagram_single',
+    name: 'Instagram Single Post',
+    shortName: 'Instagram Single',
+    description:
+      'A focused 4:5 hero creative for a manual Instagram post.',
+    platform: 'instagram',
+    format: 'feed_portrait_4_5',
+    campaignPurpose: 'just_listed',
+    version: 1,
+    composition: 'instagram_single',
+    width: 1080,
+    height: 1350,
+    assetCount: 1,
+    photoCount: 1,
+  },
+  {
+    key: 'instagram_story_reel',
+    name: 'Instagram Story / Reel',
+    shortName: 'Story / Reel',
+    description:
+      'A static 9:16 creative with protected top and bottom safe zones.',
+    platform: 'instagram',
+    format: 'story_9_16',
+    campaignPurpose: 'just_listed',
+    version: 1,
+    composition: 'story_reel',
+    width: 1080,
+    height: 1920,
+    assetCount: 1,
+    photoCount: 1,
+  },
+  {
+    key: 'linkedin_post',
+    name: 'LinkedIn Post',
+    shortName: 'LinkedIn',
+    description:
+      'A restrained landscape property summary for manual LinkedIn posting.',
+    platform: 'linkedin',
+    format: 'feed_landscape',
+    campaignPurpose: 'just_listed',
+    version: 1,
+    composition: 'linkedin_landscape',
+    width: 1200,
+    height: 627,
+    assetCount: 1,
+    photoCount: 1,
+  },
+  {
+    key: 'x_post',
+    name: 'X Post',
+    shortName: 'X',
+    description:
+      'A compact 16:9 listing creative with minimal overlay copy.',
+    platform: 'x',
+    format: 'feed_landscape',
+    campaignPurpose: 'just_listed',
+    version: 1,
+    composition: 'x_landscape',
+    width: 1600,
+    height: 900,
+    assetCount: 1,
+    photoCount: 1,
+  },
+];
+
+export function socialTargetForKey(
+  key: SocialCreativeTargetKey
+) {
+  return (
+    SOCIAL_CREATIVE_TARGETS.find(
+      (target) => target.key === key
+    ) || null
+  );
+}
 
 function createFirstPhaseTemplate(
   visualStyle: SocialVisualStyle,
@@ -241,17 +410,20 @@ function createFirstPhaseTemplate(
     ...FIRST_PHASE_SOCIAL_TARGET,
     visualStyle,
   };
+  const target =
+    SOCIAL_CREATIVE_TARGETS[0];
 
   return {
     key: `${selection.platform}.${selection.format}.${selection.campaignPurpose}.${selection.visualStyle}.v${selection.version}`,
     name,
     description,
     selection,
-    studioTemplateKey: 'carousel',
-    composition: 'just_listed_photo_carousel',
-    width: 1080,
-    height: 1350,
-    slideCount: JUST_LISTED_SLIDE_COUNT,
+    targetKey: target.key,
+    composition: target.composition,
+    width: target.width,
+    height: target.height,
+    assetCount: target.assetCount,
+    photoCount: target.photoCount,
     tokens,
   };
 }
@@ -332,20 +504,60 @@ export const FIRST_PHASE_SOCIAL_TEMPLATES:
 export function socialTemplateForSelection(
   selection: SocialTemplateSelection
 ) {
-  const matches =
-    FIRST_PHASE_SOCIAL_TEMPLATES.filter(
-      ({ selection: candidate }) =>
-        candidate.platform === selection.platform &&
-        candidate.format === selection.format &&
+  const target =
+    SOCIAL_CREATIVE_TARGETS.find(
+      (candidate) =>
+        candidate.platform ===
+          selection.platform &&
+        candidate.format ===
+          selection.format &&
         candidate.campaignPurpose ===
           selection.campaignPurpose &&
-        candidate.visualStyle ===
-          selection.visualStyle &&
-        candidate.version === selection.version
+        candidate.version ===
+          selection.version
+    );
+  const style =
+    FIRST_PHASE_SOCIAL_TEMPLATES.find(
+      (candidate) =>
+        candidate.selection.visualStyle ===
+          selection.visualStyle
     );
 
-  return matches.length === 1
-    ? matches[0]
+  if (!target || !style) {
+    return null;
+  }
+
+  return {
+    key: `${selection.platform}.${selection.format}.${selection.campaignPurpose}.${selection.visualStyle}.v${selection.version}`,
+    name: style.name,
+    description: style.description,
+    selection,
+    targetKey: target.key,
+    composition: target.composition,
+    width: target.width,
+    height: target.height,
+    assetCount: target.assetCount,
+    photoCount: target.photoCount,
+    tokens: style.tokens,
+  } satisfies SocialTemplateDefinition;
+}
+
+export function socialTemplateForTarget(
+  targetKey: SocialCreativeTargetKey,
+  visualStyle: SocialVisualStyle
+) {
+  const target =
+    socialTargetForKey(targetKey);
+
+  return target
+    ? socialTemplateForSelection({
+        platform: target.platform,
+        format: target.format,
+        campaignPurpose:
+          target.campaignPurpose,
+        visualStyle,
+        version: target.version,
+      })
     : null;
 }
 
@@ -534,21 +746,23 @@ function photoHeadline(
   );
 }
 
-function buildSlides(
+function presentPhotos(
+  photos: Array<SocialCreativePhoto | null>
+) {
+  return photos.filter(
+    (
+      photo
+    ): photo is SocialCreativePhoto =>
+      Boolean(photo)
+  );
+}
+
+function socialCreativeContent(
   template: SocialTemplateDefinition,
   input: SocialCreativeInput
 ) {
-  if (
-    template.composition !==
-      'just_listed_photo_carousel' ||
-    template.slideCount !==
-      JUST_LISTED_SLIDE_COUNT
-  ) {
-    return [];
-  }
-
   const photos = Array.from(
-    { length: template.slideCount },
+    { length: SOCIAL_SUITE_PHOTO_COUNT },
     (_, index) => input.photos[index] || null
   );
   const address =
@@ -559,7 +773,8 @@ function buildSlides(
   const facts =
     socialListingFacts(input.listing);
   const headline = cleanText(
-    input.listing.campaign_headline ||
+    input.preparedCopy.headline ||
+      input.listing.campaign_headline ||
       input.listing.title
   );
   const description = compactDescription(
@@ -567,10 +782,55 @@ function buildSlides(
       .short_marketing_description ||
       input.listing.public_remarks ||
       input.listing.description,
-    96
+    template.composition ===
+        'linkedin_landscape'
+      ? 140
+      : 96
+  );
+  const campaign =
+    SOCIAL_CAMPAIGN_LABELS[
+      template.selection.campaignPurpose
+    ];
+
+  return {
+    photos,
+    address,
+    price,
+    facts,
+    headline:
+      headline ||
+      cleanText(input.listing.title) ||
+      'Listing Presentation',
+    description,
+    campaign,
+  };
+}
+
+function buildInstagramCarousel(
+  template: SocialTemplateDefinition,
+  input: SocialCreativeInput
+) {
+  if (
+    template.assetCount !==
+      SOCIAL_SUITE_PHOTO_COUNT ||
+    template.photoCount !==
+      SOCIAL_SUITE_PHOTO_COUNT
+  ) {
+    return [];
+  }
+
+  const content =
+    socialCreativeContent(
+      template,
+      input
+    );
+  const carouselHeadline = cleanText(
+    input.listing.campaign_headline ||
+      input.listing.title
   );
   const shared = {
-    totalSlides: template.slideCount,
+    totalAssets:
+      template.assetCount,
     showContactCard: false,
   };
 
@@ -578,73 +838,357 @@ function buildSlides(
     {
       ...shared,
       index: 0,
-      photo: photos[0],
-      eyebrow:
-        SOCIAL_CAMPAIGN_LABELS[
-          template.selection.campaignPurpose
-        ],
+      role: 'hero',
+      photos: presentPhotos([
+        content.photos[0],
+      ]),
+      eyebrow: content.campaign,
       headline:
-        headline ||
-        cleanText(input.listing.title) ||
+        carouselHeadline ||
         'Listing Presentation',
-      detail: address || 'Address pending',
-      facts: price ? [price] : [],
+      detail:
+        content.address ||
+        'Address pending',
+      facts: content.price
+        ? [content.price]
+        : [],
     },
     {
       ...shared,
       index: 1,
-      photo: photos[1],
+      role: 'details',
+      photos: presentPhotos([
+        content.photos[1],
+      ]),
       eyebrow: 'Property Details',
       headline: photoHeadline(
-        photos[1],
+        content.photos[1],
         'Property Detail'
       ),
-      detail: address || 'Address pending',
-      facts: facts.slice(0, 4),
+      detail:
+        content.address ||
+        'Address pending',
+      facts: content.facts.slice(
+        0,
+        4
+      ),
     },
     {
       ...shared,
       index: 2,
-      photo: photos[2],
+      role: 'feature',
+      photos: presentPhotos([
+        content.photos[2],
+      ]),
       eyebrow: 'Inside the Listing',
       headline: photoHeadline(
-        photos[2],
+        content.photos[2],
         'Interior Detail'
       ),
       detail:
-        description ||
-        address ||
+        content.description ||
+        content.address ||
         'Property details pending',
       facts: [],
     },
     {
       ...shared,
       index: 3,
-      photo: photos[3],
+      role: 'feature',
+      photos: presentPhotos([
+        content.photos[3],
+      ]),
       eyebrow: 'Explore More',
       headline: photoHeadline(
-        photos[3],
+        content.photos[3],
         'Property Feature'
       ),
-      detail: address || 'Address pending',
-      facts: facts.slice(0, 3),
+      detail:
+        content.address ||
+        'Address pending',
+      facts: content.facts.slice(
+        0,
+        3
+      ),
     },
     {
       ...shared,
       index: 4,
-      photo: photos[4],
+      role: 'contact',
+      photos: presentPhotos([
+        content.photos[4],
+      ]),
       eyebrow: photoHeadline(
-        photos[4],
+        content.photos[4],
         'Property Detail'
       ),
-      headline: 'Schedule a Private Tour',
+      headline:
+        'Schedule a Private Tour',
       detail:
-        address ||
+        content.address ||
         'Listing information available',
       facts: [],
       showContactCard: true,
     },
-  ] satisfies SocialCarouselSlide[];
+  ] satisfies SocialCreativeAsset[];
+}
+
+function buildSingleAsset(
+  template: SocialTemplateDefinition,
+  input: SocialCreativeInput
+) {
+  const content =
+    socialCreativeContent(
+      template,
+      input
+    );
+  const shared = {
+    index: 0,
+    totalAssets: 1,
+  };
+
+  switch (template.composition) {
+    case 'facebook_mosaic':
+      return [
+        {
+          ...shared,
+          role: 'mosaic',
+          photos: presentPhotos(
+            content.photos.slice(0, 3)
+          ),
+          eyebrow: content.campaign,
+          headline: content.headline,
+          detail:
+            content.address ||
+            'Address pending',
+          facts: [
+            content.price,
+            ...content.facts.slice(0, 3),
+          ].filter(Boolean),
+          showContactCard: false,
+        },
+      ] satisfies SocialCreativeAsset[];
+
+    case 'instagram_single':
+      return [
+        {
+          ...shared,
+          role: 'hero',
+          photos: presentPhotos([
+            content.photos[0],
+          ]),
+          eyebrow: content.campaign,
+          headline: content.headline,
+          detail:
+            content.address ||
+            'Address pending',
+          facts: [
+            content.price,
+            ...content.facts.slice(0, 3),
+          ].filter(Boolean),
+          showContactCard: false,
+        },
+      ] satisfies SocialCreativeAsset[];
+
+    case 'story_reel':
+      return [
+        {
+          ...shared,
+          role: 'contact',
+          photos: presentPhotos([
+            content.photos[0],
+          ]),
+          eyebrow: content.campaign,
+          headline: content.headline,
+          detail:
+            content.address ||
+            'Address pending',
+          facts: [
+            content.price,
+            ...content.facts.slice(0, 2),
+          ].filter(Boolean),
+          showContactCard: true,
+        },
+      ] satisfies SocialCreativeAsset[];
+
+    case 'linkedin_landscape':
+      return [
+        {
+          ...shared,
+          role: 'contact',
+          photos: presentPhotos([
+            content.photos[0],
+          ]),
+          eyebrow: content.campaign,
+          headline: content.headline,
+          detail:
+            content.description ||
+            content.address ||
+            'Property details pending',
+          facts: [
+            content.price,
+            ...content.facts.slice(0, 4),
+          ].filter(Boolean),
+          showContactCard: true,
+        },
+      ] satisfies SocialCreativeAsset[];
+
+    case 'x_landscape':
+      return [
+        {
+          ...shared,
+          role: 'hero',
+          photos: presentPhotos([
+            content.photos[0],
+          ]),
+          eyebrow: content.campaign,
+          headline: content.headline,
+          detail:
+            content.address ||
+            'Address pending',
+          facts: [
+            content.price,
+            ...content.facts.slice(0, 2),
+          ].filter(Boolean),
+          showContactCard: false,
+        },
+      ] satisfies SocialCreativeAsset[];
+
+    default:
+      return [];
+  }
+}
+
+function buildCreativeAssets(
+  template: SocialTemplateDefinition,
+  input: SocialCreativeInput
+) {
+  return template.composition ===
+    'instagram_carousel'
+    ? buildInstagramCarousel(
+        template,
+        input
+      )
+    : buildSingleAsset(
+        template,
+        input
+      );
+}
+
+function normalizedHashtags(
+  values: string[]
+) {
+  return Array.from(
+    new Set(
+      values
+        .map((value) =>
+          cleanText(value)
+        )
+        .filter(Boolean)
+        .map((value) =>
+          value.startsWith('#')
+            ? value
+            : `#${value}`
+        )
+    )
+  );
+}
+
+function preparedPostCopy(
+  template: SocialTemplateDefinition | null,
+  input: SocialCreativeInput
+) {
+  const allHashtags =
+    normalizedHashtags(
+      input.preparedCopy.hashtags
+    );
+  let caption = '';
+  let hashtags = allHashtags;
+  let source:
+    | 'prepared'
+    | 'deterministic' =
+    'prepared';
+
+  switch (
+    template?.selection.platform
+  ) {
+    case 'instagram':
+      caption =
+        input.preparedCopy
+          .instagramCaption;
+      break;
+
+    case 'facebook':
+      caption =
+        input.preparedCopy
+          .facebookCaption;
+      break;
+
+    case 'linkedin':
+      caption =
+        input.preparedCopy
+          .linkedinCaption;
+      break;
+
+    case 'x': {
+      source = 'deterministic';
+      hashtags =
+        allHashtags
+          .slice(0, 2)
+          .map((value) =>
+            value.slice(0, 32)
+          );
+      const hashtagText =
+        hashtags.join(' ');
+      const captionLimit = Math.max(
+        120,
+        240 -
+          (
+            hashtagText
+              ? hashtagText.length + 1
+              : 0
+          )
+      );
+      caption = compactText(
+        [
+          cleanText(
+            input.preparedCopy.headline ||
+              input.listing
+                .campaign_headline ||
+              input.listing.title
+          ),
+          socialListingAddress(
+            input.listing
+          ),
+          socialListingPrice(
+            input.listing.list_price
+          ),
+        ]
+          .filter(Boolean)
+          .join(' · '),
+        captionLimit
+      );
+      break;
+    }
+
+    default:
+      caption = '';
+  }
+
+  const combined = [
+    caption,
+    hashtags.join(' '),
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+
+  return {
+    caption,
+    hashtags,
+    characterCount:
+      Array.from(combined).length,
+    source,
+  };
 }
 
 export function buildSocialCreativeViewModel(
@@ -652,7 +1196,7 @@ export function buildSocialCreativeViewModel(
   input: SocialCreativeInput
 ): SocialCreativeViewModel {
   const requiredPhotoCount =
-    template?.slideCount || 0;
+    SOCIAL_SUITE_PHOTO_COUNT;
   const assignedPhotos = input.photos
     .slice(0, requiredPhotoCount)
     .filter(
@@ -691,26 +1235,15 @@ export function buildSocialCreativeViewModel(
       'template_not_found',
       'The selected Social template configuration is unavailable.'
     );
-  } else {
-    if (
-      template.slideCount !==
-      JUST_LISTED_SLIDE_COUNT
-    ) {
-      block(
-        'template_slide_count_invalid',
-        'The selected template has an invalid slide-count configuration.'
-      );
-    }
-
-    if (
-      input.studioTemplateKey !==
-      template.studioTemplateKey
-    ) {
-      block(
-        'studio_template_mismatch',
-        'Choose Photo Carousel above to review this Social format.'
-      );
-    }
+  } else if (
+    !socialTargetForKey(
+      template.targetKey
+    )
+  ) {
+    block(
+      'target_not_found',
+      'The selected Social target configuration is unavailable.'
+    );
   }
 
   if (
@@ -741,7 +1274,7 @@ export function buildSocialCreativeViewModel(
   ) {
     block(
       'duplicate_photos',
-      'Each carousel slide must use a different listing photo.'
+      'Each Social photo slot must use a different listing photo.'
     );
   }
 
@@ -790,7 +1323,10 @@ export function buildSocialCreativeViewModel(
     );
   }
 
-  if (!input.instagramCaption.trim()) {
+  if (
+    !input.preparedCopy
+      .instagramCaption.trim()
+  ) {
     block(
       'instagram_caption_required',
       'Prepare the Social section before approving its Instagram caption.'
@@ -821,9 +1357,51 @@ export function buildSocialCreativeViewModel(
     });
   }
 
-  const slides = template
-    ? buildSlides(template, input)
+  const assets = template
+    ? buildCreativeAssets(
+        template,
+        input
+      )
     : [];
+  const targetPhotoCount =
+    template?.photoCount || 0;
+  const renderedPhotoCount =
+    new Set(
+      assets.flatMap((asset) =>
+        asset.photos.map(
+          (photo) => photo.id
+        )
+      )
+    ).size;
+  const targetReady = Boolean(
+    template &&
+      assets.length ===
+        template.assetCount &&
+      renderedPhotoCount >=
+        targetPhotoCount
+  );
+  const postCopy =
+    preparedPostCopy(
+      template,
+      input
+    );
+
+  if (
+    template &&
+    ['facebook', 'linkedin'].includes(
+      template.selection.platform
+    ) &&
+    !postCopy.caption.trim()
+  ) {
+    issues.push({
+      code:
+        'selected_platform_caption_missing',
+      severity: 'warning',
+      message:
+        'The selected platform does not have prepared caption copy yet.',
+    });
+  }
+
   const hasBlockingIssue = issues.some(
     ({ severity }) =>
       severity === 'blocking'
@@ -831,8 +1409,9 @@ export function buildSocialCreativeViewModel(
 
   return {
     template,
-    slides,
+    assets,
     issues,
+    postCopy,
     metrics: {
       requiredPhotoCount,
       filledPhotoCount:
@@ -840,10 +1419,20 @@ export function buildSocialCreativeViewModel(
       uniquePhotoCount,
       verifiedLabelCount,
       brandingReady,
+      targetPhotoCount,
+      expectedAssetCount:
+        template?.assetCount || 0,
+      renderedAssetCount:
+        assets.length,
     },
     canApprove:
       input.sectionStatus ===
         'needs_review' &&
       !hasBlockingIssue,
+    canExport:
+      input.sectionStatus ===
+        'approved' &&
+      !hasBlockingIssue &&
+      targetReady,
   };
 }

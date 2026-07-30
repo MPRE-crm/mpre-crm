@@ -375,7 +375,7 @@ const SECTION_DEFINITIONS:
       'Social Media',
 
     description:
-      'Instagram, Facebook and LinkedIn copy with single-photo, carousel and Story/Reel options.',
+      'Manual Instagram, Facebook, LinkedIn and X creative previews, captions and PNG exports.',
 
     templates: [
       {
@@ -1885,6 +1885,8 @@ export default function MarketingStudioPage() {
           </div>
         </section>
 
+        {sectionKey !==
+          'social' && (
         <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex items-center gap-2">
             <LayoutTemplate className="h-5 w-5 text-violet-700" />
@@ -1942,6 +1944,7 @@ export default function MarketingStudioPage() {
             )}
           </div>
         </section>
+        )}
 
         <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between gap-3">
