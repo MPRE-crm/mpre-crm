@@ -225,6 +225,379 @@ function adminClient() {
   );
 }
 
+type MarketingBrand = {
+  name: string | null;
+  logo_url: string | null;
+};
+
+type MarketingBranding = {
+  personal: MarketingBrand;
+  organization: MarketingBrand;
+  brokerage: MarketingBrand;
+};
+
+function normalized(value: unknown) {
+  return String(value || '')
+    .trim()
+    .toLowerCase();
+}
+
+function optionalText(value: unknown) {
+  const result = String(value || '').trim();
+  return result || null;
+}
+
+function licenseIsCurrent(license: {
+  license_status?: unknown;
+  verified_at?: unknown;
+  verified_by?: unknown;
+  expiration_date?: unknown;
+}) {
+  const status = normalized(
+    license.license_status
+  );
+  const expiration = optionalText(
+    license.expiration_date
+  );
+  let expirationTime: number | null = null;
+
+  if (expiration) {
+    const match =
+      /^(\d{4})-(\d{2})-(\d{2})$/.exec(
+        expiration
+      );
+
+    if (!match) {
+      return false;
+    }
+
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const lastDay =
+      month >= 1 && month <= 12
+        ? new Date(
+            Date.UTC(year, month, 0)
+          ).getUTCDate()
+        : 0;
+
+    if (
+      year < 1000 ||
+      month < 1 ||
+      month > 12 ||
+      day < 1 ||
+      day > lastDay
+    ) {
+      return false;
+    }
+
+    expirationTime = Date.UTC(
+      year,
+      month - 1,
+      day,
+      23,
+      59,
+      59,
+      999
+    );
+
+    if (
+      !Number.isFinite(expirationTime) ||
+      expirationTime < Date.now()
+    ) {
+      return false;
+    }
+  }
+
+  return (
+    ['active', 'approved', 'verified'].includes(status) &&
+    Boolean(optionalText(license.verified_at)) &&
+    Boolean(optionalText(license.verified_by)) &&
+    (
+      expiration === null ||
+      expirationTime !== null
+    )
+  );
+}
+
+async function loadMarketingBranding(
+  admin: ReturnType<typeof adminClient>,
+  organizationId: string,
+  preferredState: string,
+  profile: Record<string, unknown>
+): Promise<MarketingBranding> {
+  const personal = {
+    name:
+      optionalText(profile.marketing_from_name) ||
+      optionalText(profile.name),
+    logo_url: optionalText(
+      profile.marketing_logo_url
+    ),
+  };
+  const emptyBrand = {
+    name: null,
+    logo_url: null,
+  };
+
+  if (!organizationId) {
+    return {
+      personal,
+      organization: emptyBrand,
+      brokerage: emptyBrand,
+    };
+  }
+
+  const [
+    platformResult,
+    organizationResult,
+    jurisdictionResult,
+    marketResult,
+    licenseResult,
+  ] = await Promise.all([
+    admin
+      .from('platform_brand_settings')
+      .select(`
+        brand_name,
+        master_logo_url,
+        is_active
+      `)
+      .eq('brand_key', 'mpre')
+      .maybeSingle(),
+
+    admin
+      .from('organizations')
+      .select(`
+        id,
+        name,
+        org_display,
+        state,
+        brokerage_name,
+        marketing_licensed_business_name,
+        marketing_license_state
+      `)
+      .eq('id', organizationId)
+      .maybeSingle(),
+
+    admin
+      .from('marketing_jurisdictions')
+      .select(`
+        id,
+        code,
+        state_code,
+        name
+      `)
+      .eq('country_code', 'US')
+      .eq('jurisdiction_type', 'state'),
+
+    admin
+      .from('organization_markets')
+      .select(`
+        jurisdiction_id,
+        market_status,
+        marketing_enabled
+      `)
+      .eq('organization_id', organizationId),
+
+    admin
+      .from('organization_real_estate_licenses')
+      .select(`
+        id,
+        jurisdiction_id,
+        licensed_business_name,
+        dba_name,
+        brokerage_logo_url,
+        license_status,
+        expiration_date,
+        verified_at,
+        verified_by,
+        created_at
+      `)
+      .eq('organization_id', organizationId)
+      .order('created_at', {
+        ascending: false,
+      })
+      .order('id', {
+        ascending: false,
+      }),
+  ]);
+
+  if (platformResult.error) {
+    throw platformResult.error;
+  }
+
+  if (organizationResult.error) {
+    throw organizationResult.error;
+  }
+
+  if (jurisdictionResult.error) {
+    throw jurisdictionResult.error;
+  }
+
+  if (marketResult.error) {
+    throw marketResult.error;
+  }
+
+  if (licenseResult.error) {
+    throw licenseResult.error;
+  }
+
+  const platform =
+    platformResult.data &&
+    platformResult.data.is_active !== false
+      ? platformResult.data
+      : null;
+  const organization = organizationResult.data;
+  const jurisdictions =
+    jurisdictionResult.data || [];
+  const markets = marketResult.data || [];
+  const licenses = licenseResult.data || [];
+  const stateMatches = (
+    candidate: (typeof jurisdictions)[number],
+    value: unknown
+  ) => {
+    const requested = normalized(value);
+
+    return Boolean(
+      requested &&
+        [
+          candidate.state_code,
+          candidate.name,
+          candidate.code,
+        ].some(
+          (item) => normalized(item) === requested
+        )
+    );
+  };
+  const orderedJurisdictions = [
+    ...jurisdictions,
+  ].sort((left, right) =>
+    [
+      left.state_code,
+      left.name,
+      left.code,
+      left.id,
+    ]
+      .map((value) => normalized(value))
+      .join('|')
+      .localeCompare(
+        [
+          right.state_code,
+          right.name,
+          right.code,
+          right.id,
+        ]
+          .map((value) => normalized(value))
+          .join('|')
+      )
+  );
+  const activeMarketJurisdictionIds =
+    new Set(
+      markets
+        .filter(
+          (market) =>
+            market.marketing_enabled === true &&
+            [
+              'active',
+              'approved',
+              'launched',
+              'enabled',
+            ].includes(
+              normalized(market.market_status)
+            )
+        )
+        .map((market) => market.jurisdiction_id)
+    );
+  const activeMarketJurisdiction =
+    orderedJurisdictions.find((item) =>
+      activeMarketJurisdictionIds.has(item.id)
+    );
+  const currentActiveMarketJurisdiction =
+    orderedJurisdictions.find(
+      (item) =>
+        activeMarketJurisdictionIds.has(item.id) &&
+        licenses.some(
+          (license) =>
+            license.jurisdiction_id === item.id &&
+            licenseIsCurrent(license)
+        )
+    );
+  const currentLicenseJurisdiction =
+    orderedJurisdictions.find((item) =>
+      licenses.some(
+        (license) =>
+          license.jurisdiction_id === item.id &&
+          licenseIsCurrent(license)
+      )
+    );
+  const licensedJurisdiction =
+    orderedJurisdictions.find((item) =>
+      licenses.some(
+        (license) =>
+          license.jurisdiction_id === item.id
+      )
+    );
+  const preferredJurisdiction =
+    jurisdictions.find((item) =>
+      stateMatches(item, preferredState)
+    ) ||
+    null;
+  const selectedJurisdiction =
+    optionalText(preferredState)
+      ? preferredJurisdiction
+      : jurisdictions.find((item) =>
+          stateMatches(
+            item,
+            organization?.marketing_license_state
+          )
+        ) ||
+        jurisdictions.find((item) =>
+          stateMatches(item, organization?.state)
+        ) ||
+        currentActiveMarketJurisdiction ||
+        activeMarketJurisdiction ||
+        currentLicenseJurisdiction ||
+        licensedJurisdiction ||
+        null;
+  const jurisdictionLicenses =
+    selectedJurisdiction
+      ? licenses.filter(
+          (license) =>
+            license.jurisdiction_id ===
+            selectedJurisdiction.id
+        )
+      : [];
+  const selectedLicense =
+    jurisdictionLicenses.find(
+      licenseIsCurrent
+    ) ||
+    null;
+
+  return {
+    personal,
+    organization: {
+      name: optionalText(platform?.brand_name),
+      logo_url: optionalText(
+        platform?.master_logo_url
+      ),
+    },
+    brokerage: {
+      name:
+        optionalText(organization?.brokerage_name) ||
+        optionalText(selectedLicense?.dba_name) ||
+        optionalText(
+          selectedLicense?.licensed_business_name
+        ) ||
+        optionalText(
+          organization
+            ?.marketing_licensed_business_name
+        ),
+      logo_url: optionalText(
+        selectedLicense?.brokerage_logo_url
+      ),
+    },
+  };
+}
+
 export async function GET(
   request: Request
 ) {
@@ -292,6 +665,10 @@ export async function GET(
 
     let targetProfileId =
       auth.user.id;
+    let targetOrganizationId =
+      optionalText(requesterProfile.org_id) ||
+      '';
+    let preferredState = '';
 
     if (listingId) {
       const {
@@ -302,7 +679,8 @@ export async function GET(
         .select(`
           id,
           org_id,
-          owner_user_id
+          owner_user_id,
+          state
         `)
         .eq(
           'id',
@@ -394,6 +772,12 @@ export async function GET(
 
       targetProfileId =
         listing.owner_user_id;
+      targetOrganizationId =
+        optionalText(listing.org_id) ||
+        '';
+      preferredState =
+        optionalText(listing.state) ||
+        '';
     }
 
     const {
@@ -425,9 +809,20 @@ export async function GET(
       );
     }
 
+    const branding =
+      await loadMarketingBranding(
+        admin,
+        targetOrganizationId ||
+          optionalText(profile.org_id) ||
+          '',
+        preferredState,
+        profile as Record<string, unknown>
+      );
+
     return NextResponse.json({
       ok: true,
       profile,
+      branding,
     });
   } catch (error: any) {
     return NextResponse.json(

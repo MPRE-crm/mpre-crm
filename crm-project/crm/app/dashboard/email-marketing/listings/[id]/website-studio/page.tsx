@@ -39,6 +39,7 @@ import {
 import ListingWebsiteEnrichmentPanel from '../../ListingWebsiteEnrichmentPanel';
 import ListingEmailStudioPanel from '../../ListingEmailStudioPanel';
 import ListingRealtorMatchPanel from '../../ListingRealtorMatchPanel';
+import ListingSocialStudioPanel from '../../ListingSocialStudioPanel';
 
 const supabase =
   getSupabaseBrowser();
@@ -2015,6 +2016,31 @@ export default function MarketingStudioPage() {
               }
             />
           </>
+        ) : sectionKey ===
+            'social' &&
+          listing ? (
+          <ListingSocialStudioPanel
+            listing={
+              listing
+            }
+            section={
+              section
+            }
+            photos={
+              photos
+            }
+            assignments={
+              assignments
+            }
+            saving={
+              saving
+            }
+            onApprove={() =>
+              approveSection(
+                'social'
+              )
+            }
+          />
         ) : (
           <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-3">
