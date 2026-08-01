@@ -18,7 +18,13 @@ import {
 
 import {
   loadSavedListingPhotoIntelligence,
+  type ListingPhotoAnalysis,
 } from '../../../../../lib/server/listingPhotoIntelligence';
+
+import {
+  CANVA_FLYER_TEMPLATES,
+  canvaPackageForPreservation,
+} from '../../../../../lib/listing-canva-marketing-package';
 
 export const dynamic =
   'force-dynamic';
@@ -1311,6 +1317,87 @@ function assignmentSlot(
       };
 }
 
+const EXCLUDED_FLYER_CATEGORIES =
+  new Set<
+    ListingPhotoAnalysis[
+      'primary_category'
+    ]
+  >([
+    'hallway',
+    'foyer',
+    'laundry',
+    'community',
+    'detail',
+    'floor_plan',
+    'other',
+  ]);
+
+function scoreFlyerPhoto(
+  analysis:
+    ListingPhotoAnalysis
+) {
+  return (
+    analysis.marketing_score *
+      3 +
+    analysis.quality_score *
+      2 +
+    analysis.confidence *
+      50
+  );
+}
+
+function flyerCategoryPriorities(
+  index: number
+): Array<
+  ListingPhotoAnalysis[
+    'primary_category'
+  ]
+> {
+  if (index === 0) {
+    return [
+      'front_exterior',
+      'exterior',
+    ];
+  }
+
+  if (index === 1) {
+    return [
+      'kitchen',
+    ];
+  }
+
+  if (index === 2) {
+    return [
+      'living_room',
+      'dining_room',
+    ];
+  }
+
+  if (index === 3) {
+    return [
+      'primary_bedroom',
+      'bedroom',
+    ];
+  }
+
+  if (index === 4) {
+    return [
+      'primary_bathroom',
+      'bathroom',
+    ];
+  }
+
+  return [
+    'backyard',
+    'patio',
+    'view',
+    'pool',
+    'garage',
+    'shop',
+    'exterior',
+  ];
+}
+
 function responseStatus(
   error: unknown
 ) {
@@ -1379,6 +1466,16 @@ export async function POST(
       cleanText(
         body?.listing_id,
         100
+      );
+    const requestMode =
+      cleanText(
+        body?.mode,
+        80
+      );
+    const requestedFlyerTemplateKey =
+      cleanText(
+        body?.template_key,
+        160
       );
 
     if (!listingId) {
@@ -1675,6 +1772,511 @@ export async function POST(
             photo.is_primary,
         })
       );
+
+    if (
+      requestMode ===
+        'recommend_flyer_photos'
+    ) {
+      const template =
+        CANVA_FLYER_TEMPLATES.find(
+          (item) =>
+            item.key ===
+              requestedFlyerTemplateKey &&
+            item.flyerType ===
+              'flyer'
+        ) ||
+        null;
+
+      if (!template) {
+        throw new MarketingPackageError(
+          'Choose a valid approved Canva Flyer template.',
+          400,
+          'flyer_template_invalid'
+        );
+      }
+
+      const [
+        intelligence,
+        lockedFlyerResult,
+      ] = await Promise.all([
+        loadSavedListingPhotoIntelligence({
+          listingId:
+            listing.id,
+
+          photos,
+        }),
+
+        supabaseAdmin
+          .from(
+            'listing_marketing_photo_assignments'
+          )
+          .select(`
+            slot_key,
+            sort_order,
+            media_id,
+            is_locked
+          `)
+          .eq(
+            'listing_id',
+            listing.id
+          )
+          .eq(
+            'section_key',
+            'flyer'
+          )
+          .eq(
+            'is_locked',
+            true
+          ),
+      ]);
+
+      if (
+        lockedFlyerResult.error
+      ) {
+        throw new MarketingPackageError(
+          lockedFlyerResult
+            .error
+            .message,
+          500,
+          'flyer_locked_photo_load_failed'
+        );
+      }
+
+      if (
+        intelligence.analyses
+          .length === 0
+      ) {
+        throw new MarketingPackageError(
+          'Samantha must analyze the listing photos before recommending Flyer photos.',
+          409,
+          'flyer_photo_analysis_required'
+        );
+      }
+
+      const currentPhotoIds =
+        new Set(
+          photos.map(
+            (photo) =>
+              photo.id
+          )
+        );
+      const templateSlotIds =
+        new Set(
+          template.photoSlots.map(
+            (slot) =>
+              `${slot.slotKey}:${slot.sortOrder}`
+          )
+        );
+      const analysisById =
+        new Map(
+          intelligence.analyses.map(
+            (analysis) => [
+              analysis.media_id,
+              analysis,
+            ]
+          )
+        );
+      const lockedBySlot =
+        new Map<
+          string,
+          string
+        >();
+      const usedPhotoIds =
+        new Set<string>();
+      const usedDuplicateGroups =
+        new Set<string>();
+
+      function markFlyerPhotoUsed(
+        mediaId: string
+      ) {
+        usedPhotoIds.add(
+          mediaId
+        );
+
+        const analysis =
+          analysisById.get(
+            mediaId
+          );
+
+        if (
+          analysis
+            ?.duplicate_group
+        ) {
+          usedDuplicateGroups.add(
+            analysis
+              .duplicate_group
+          );
+        }
+      }
+
+      for (
+        const row of
+          lockedFlyerResult
+            .data || []
+      ) {
+        const slotId =
+          `${row.slot_key}:${row.sort_order}`;
+        const mediaId =
+          String(
+            row.media_id ||
+            ''
+          );
+
+        if (
+          !templateSlotIds.has(
+            slotId
+          ) ||
+          !mediaId ||
+          !currentPhotoIds.has(
+            mediaId
+          )
+        ) {
+          continue;
+        }
+
+        lockedBySlot.set(
+          slotId,
+          mediaId
+        );
+
+        markFlyerPhotoUsed(
+          mediaId
+        );
+      }
+
+      const rankedAnalyses =
+        intelligence.analyses
+          .filter(
+            (analysis) =>
+              currentPhotoIds.has(
+                analysis.media_id
+              ) &&
+              analysis
+                .analysis_status !==
+                'failed' &&
+              analysis.is_usable &&
+              analysis.confidence >=
+                0.35 &&
+              !EXCLUDED_FLYER_CATEGORIES.has(
+                analysis
+                  .primary_category
+              )
+          )
+          .slice()
+          .sort(
+            (left, right) =>
+              scoreFlyerPhoto(
+                right
+              ) -
+              scoreFlyerPhoto(
+                left
+              )
+          );
+
+      function isFlyerPhotoAvailable(
+        analysis:
+          ListingPhotoAnalysis
+      ) {
+        if (
+          usedPhotoIds.has(
+            analysis.media_id
+          )
+        ) {
+          return false;
+        }
+
+        if (
+          analysis
+            .duplicate_group &&
+          usedDuplicateGroups.has(
+            analysis
+              .duplicate_group
+          )
+        ) {
+          return false;
+        }
+
+        return true;
+      }
+
+      const recommendations:
+        Array<{
+          slot_key: string;
+          sort_order: number;
+          media_id: string;
+          locked: boolean;
+        }> = [];
+
+      for (
+        let index = 0;
+        index <
+          template.photoSlots
+            .length;
+        index += 1
+      ) {
+        const slot =
+          template.photoSlots[
+            index
+          ];
+        const slotId =
+          `${slot.slotKey}:${slot.sortOrder}`;
+        const lockedMediaId =
+          lockedBySlot.get(
+            slotId
+          );
+
+        if (lockedMediaId) {
+          recommendations.push({
+            slot_key:
+              slot.slotKey,
+
+            sort_order:
+              slot.sortOrder,
+
+            media_id:
+              lockedMediaId,
+
+            locked: true,
+          });
+
+          continue;
+        }
+
+        const priorities =
+          flyerCategoryPriorities(
+            index
+          );
+        let candidate:
+          ListingPhotoAnalysis |
+          null =
+            null;
+
+        for (
+          const category of
+            priorities
+        ) {
+          candidate =
+            rankedAnalyses.find(
+              (analysis) =>
+                analysis
+                  .primary_category ===
+                  category &&
+                isFlyerPhotoAvailable(
+                  analysis
+                )
+            ) ||
+            null;
+
+          if (candidate) {
+            break;
+          }
+        }
+
+        if (!candidate) {
+          candidate =
+            rankedAnalyses.find(
+              (analysis) =>
+                isFlyerPhotoAvailable(
+                  analysis
+                )
+            ) ||
+            null;
+        }
+
+        if (!candidate) {
+          continue;
+        }
+
+        markFlyerPhotoUsed(
+          candidate.media_id
+        );
+
+        recommendations.push({
+          slot_key:
+            slot.slotKey,
+
+          sort_order:
+            slot.sortOrder,
+
+          media_id:
+            candidate.media_id,
+
+          locked: false,
+        });
+      }
+
+      const {
+        error:
+          oldRecommendationDeleteError,
+      } = await supabaseAdmin
+        .from(
+          'listing_marketing_photo_assignments'
+        )
+        .delete()
+        .eq(
+          'listing_id',
+          listing.id
+        )
+        .eq(
+          'section_key',
+          'flyer'
+        )
+        .eq(
+          'is_locked',
+          false
+        );
+
+      if (
+        oldRecommendationDeleteError
+      ) {
+        throw new MarketingPackageError(
+          oldRecommendationDeleteError
+            .message,
+          500,
+          'old_flyer_recommendation_delete_failed'
+        );
+      }
+
+      const unlockedRecommendations =
+        recommendations.filter(
+          (recommendation) =>
+            !recommendation.locked
+        );
+
+      if (
+        unlockedRecommendations
+          .length > 0
+      ) {
+        const {
+          error:
+            recommendationInsertError,
+        } = await supabaseAdmin
+          .from(
+            'listing_marketing_photo_assignments'
+          )
+          .insert(
+            unlockedRecommendations.map(
+              (recommendation) => ({
+                listing_id:
+                  listing.id,
+
+                org_id:
+                  listing.org_id,
+
+                owner_user_id:
+                  listing
+                    .owner_user_id,
+
+                section_key:
+                  'flyer',
+
+                slot_key:
+                  recommendation
+                    .slot_key,
+
+                sort_order:
+                  recommendation
+                    .sort_order,
+
+                media_id:
+                  recommendation
+                    .media_id,
+
+                selected_by:
+                  'samantha',
+
+                is_locked:
+                  false,
+
+                created_by:
+                  requester.id,
+
+                updated_by:
+                  requester.id,
+              })
+            )
+          );
+
+        if (
+          recommendationInsertError
+        ) {
+          throw new MarketingPackageError(
+            recommendationInsertError
+              .message,
+            500,
+            'flyer_recommendation_save_failed'
+          );
+        }
+      }
+
+      const {
+        error:
+          flyerSectionUpdateError,
+      } = await supabaseAdmin
+        .from(
+          'listing_marketing_sections'
+        )
+        .update({
+          status:
+            'needs_review',
+
+          approved_at:
+            null,
+
+          approved_by:
+            null,
+
+          updated_by:
+            requester.id,
+        })
+        .eq(
+          'listing_id',
+          listing.id
+        )
+        .eq(
+          'section_key',
+          'flyer'
+        );
+
+      if (
+        flyerSectionUpdateError
+      ) {
+        throw new MarketingPackageError(
+          flyerSectionUpdateError
+            .message,
+          500,
+          'flyer_section_update_failed'
+        );
+      }
+
+      return NextResponse.json(
+        {
+          ok: true,
+
+          message:
+            `Samantha selected ${recommendations.length} photos for ${template.name}.`,
+
+          template_key:
+            template.key,
+
+          recommended_count:
+            unlockedRecommendations
+              .length,
+
+          locked_count:
+            recommendations.filter(
+              (recommendation) =>
+                recommendation.locked
+            ).length,
+        },
+        {
+          headers: {
+            'Cache-Control':
+              'no-store',
+          },
+        }
+      );
+    }
 
     const openAiApiKey =
       process.env
@@ -2761,6 +3363,20 @@ export async function POST(
         };
       }
       else {
+        const preservedCanvaPackage =
+          sectionKey ===
+            'flyer'
+            ? canvaPackageForPreservation(
+                isRecord(
+                  existing?.content
+                )
+                  ? existing
+                      .content
+                      .canva_package
+                  : null
+              )
+            : null;
+
         content = {
           ...output,
 
@@ -2778,9 +3394,18 @@ export async function POST(
 
           school_research_status:
             sectionKey ===
-            'property_website'
+              'property_website'
               ? 'not_started'
               : undefined,
+
+          ...(
+            preservedCanvaPackage
+              ? {
+                  canva_package:
+                    preservedCanvaPackage,
+                }
+              : {}
+          ),
         };
       }
 

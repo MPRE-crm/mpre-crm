@@ -40,6 +40,7 @@ import ListingWebsiteEnrichmentPanel from '../../ListingWebsiteEnrichmentPanel';
 import ListingEmailStudioPanel from '../../ListingEmailStudioPanel';
 import ListingRealtorMatchPanel from '../../ListingRealtorMatchPanel';
 import ListingSocialStudioPanel from '../../ListingSocialStudioPanel';
+import ListingCanvaMarketingPackagePanel from '../../ListingCanvaMarketingPackagePanel';
 
 const supabase =
   getSupabaseBrowser();
@@ -103,6 +104,7 @@ type SectionRow = {
   prepared_at: string | null;
   approved_at: string | null;
   last_error: string | null;
+  updated_at: string;
 };
 
 type PhotoRow = {
@@ -453,7 +455,7 @@ const SECTION_DEFINITIONS:
       'Flyer',
 
     description:
-      'Printable marketing copy with cover and interior-photo selections.',
+      'Choose a single- or double-sided Flyer, select photos and wording, then finish the design in Canva.',
 
     templates: [
       {
@@ -943,7 +945,8 @@ export default function MarketingStudioPage() {
               generation_model,
               prepared_at,
               approved_at,
-              last_error
+              last_error,
+              updated_at
             `)
             .eq(
               'listing_id',
@@ -1143,7 +1146,8 @@ export default function MarketingStudioPage() {
               generation_model,
               prepared_at,
               approved_at,
-              last_error
+              last_error,
+              updated_at
             `)
             .eq(
               'listing_id',
@@ -2573,8 +2577,31 @@ export default function MarketingStudioPage() {
 
       {activeTab ===
         'flyer' &&
-        renderSection(
-          'flyer'
+        listing && (
+          <ListingCanvaMarketingPackagePanel
+            listing={listing}
+            sections={sections}
+            photos={photos}
+            assignments={assignments}
+            saving={saving}
+            onChoosePhoto={(
+              slot
+            ) =>
+              setPhotoPickerTarget({
+                sectionKey:
+                  'flyer',
+                slotKey:
+                  slot.slotKey,
+                sortOrder:
+                  slot.sortOrder,
+                label:
+                  slot.label,
+              })
+            }
+            onRefresh={
+              loadStudio
+            }
+          />
         )}
 
       {activeTab ===

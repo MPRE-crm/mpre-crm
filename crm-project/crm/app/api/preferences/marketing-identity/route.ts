@@ -236,6 +236,19 @@ type MarketingBranding = {
   brokerage: MarketingBrand;
 };
 
+type MarketingCompliance = {
+  advertisement_label: string | null;
+  standard_disclaimer: string | null;
+  mls_attribution: string | null;
+  broker_license_number: string | null;
+  public_office_address: string | null;
+};
+
+type MarketingIdentityContext = {
+  branding: MarketingBranding;
+  compliance: MarketingCompliance;
+};
+
 function normalized(value: unknown) {
   return String(value || '')
     .trim()
@@ -325,7 +338,7 @@ async function loadMarketingBranding(
   organizationId: string,
   preferredState: string,
   profile: Record<string, unknown>
-): Promise<MarketingBranding> {
+): Promise<MarketingIdentityContext> {
   const personal = {
     name:
       optionalText(profile.marketing_from_name) ||
@@ -338,12 +351,22 @@ async function loadMarketingBranding(
     name: null,
     logo_url: null,
   };
+  const emptyCompliance: MarketingCompliance = {
+    advertisement_label: null,
+    standard_disclaimer: null,
+    mls_attribution: null,
+    broker_license_number: null,
+    public_office_address: null,
+  };
 
   if (!organizationId) {
     return {
-      personal,
-      organization: emptyBrand,
-      brokerage: emptyBrand,
+      branding: {
+        personal,
+        organization: emptyBrand,
+        brokerage: emptyBrand,
+      },
+      compliance: emptyCompliance,
     };
   }
 
@@ -373,7 +396,11 @@ async function loadMarketingBranding(
         state,
         brokerage_name,
         marketing_licensed_business_name,
-        marketing_license_state
+        marketing_license_state,
+        marketing_broker_license_number,
+        marketing_mls_attribution,
+        marketing_standard_disclaimer,
+        marketing_advertisement_label
       `)
       .eq('id', organizationId)
       .maybeSingle(),
@@ -406,6 +433,8 @@ async function loadMarketingBranding(
         licensed_business_name,
         dba_name,
         brokerage_logo_url,
+        office_address,
+        compliance_mailing_address,
         license_status,
         expiration_date,
         verified_at,
@@ -573,28 +602,69 @@ async function loadMarketingBranding(
     null;
 
   return {
-    personal,
-    organization: {
-      name: optionalText(platform?.brand_name),
-      logo_url: optionalText(
-        platform?.master_logo_url
-      ),
+    branding: {
+      personal,
+      organization: {
+        name: optionalText(platform?.brand_name),
+        logo_url: optionalText(
+          platform?.master_logo_url
+        ),
+      },
+      brokerage: {
+        name:
+          optionalText(organization?.brokerage_name) ||
+          optionalText(selectedLicense?.dba_name) ||
+          optionalText(
+            selectedLicense?.licensed_business_name
+          ) ||
+          optionalText(
+            organization
+              ?.marketing_licensed_business_name
+          ),
+        logo_url: optionalText(
+          selectedLicense?.brokerage_logo_url
+        ),
+      },
     },
-    brokerage: {
-      name:
-        optionalText(organization?.brokerage_name) ||
-        optionalText(selectedLicense?.dba_name) ||
-        optionalText(
-          selectedLicense?.licensed_business_name
-        ) ||
+    compliance: {
+      advertisement_label:
         optionalText(
           organization
-            ?.marketing_licensed_business_name
+            ?.marketing_advertisement_label
         ),
-      logo_url: optionalText(
-        selectedLicense?.brokerage_logo_url
-      ),
+      standard_disclaimer:
+        optionalText(
+          organization
+            ?.marketing_standard_disclaimer
+        ),
+      mls_attribution:
+        optionalText(
+          organization
+            ?.marketing_mls_attribution
+        ),
+      broker_license_number:
+        optionalText(
+          organization
+            ?.marketing_broker_license_number
+        ),
+      public_office_address:
+        optionalText(
+          selectedLicense
+            ?.compliance_mailing_address
+        ) ||
+        optionalText(
+          selectedLicense?.office_address
+        ),
     },
+  };
+}
+
+function marketingIdentityResponse(
+  context: MarketingIdentityContext
+) {
+  return {
+    branding: context.branding,
+    compliance: context.compliance,
   };
 }
 
@@ -809,7 +879,7 @@ export async function GET(
       );
     }
 
-    const branding =
+    const identityContext =
       await loadMarketingBranding(
         admin,
         targetOrganizationId ||
@@ -822,7 +892,9 @@ export async function GET(
     return NextResponse.json({
       ok: true,
       profile,
-      branding,
+      ...marketingIdentityResponse(
+        identityContext
+      ),
     });
   } catch (error: any) {
     return NextResponse.json(
