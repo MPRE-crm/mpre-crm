@@ -9,6 +9,7 @@ const PUBLIC_PATHS = [
   '/reset-password',
   '/auth/callback',
   '/property',
+  '/q',
   '/unsubscribe',
   '/email-preferences',
   '/api',
