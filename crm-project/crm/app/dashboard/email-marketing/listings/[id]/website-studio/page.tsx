@@ -41,6 +41,7 @@ import ListingEmailStudioPanel from '../../ListingEmailStudioPanel';
 import ListingRealtorMatchPanel from '../../ListingRealtorMatchPanel';
 import ListingSocialStudioPanel from '../../ListingSocialStudioPanel';
 import ListingCanvaMarketingPackagePanel from '../../ListingCanvaMarketingPackagePanel';
+import PropertyWebsitePreviewPanel from '../../PropertyWebsitePreviewPanel';
 
 const supabase =
   getSupabaseBrowser();
@@ -87,6 +88,8 @@ type ListingRow = {
   bathrooms: number | null;
   square_feet: number | null;
   acres: number | null;
+  garage_spaces: number | null;
+  year_built: number | null;
   lot_size_text: string | null;
 };
 
@@ -892,6 +895,8 @@ export default function MarketingStudioPage() {
             bathrooms,
             square_feet,
             acres,
+            garage_spaces,
+            year_built,
             lot_size_text
           `)
           .eq(
@@ -2559,8 +2564,19 @@ export default function MarketingStudioPage() {
 
       {activeTab ===
         'property_website' &&
-        renderSection(
-          'property_website'
+        listing && (
+          <div className="space-y-5">
+            {renderSection(
+              'property_website'
+            )}
+
+            <PropertyWebsitePreviewPanel
+              title={listing.title}
+              publicUrl={
+                listing.public_url
+              }
+            />
+          </div>
         )}
 
       {activeTab ===

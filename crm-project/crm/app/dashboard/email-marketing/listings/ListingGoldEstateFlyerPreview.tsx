@@ -26,6 +26,7 @@ type GoldEstateListing = {
   city: string | null;
   state: string | null;
   zip: string | null;
+  mls_number: string | null;
   list_price: number | null;
   bedrooms: number | null;
   bathrooms: number | null;
@@ -73,6 +74,10 @@ type Props = {
   listing: GoldEstateListing;
   copy: CanvaFlyerCopy;
   photos: GoldEstatePhoto[];
+  qrCodeDataUrl: string;
+  qrPublicUrl:
+    | string
+    | null;
   identity: GoldEstateIdentity | null;
   identityLoading: boolean;
   issues: string[];
@@ -835,6 +840,7 @@ export default function ListingGoldEstateFlyerPreview({
   listing,
   copy,
   photos,
+  qrCodeDataUrl,
   identity,
   identityLoading,
   issues,
@@ -929,28 +935,27 @@ export default function ListingGoldEstateFlyerPreview({
       .filter(Boolean)
       .join(' ');
 
+  const mlsNumber =
+    cleanText(listing.mls_number);
+
+  const currentListingPrice =
+    typeof listing.list_price ===
+      'number'
+      ? listing.list_price
+          .toLocaleString(
+            'en-US',
+            {
+              style: 'currency',
+              currency: 'USD',
+              maximumFractionDigits:
+                0,
+            }
+          )
+      : '';
+
   const price =
-    cleanText(
-      copy.price_line
-    ) ||
-    (
-      typeof listing
-        .list_price ===
-        'number'
-        ? listing.list_price
-            .toLocaleString(
-              'en-US',
-              {
-                style:
-                  'currency',
-                currency:
-                  'USD',
-                maximumFractionDigits:
-                  0,
-              }
-            )
-        : ''
-    );
+    currentListingPrice ||
+    cleanText(copy.price_line);
 
   const description =
     cleanText(
@@ -1367,9 +1372,23 @@ export default function ListingGoldEstateFlyerPreview({
             {locality.toUpperCase()}
           </text>
 
+          {mlsNumber && (
+            <text
+              x={1215}
+              y={390}
+              fill={GOLD}
+              fontFamily="Arial, sans-serif"
+              fontSize={14}
+              fontWeight={700}
+              letterSpacing={1.4}
+            >
+              {`MLS #${mlsNumber}`.toUpperCase()}
+            </text>
+          )}
+
           <text
             x={1215}
-            y={422}
+            y={450}
             fill={GOLD}
             fontFamily="Georgia, serif"
             fontSize={45}
@@ -1707,7 +1726,73 @@ export default function ListingGoldEstateFlyerPreview({
             fill={BLACK}
           />
 
-          {/* Reserved for the listing website QR code. */}
+          <rect
+            x={1610}
+            y={1140}
+            width={180}
+            height={180}
+            rx={8}
+            fill={WHITE}
+          />
+
+          {qrCodeDataUrl ? (
+            <image
+              href={
+                qrCodeDataUrl
+              }
+              x={1620}
+              y={1150}
+              width={160}
+              height={160}
+              preserveAspectRatio="xMidYMid meet"
+            />
+          ) : (
+            <text
+              x={1700}
+              y={1237}
+              fill={BLACK}
+              fontFamily="Arial, sans-serif"
+              fontSize={15}
+              fontWeight={800}
+              textAnchor="middle"
+            >
+              QR NOT ASSIGNED
+            </text>
+          )}
+
+          <text
+            x={1812}
+            y={1182}
+            fill={GOLD}
+            fontFamily="Arial, sans-serif"
+            fontSize={18}
+            fontWeight={800}
+            letterSpacing={3}
+          >
+            SCAN
+          </text>
+
+          <text
+            x={1812}
+            y={1230}
+            fill={WHITE}
+            fontFamily="Georgia, 'Times New Roman', serif"
+            fontSize={23}
+            fontWeight={700}
+          >
+            PROPERTY
+          </text>
+
+          <text
+            x={1812}
+            y={1265}
+            fill={WHITE}
+            fontFamily="Georgia, 'Times New Roman', serif"
+            fontSize={23}
+            fontWeight={700}
+          >
+            WEBSITE
+          </text>
 
           <line
             x1={748}

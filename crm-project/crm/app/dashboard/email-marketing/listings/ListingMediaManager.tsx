@@ -236,6 +236,18 @@ export default function ListingMediaManager({
     useState<string | null>(null);
 
   const [
+    selectedPhotoIdsForDeletion,
+    setSelectedPhotoIdsForDeletion,
+  ] = useState<Set<string>>(
+    () => new Set()
+  );
+
+  const [
+    deletingSelectedPhotos,
+    setDeletingSelectedPhotos,
+  ] = useState(false);
+
+  const [
     photoAnalyses,
     setPhotoAnalyses,
   ] = useState<
@@ -1682,6 +1694,232 @@ export default function ListingMediaManager({
     }
   }
 
+  function togglePhotoDeleteSelection(
+    photoId: string
+  ) {
+    setSelectedPhotoIdsForDeletion(
+      (current) => {
+        const next = new Set(current);
+
+        if (next.has(photoId)) {
+          next.delete(photoId);
+        } else {
+          next.add(photoId);
+        }
+
+        return next;
+      }
+    );
+  }
+
+  function selectAllPhotosForDeletion() {
+    setSelectedPhotoIdsForDeletion(
+      new Set(
+        photos.map(
+          (photo) => photo.id
+        )
+      )
+    );
+  }
+
+  function clearPhotoDeleteSelection() {
+    setSelectedPhotoIdsForDeletion(
+      new Set()
+    );
+  }
+
+  async function deleteSelectedPhotos() {
+    const selectedPhotos =
+      photos.filter(
+        (photo) =>
+          selectedPhotoIdsForDeletion.has(
+            photo.id
+          )
+      );
+
+    if (selectedPhotos.length === 0) {
+      setError(
+        'Select at least one photo to delete.'
+      );
+      return;
+    }
+
+    const photoWord =
+      selectedPhotos.length === 1
+        ? 'photo'
+        : 'photos';
+
+    const confirmed =
+      window.confirm(
+        `Permanently delete ${selectedPhotos.length} selected ${photoWord}? This cannot be undone.`
+      );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setDeletingSelectedPhotos(true);
+      setWorkingId(
+        selectedPhotos[0].id
+      );
+      setError(null);
+      setNotice(null);
+
+      const selectedIds =
+        selectedPhotos.map(
+          (photo) => photo.id
+        );
+
+      const selectedIdSet =
+        new Set(selectedIds);
+
+      const remainingPhotos =
+        photos.filter(
+          (photo) =>
+            !selectedIdSet.has(
+              photo.id
+            )
+        );
+
+      const primaryWasDeleted =
+        selectedPhotos.some(
+          (photo) =>
+            photo.is_primary
+        );
+
+      const {
+        error: deleteError,
+      } = await supabase
+        .from('listing_media')
+        .delete()
+        .in(
+          'id',
+          selectedIds
+        );
+
+      if (deleteError) {
+        throw deleteError;
+      }
+
+      if (
+        primaryWasDeleted &&
+        remainingPhotos.length > 0
+      ) {
+        const nextPrimary =
+          remainingPhotos[0];
+
+        const {
+          error: primaryError,
+        } = await supabase
+          .from('listing_media')
+          .update({
+            is_primary: true,
+            use_in_marketing: true,
+          })
+          .eq(
+            'id',
+            nextPrimary.id
+          );
+
+        if (primaryError) {
+          throw primaryError;
+        }
+      }
+
+      if (
+        remainingPhotos.length > 0
+      ) {
+        await savePhotoOrder(
+          remainingPhotos
+        );
+      }
+
+      const storagePathsByBucket =
+        new Map<string, string[]>();
+
+      selectedPhotos.forEach(
+        (photo) => {
+          const existingPaths =
+            storagePathsByBucket.get(
+              photo.storage_bucket
+            ) || [];
+
+          existingPaths.push(
+            photo.storage_path
+          );
+
+          storagePathsByBucket.set(
+            photo.storage_bucket,
+            existingPaths
+          );
+        }
+      );
+
+      const storageCleanupFailures:
+        string[] = [];
+
+      for (
+        const [
+          bucket,
+          paths,
+        ] of storagePathsByBucket.entries()
+      ) {
+        const {
+          error: storageError,
+        } = await supabase.storage
+          .from(bucket)
+          .remove(paths);
+
+        if (storageError) {
+          storageCleanupFailures.push(
+            bucket
+          );
+        }
+      }
+
+      if (
+        selectedPhotoId &&
+        selectedIdSet.has(
+          selectedPhotoId
+        )
+      ) {
+        setSelectedPhotoId(null);
+      }
+
+      setSelectedPhotoIdsForDeletion(
+        new Set()
+      );
+
+      await loadMedia();
+
+      if (
+        storageCleanupFailures.length >
+        0
+      ) {
+        setNotice(
+          `${selectedPhotos.length} ${photoWord} removed. Supabase reported that one or more stored files may still need cleanup.`
+        );
+      } else {
+        setNotice(
+          `${selectedPhotos.length} ${photoWord} removed successfully.`
+        );
+      }
+    } catch (err: any) {
+      await loadMedia().catch(
+        () => undefined
+      );
+
+      setError(
+        err?.message ||
+          'Could not delete the selected photos.'
+      );
+    } finally {
+      setWorkingId(null);
+      setDeletingSelectedPhotos(false);
+    }
+  }
+
   async function deleteMedia(
     media: ListingMediaRow
   ) {
@@ -2029,6 +2267,59 @@ export default function ListingMediaManager({
                 Clear Marketing Selection
               </button>
 
+              <div className="mx-1 h-7 w-px bg-slate-200" />
+
+              <button
+                type="button"
+                onClick={
+                  selectAllPhotosForDeletion
+                }
+                disabled={
+                  photos.length === 0 ||
+                  selectedPhotoIdsForDeletion
+                    .size === photos.length ||
+                  workingId !== null ||
+                  deletingSelectedPhotos
+                }
+                className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100 disabled:opacity-50"
+              >
+                Select All to Delete
+              </button>
+
+              <button
+                type="button"
+                onClick={
+                  clearPhotoDeleteSelection
+                }
+                disabled={
+                  selectedPhotoIdsForDeletion
+                    .size === 0 ||
+                  workingId !== null ||
+                  deletingSelectedPhotos
+                }
+                className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Clear Delete Selection
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  void deleteSelectedPhotos()
+                }
+                disabled={
+                  selectedPhotoIdsForDeletion
+                    .size === 0 ||
+                  workingId !== null ||
+                  deletingSelectedPhotos
+                }
+                className="rounded-xl bg-red-700 px-3 py-2 text-xs font-bold text-white hover:bg-red-800 disabled:opacity-50"
+              >
+                {deletingSelectedPhotos
+                  ? 'Deleting Photos...'
+                  : `Delete Selected (${selectedPhotoIdsForDeletion.size})`}
+              </button>
+
               <div className="text-xs text-slate-500">
                 Drag thumbnails to establish the display
                 order.
@@ -2178,6 +2469,36 @@ export default function ListingMediaManager({
                               />
                             </div>
                           </button>
+
+                          <label
+                            className={`mt-1 flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border px-2 py-1 text-[10px] font-semibold ${
+                              selectedPhotoIdsForDeletion
+                                .has(photo.id)
+                                ? 'border-red-300 bg-red-50 text-red-700'
+                                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              aria-label={`Select ${photo.file_name} for deletion`}
+                              checked={
+                                selectedPhotoIdsForDeletion
+                                  .has(photo.id)
+                              }
+                              disabled={
+                                workingId !== null ||
+                                deletingSelectedPhotos
+                              }
+                              onChange={() =>
+                                togglePhotoDeleteSelection(
+                                  photo.id
+                                )
+                              }
+                              className="h-3.5 w-3.5 rounded border-slate-300 text-red-700"
+                            />
+
+                            Select to delete
+                          </label>
 
                           <div className="mt-1 min-h-[34px] px-1 text-center">
                             <div

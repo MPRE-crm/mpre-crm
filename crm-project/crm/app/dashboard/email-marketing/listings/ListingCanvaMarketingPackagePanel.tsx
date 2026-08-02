@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  useCallback,
   useEffect,
   useMemo,
   useState,
@@ -45,7 +46,14 @@ import {
   type CanvaFlyerTemplate,
   type CanvaFlyerType,
 } from '../../../../lib/listing-canva-marketing-package';
+
+import {
+  listingQrCodeDataUrl,
+  type ListingQrAssignment,
+} from '../../../../lib/client/listingQrCode';
+
 import ListingGoldEstateFlyerPreview from './ListingGoldEstateFlyerPreview';
+import ListingLuxuryBlackWhiteFlyerPreview from './ListingLuxuryBlackWhiteFlyerPreview';
 
 const supabase =
   getSupabaseBrowser();
@@ -78,6 +86,9 @@ type FlyerStudioListing = {
   zip:
     | string
     | null;
+  mls_number:
+    | string
+    | null;
   bedrooms:
     | number
     | null;
@@ -90,7 +101,19 @@ type FlyerStudioListing = {
   acres:
     | number
     | null;
+  garage_spaces:
+    | number
+    | null;
+  year_built:
+    | number
+    | null;
   lot_size_text:
+    | string
+    | null;
+  website_status?:
+    | string
+    | null;
+  public_url?:
     | string
     | null;
 };
@@ -166,6 +189,9 @@ type MarketingIdentityPayload = {
     marketing_logo_url:
       | string
       | null;
+    marketing_signature_image_url:
+      | string
+      | null;
   };
   branding: {
     personal: MarketingBrand;
@@ -224,6 +250,15 @@ type Props = {
   ) => void;
   onRefresh: () =>
     Promise<void>;
+};
+
+type ListingQrResponse = {
+  ok?: boolean;
+  assignment?:
+    | ListingQrAssignment
+    | null;
+  error?: string;
+  message?: string;
 };
 
 const STEPS = [
@@ -462,6 +497,286 @@ export default function ListingCanvaMarketingPackagePanel({
   onChoosePhoto,
   onRefresh,
 }: Props) {
+  const [
+    qrAssignment,
+    setQrAssignment,
+  ] =
+    useState<
+      ListingQrAssignment | null
+    >(null);
+
+  const [
+    qrCodeDataUrl,
+    setQrCodeDataUrl,
+  ] =
+    useState('');
+
+  const [
+    qrLoading,
+    setQrLoading,
+  ] =
+    useState(true);
+
+  const [
+    qrAssigning,
+    setQrAssigning,
+  ] =
+    useState(false);
+
+  const [
+    qrError,
+    setQrError,
+  ] =
+    useState<
+      string | null
+    >(null);
+
+  const [
+    qrNotice,
+    setQrNotice,
+  ] =
+    useState<
+      string | null
+    >(null);
+
+  const applyQrAssignment =
+    useCallback(
+      async (
+        assignment:
+          | ListingQrAssignment
+          | null
+      ) => {
+        setQrAssignment(
+          assignment
+        );
+
+        if (
+          !assignment ||
+          assignment.status !==
+            'assigned'
+        ) {
+          setQrCodeDataUrl(
+            ''
+          );
+
+          return;
+        }
+
+        const dataUrl =
+          await listingQrCodeDataUrl(
+            assignment.flyer_url,
+            1024
+          );
+
+        setQrCodeDataUrl(
+          dataUrl
+        );
+      },
+      []
+    );
+
+  const loadListingQr =
+    useCallback(
+      async () => {
+        try {
+          setQrLoading(
+            true
+          );
+
+          setQrError(
+            null
+          );
+
+          const {
+            data:
+              sessionResult,
+            error:
+              sessionError,
+          } = await supabase
+            .auth
+            .getSession();
+
+          if (
+            sessionError ||
+            !sessionResult.session
+          ) {
+            throw new Error(
+              sessionError
+                ?.message ||
+                'Your CRM session expired.'
+            );
+          }
+
+          const response =
+            await fetch(
+              `/api/marketing/listing-qr?listing_id=${encodeURIComponent(
+                listing.id
+              )}`,
+              {
+                method:
+                  'GET',
+
+                headers: {
+                  Authorization:
+                    `Bearer ${sessionResult.session.access_token}`,
+                },
+              }
+            );
+
+          const result =
+            (
+              await response
+                .json()
+                .catch(
+                  () => ({})
+                )
+            ) as
+              ListingQrResponse;
+
+          if (
+            !response.ok ||
+            !result.ok
+          ) {
+            throw new Error(
+              result.error ||
+                'The listing QR status could not be loaded.'
+            );
+          }
+
+          await applyQrAssignment(
+            result.assignment ||
+              null
+          );
+        } catch (
+          loadError: unknown
+        ) {
+          setQrError(
+            loadError instanceof
+              Error
+              ? loadError.message
+              : 'The listing QR status could not be loaded.'
+          );
+        } finally {
+          setQrLoading(
+            false
+          );
+        }
+      },
+      [
+        applyQrAssignment,
+        listing.id,
+      ]
+    );
+
+  useEffect(() => {
+    void loadListingQr();
+  }, [loadListingQr]);
+
+  async function assignListingQr() {
+    try {
+      setQrAssigning(
+        true
+      );
+
+      setQrError(
+        null
+      );
+
+      setQrNotice(
+        null
+      );
+
+      const {
+        data:
+          sessionResult,
+        error:
+          sessionError,
+      } = await supabase
+        .auth
+        .getSession();
+
+      if (
+        sessionError ||
+        !sessionResult.session
+      ) {
+        throw new Error(
+          sessionError
+            ?.message ||
+            'Your CRM session expired.'
+        );
+      }
+
+      const response =
+        await fetch(
+          '/api/marketing/listing-qr',
+          {
+            method:
+              'POST',
+
+            headers: {
+              Authorization:
+                `Bearer ${sessionResult.session.access_token}`,
+
+              'Content-Type':
+                'application/json',
+            },
+
+            body:
+              JSON.stringify({
+                listing_id:
+                  listing.id,
+
+                action:
+                  'assign',
+              }),
+          }
+        );
+
+      const result =
+        (
+          await response
+            .json()
+            .catch(
+              () => ({})
+            )
+        ) as
+          ListingQrResponse;
+
+      if (
+        !response.ok ||
+        !result.ok ||
+        !result.assignment
+      ) {
+        throw new Error(
+          result.error ||
+            'The reusable QR code could not be assigned.'
+        );
+      }
+
+      await applyQrAssignment(
+        result.assignment
+      );
+
+      setQrNotice(
+        result.message ||
+          'The reusable QR code is assigned and ready for this flyer.'
+      );
+    } catch (
+      assignError: unknown
+    ) {
+      setQrError(
+        assignError instanceof
+          Error
+          ? assignError.message
+          : 'The reusable QR code could not be assigned.'
+      );
+    } finally {
+      setQrAssigning(
+        false
+      );
+    }
+  }
+
   const flyerSection =
     sections.find(
       (section) =>
@@ -881,6 +1196,12 @@ export default function ListingCanvaMarketingPackagePanel({
   const nativeGoldEstate =
     activeTemplate?.key ===
       'luxury-landscape-01-gold-estate';
+  const nativeBlackWhiteShowcase =
+    activeTemplate?.key ===
+      'luxury-single-sided-04-black-white-showcase';
+  const nativeFlyer =
+    nativeGoldEstate ||
+    nativeBlackWhiteShowcase;
   const brandingBlockers =
     useMemo(() => {
       if (
@@ -1006,7 +1327,7 @@ export default function ListingCanvaMarketingPackagePanel({
       {
         assignedSlots,
         brandingBlockers,
-        nativeDesign: nativeGoldEstate,
+        nativeDesign: nativeFlyer,
         sectionStatus:
           flyerSection
             ?.status ||
@@ -1024,7 +1345,7 @@ export default function ListingCanvaMarketingPackagePanel({
       {
         assignedSlots,
         brandingBlockers,
-        nativeDesign: nativeGoldEstate,
+        nativeDesign: nativeFlyer,
         sectionStatus:
           'approved',
       }
@@ -1040,7 +1361,7 @@ export default function ListingCanvaMarketingPackagePanel({
       {
         assignedSlots,
         brandingBlockers,
-        nativeDesign: nativeGoldEstate,
+        nativeDesign: nativeFlyer,
         sectionStatus:
           'approved',
       }
@@ -1591,7 +1912,7 @@ export default function ListingCanvaMarketingPackagePanel({
         {
           assignedSlots,
           brandingBlockers,
-          nativeDesign: nativeGoldEstate,
+          nativeDesign: nativeFlyer,
           sectionStatus:
             approving
               ? 'approved'
@@ -2619,6 +2940,237 @@ export default function ListingCanvaMarketingPackagePanel({
       )}
 
       {activeStep === 6 &&
+        nativeFlyer && (
+          <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <h3 className="text-lg font-black text-slate-950">
+                  Reusable Property QR Code
+                </h3>
+
+                <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
+                  Loading this screen never assigns a code. A reusable code is assigned only when you click Assign QR Code.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={
+                    qrLoading ||
+                    qrAssigning
+                  }
+                  onClick={() =>
+                    void loadListingQr()
+                  }
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Refresh QR Status
+                </button>
+
+                {!qrAssignment && (
+                  <button
+                    type="button"
+                    disabled={
+                      qrLoading ||
+                      qrAssigning ||
+                      listing
+                        .website_status !==
+                        'published' ||
+                      !listing.public_url
+                    }
+                    onClick={() =>
+                      void assignListingQr()
+                    }
+                    className="inline-flex items-center gap-2 rounded-xl bg-violet-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-violet-800 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {qrAssigning && (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    )}
+
+                    {qrAssigning
+                      ? 'Assigning QR Code...'
+                      : 'Assign QR Code'}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {qrLoading ? (
+              <div className="mt-5 flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading reusable QR status...
+              </div>
+            ) : qrAssignment ? (
+              <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="text-xs font-black uppercase tracking-wide text-slate-500">
+                    QR Number
+                  </div>
+
+                  <div className="mt-2 text-lg font-black text-slate-950">
+                    QR-
+                    {String(
+                      qrAssignment
+                        .code_number
+                    ).padStart(
+                      3,
+                      '0'
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="text-xs font-black uppercase tracking-wide text-slate-500">
+                    Status
+                  </div>
+
+                  <div className="mt-2 text-lg font-black capitalize text-slate-950">
+                    {qrAssignment.status}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="text-xs font-black uppercase tracking-wide text-slate-500">
+                    Public QR Address
+                  </div>
+
+                  <a
+                    href={
+                      qrAssignment
+                        .public_url
+                    }
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-2 inline-flex max-w-full items-center gap-2 break-all text-sm font-bold text-blue-700 hover:text-blue-800"
+                  >
+                    {qrAssignment
+                      .public_url}
+
+                    <ExternalLink className="h-4 w-4 shrink-0" />
+                  </a>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="text-xs font-black uppercase tracking-wide text-slate-500">
+                    Destination
+                  </div>
+
+                  {qrAssignment
+                    .destination_url ? (
+                    <a
+                      href={
+                        qrAssignment
+                          .destination_url
+                      }
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-2 inline-flex max-w-full items-center gap-2 break-all text-sm font-bold text-blue-700 hover:text-blue-800"
+                    >
+                      {qrAssignment
+                        .destination_url}
+
+                      <ExternalLink className="h-4 w-4 shrink-0" />
+                    </a>
+                  ) : (
+                    <div className="mt-2 text-sm font-bold text-amber-700">
+                      No active destination
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+                {listing
+                  .website_status ===
+                  'published' &&
+                listing.public_url
+                  ? 'No reusable QR code is assigned yet. Click Assign QR Code when you are ready.'
+                  : 'Publish the property website before assigning its reusable QR code.'}
+              </div>
+            )}
+
+            {qrNotice && (
+              <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-800">
+                {qrNotice}
+              </div>
+            )}
+
+            {qrError && (
+              <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
+                {qrError}
+              </div>
+            )}
+          </section>
+        )}
+      {activeStep === 6 &&
+        nativeBlackWhiteShowcase && (
+          <ListingLuxuryBlackWhiteFlyerPreview
+            listing={listing}
+            copy={draft.copy}
+            photos={slotRows.flatMap(
+              ({
+                slot,
+                photo,
+              }) =>
+                photo
+                  ? [
+                      {
+                        label:
+                          slot.label,
+                        url:
+                          photo.public_url,
+                      },
+                    ]
+                  : []
+            )}
+            qrCodeDataUrl={
+              qrCodeDataUrl
+            }
+            qrPublicUrl={
+              qrAssignment
+                ?.public_url ||
+              null
+            }
+            identity={identity}
+            identityLoading={
+              identityLoading
+            }
+            issues={
+              approvalIssues
+            }
+            status={
+              draft.workflowStatus
+            }
+            saving={busy}
+            saveDisabled={
+              busy ||
+              identityLoading ||
+              readinessIssues
+                .length > 0
+            }
+            approvalDisabled={
+              busy ||
+              identityLoading ||
+              approvalIssues
+                .length > 0
+            }
+            onBack={() =>
+              setActiveStep(5)
+            }
+            onSave={() =>
+              saveDesign(
+                'ready_for_review'
+              )
+            }
+            onApprove={() =>
+              saveDesign(
+                'approved'
+              )
+            }
+          />
+        )}
+      {activeStep === 6 &&
         nativeGoldEstate && (
           <ListingGoldEstateFlyerPreview
             listing={listing}
@@ -2639,6 +3191,14 @@ export default function ListingCanvaMarketingPackagePanel({
                     ]
                   : []
             )}
+            qrCodeDataUrl={
+              qrCodeDataUrl
+            }
+            qrPublicUrl={
+              qrAssignment
+                ?.public_url ||
+              null
+            }
             identity={identity}
             identityLoading={
               identityLoading
@@ -2679,7 +3239,8 @@ export default function ListingCanvaMarketingPackagePanel({
         )}
 
       {activeStep === 6 &&
-        !nativeGoldEstate && (
+        !nativeGoldEstate &&
+        !nativeBlackWhiteShowcase && (
         <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <h3 className="text-lg font-black text-slate-950">
             Open in Canva and Save Result
