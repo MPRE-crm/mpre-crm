@@ -9,6 +9,10 @@
                       "schedule":  "* * * * *"
                   },
                   {
+                      "path":  "/api/internal/email-campaigns/process-due",
+                      "schedule":  "* * * * *"
+                  },
+                  {
                       "path":  "/api/internal/missed-calls/process",
                       "schedule":  "*/10 * * * *"
                   },
