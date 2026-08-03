@@ -1,4 +1,4 @@
-﻿import type {
+import type {
   Metadata,
 } from "next";
 
@@ -25,6 +25,10 @@ import {
 import {
   supabaseServer,
 } from "../../../lib/supabaseServer";
+
+import PropertyHighlightsCarousel from "./PropertyHighlightsCarousel";
+import PropertyGalleryCarousel from "./PropertyGalleryCarousel";
+import PropertyEngagementTracker from "./PropertyEngagementTracker";
 
 export const dynamic =
   "force-dynamic";
@@ -170,6 +174,46 @@ type ListingPhoto = {
     | null;
 };
 
+type ListingPhotoAnalysis = {
+  media_id: string;
+  analysis_status: string;
+  primary_category:
+    | string
+    | null;
+  room_label:
+    | string
+    | null;
+  visual_summary:
+    | string
+    | null;
+};
+
+type PropertyPhoto =
+  ListingPhoto & {
+    primary_category:
+      | string
+      | null;
+    room_label:
+      | string
+      | null;
+    visual_summary:
+      | string
+      | null;
+  };
+
+type ListingWebsiteHighlight = {
+  id: string;
+  photo_media_id:
+    | string
+    | null;
+  headline: string;
+  summary: string;
+  bullet_points: unknown;
+  sort_order: number;
+  is_visible: boolean;
+  manual_override: boolean;
+};
+
 type AgentRow = {
   id: string;
   name:
@@ -284,7 +328,8 @@ type GeneratedAssetRow = {
 
 type PropertyPageData = {
   listing: ListingRow;
-  photos: ListingPhoto[];
+  photos: PropertyPhoto[];
+  highlights: ListingWebsiteHighlight[];
   agent: AgentRow | null;
   organization: OrganizationRow | null;
   generatedArtwork:
@@ -364,32 +409,6 @@ function normalizeStringArray(
     .filter(Boolean);
 }
 
-function propertyFeatures(
-  value: unknown
-) {
-  if (Array.isArray(value)) {
-    return value
-      .map((item) =>
-        String(item || "").trim()
-      )
-      .filter(Boolean);
-  }
-
-  if (
-    typeof value ===
-      "string"
-  ) {
-    return value
-      .split(/\r?\n|,/)
-      .map((item) =>
-        item.trim()
-      )
-      .filter(Boolean);
-  }
-
-  return [];
-}
-
 function phoneHref(
   value:
     | string
@@ -459,11 +478,28 @@ function youtubeEmbedUrl(
       }
     }
 
-    return videoId
-      ? `https://www.youtube.com/embed/${encodeURIComponent(
+    if (!videoId) {
+      return "";
+    }
+
+    const embedUrl =
+      new URL(
+        `https://www.youtube.com/embed/${encodeURIComponent(
           videoId
         )}`
-      : "";
+      );
+
+    embedUrl.searchParams.set(
+      "enablejsapi",
+      "1"
+    );
+
+    embedUrl.searchParams.set(
+      "playsinline",
+      "1"
+    );
+
+    return embedUrl.toString();
   }
   catch {
     return "";
@@ -670,6 +706,72 @@ async function loadPropertyPage(
     );
   }
 
+  const {
+    data: photoAnalysisData,
+    error: photoAnalysisError,
+  } = await supabaseServer
+    .from(
+      "listing_media_ai_analysis"
+    )
+    .select(`
+      media_id,
+      analysis_status,
+      primary_category,
+      room_label,
+      visual_summary
+    `)
+    .eq(
+      "listing_id",
+      listing.id
+    );
+
+  if (photoAnalysisError) {
+    console.error(
+      "Public property photo labels load failed:",
+      photoAnalysisError
+    );
+  }
+
+  const {
+    data: highlightData,
+    error: highlightError,
+  } = await supabaseServer
+    .from(
+      "listing_website_highlights"
+    )
+    .select(`
+      id,
+      photo_media_id,
+      headline,
+      summary,
+      bullet_points,
+      sort_order,
+      is_visible,
+      manual_override
+    `)
+    .eq(
+      "listing_id",
+      listing.id
+    )
+    .eq(
+      "is_visible",
+      true
+    )
+    .order(
+      "sort_order",
+      {
+        ascending: true,
+      }
+    )
+    .limit(6);
+
+  if (highlightError) {
+    console.error(
+      "Public property highlights load failed:",
+      highlightError
+    );
+  }
+
   let agent:
     | AgentRow
     | null =
@@ -793,11 +895,59 @@ async function loadPropertyPage(
       null;
   }
 
+  const analysisByMediaId =
+    new Map(
+      (
+        (photoAnalysisData ||
+          []) as ListingPhotoAnalysis[]
+      ).map((analysis) => [
+        analysis.media_id,
+        analysis,
+      ])
+    );
+
+  const photos: PropertyPhoto[] =
+    (
+      (photoData ||
+        []) as ListingPhoto[]
+    ).map((photo) => {
+      const analysis =
+        analysisByMediaId.get(
+          photo.id
+        );
+
+      if (
+        !analysis ||
+        analysis.analysis_status ===
+          "failed"
+      ) {
+        return {
+          ...photo,
+          primary_category:
+            null,
+          room_label: null,
+          visual_summary:
+            null,
+        };
+      }
+
+      return {
+        ...photo,
+        primary_category:
+          analysis.primary_category,
+        room_label:
+          analysis.room_label,
+        visual_summary:
+          analysis.visual_summary,
+      };
+    });
+
   return {
     listing,
-    photos:
-      (photoData ||
-        []) as ListingPhoto[],
+    photos,
+    highlights:
+      (highlightData ||
+        []) as ListingWebsiteHighlight[],
     agent,
     organization:
       (organizationData as OrganizationRow) ||
@@ -921,6 +1071,7 @@ export default async function PropertyPage({
   const {
     listing,
     photos,
+    highlights,
     agent,
     organization,
     generatedArtwork,
@@ -936,11 +1087,6 @@ export default async function PropertyPage({
       ?.public_url ||
     listing.primary_image_url ||
     "";
-
-  const features =
-    propertyFeatures(
-      listing.features
-    );
 
   const description =
     listing.public_remarks ||
@@ -1224,6 +1370,8 @@ export default async function PropertyPage({
 
               <a
                 href="#contact"
+                data-property-engagement-event="showing_request_click"
+                data-property-engagement-placement="hero"
                 className="rounded-full border border-white/35 bg-white/10 px-6 py-3 text-sm font-bold text-white shadow-xl backdrop-blur-md transition hover:bg-white/20"
               >
                 Request a Private Showing
@@ -1335,165 +1483,40 @@ export default async function PropertyPage({
             </div>
           ) : null}
 
-          <div
-            className="absolute -bottom-6 -left-4 hidden rounded-2xl px-6 py-5 shadow-2xl sm:block"
-            style={{
-              backgroundColor:
-                theme.accent,
-            }}
-          >
-            <div className="text-2xl font-bold text-white">
-              {listing
-                .square_feet
-                ? `${formatNumber(
-                    listing
-                      .square_feet
-                  )} SF`
-                : "Luxury"}
-            </div>
-
-            <div className="mt-1 text-xs uppercase tracking-[0.18em] text-white/80">
-              {listing.levels
-                ? `${listing.levels} living`
-                : listing.property_type ||
-                  "Featured residence"}
-            </div>
-          </div>
         </div>
       </section>
 
-      <section className="border-y border-white/10 bg-white/[0.035]">
-        <div className="mx-auto max-w-7xl px-5 py-20 sm:px-8 lg:px-10">
-          <div className="max-w-3xl">
-            <p
-              className="text-xs font-bold uppercase tracking-[0.28em]"
-              style={{
-                color:
-                  theme.accent,
-              }}
-            >
-              Property Highlights
-            </p>
+      {highlights.length > 0 && (
+        <PropertyHighlightsCarousel
+          highlights={highlights}
+          photos={photos}
+          accent={theme.accent}
+          propertyAddress={
+            listing.property_address
+          }
+        />
+      )}
 
-            <h2 className="mt-4 text-3xl font-semibold text-white sm:text-5xl">
-              Designed for elevated everyday living
-            </h2>
-          </div>
+      <PropertyEngagementTracker
+        listingId={listing.id}
+        slug={
+          listing.website_slug ||
+          slug
+        }
+        youtubeIframeId={
+          videoEmbedUrl
+            ? "property-video-player"
+            : undefined
+        }
+      />
 
-          <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {features
-              .slice(
-                0,
-                18
-              )
-              .map(
-                (
-                  feature
-                ) => (
-                  <div
-                    key={feature}
-                    className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-white/80"
-                  >
-                    <span
-                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white"
-                      style={{
-                        backgroundColor:
-                          theme.accent,
-                      }}
-                    >
-                      ✓
-                    </span>
-
-                    <span>
-                      {feature}
-                    </span>
-                  </div>
-                )
-              )}
-          </div>
-        </div>
-      </section>
-
-      <section
-        id="gallery"
-        className="scroll-mt-8"
-      >
-        <div className="mx-auto max-w-7xl px-5 py-20 sm:px-8 lg:px-10 lg:py-28">
-          <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <p
-                className="text-xs font-bold uppercase tracking-[0.28em]"
-                style={{
-                  color:
-                    theme.accent,
-                }}
-              >
-                Property Gallery
-              </p>
-
-              <h2 className="mt-4 text-4xl font-semibold text-white sm:text-5xl">
-                Explore every detail
-              </h2>
-            </div>
-
-            <div className="text-sm text-white/55">
-              {photos.length} professionally selected photographs
-            </div>
-          </div>
-
-          <div className="mt-12 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {photos.map(
-              (
-                photo,
-                index
-              ) => (
-                <a
-                  key={photo.id}
-                  href={
-                    photo.public_url
-                  }
-                  target="_blank"
-                  rel="noreferrer"
-                  className={
-                    index === 0
-                      ? "group relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 shadow-2xl sm:col-span-2 lg:col-span-2 lg:row-span-2"
-                      : "group relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 shadow-xl"
-                  }
-                >
-                  <img
-                    src={
-                      photo.public_url
-                    }
-                    alt={
-                      photo.caption ||
-                      photo.title ||
-                      `${listing.property_address} property photo ${
-                        index + 1
-                      }`
-                    }
-                    className={
-                      index === 0
-                        ? "h-full min-h-[420px] w-full object-cover transition duration-500 group-hover:scale-[1.02]"
-                        : "aspect-[4/3] h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]"
-                    }
-                    loading={
-                      index < 3
-                        ? "eager"
-                        : "lazy"
-                    }
-                  />
-
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/45 via-transparent to-transparent opacity-0 transition group-hover:opacity-100" />
-
-                  <div className="absolute bottom-4 right-4 flex h-10 w-10 items-center justify-center rounded-full bg-black/55 text-white opacity-0 backdrop-blur transition group-hover:opacity-100">
-                    <Maximize2 className="h-4 w-4" />
-                  </div>
-                </a>
-              )
-            )}
-          </div>
-        </div>
-      </section>
+      <PropertyGalleryCarousel
+        photos={photos}
+        accent={theme.accent}
+        propertyAddress={
+          listing.property_address
+        }
+      />
 
       {(videoEmbedUrl ||
         listing
@@ -1505,6 +1528,7 @@ export default async function PropertyPage({
                 {videoEmbedUrl ? (
                   <div className="overflow-hidden rounded-[2rem] border border-white/10 bg-black shadow-2xl">
                     <iframe
+                      id="property-video-player"
                       src={
                         videoEmbedUrl
                       }
@@ -1557,6 +1581,8 @@ export default async function PropertyPage({
                       href={
                         videoUrl
                       }
+                      data-property-engagement-event="video_external_click"
+                      data-property-engagement-placement="property_experience"
                       target="_blank"
                       rel="noreferrer"
                       className="inline-flex items-center gap-2 rounded-full px-5 py-3 text-sm font-bold text-white"
@@ -1577,6 +1603,8 @@ export default async function PropertyPage({
                         listing
                           .virtual_tour_url
                       }
+                      data-property-engagement-event="virtual_tour_click"
+                      data-property-engagement-placement="property_experience"
                       target="_blank"
                       rel="noreferrer"
                       className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-5 py-3 text-sm font-bold text-white hover:bg-white/10"
@@ -1680,6 +1708,8 @@ export default async function PropertyPage({
                       href={
                         phoneLink
                       }
+                      data-property-engagement-event="phone_click"
+                      data-property-engagement-placement="contact"
                       className="inline-flex items-center gap-2 rounded-full px-5 py-3 text-sm font-bold text-white"
                       style={{
                         backgroundColor:
@@ -1696,6 +1726,8 @@ export default async function PropertyPage({
                       href={
                         showingEmailLink
                       }
+                      data-property-engagement-event="email_click"
+                      data-property-engagement-placement="contact"
                       className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-5 py-3 text-sm font-bold text-white hover:bg-white/10"
                     >
                       <Mail className="h-4 w-4" />

@@ -31,6 +31,22 @@ export default function PropertyWebsitePreviewPanel({
     'desktop'
   );
 
+  const previewUrl =
+    publicUrl
+      ? (() => {
+          try {
+            const parsedUrl =
+              new URL(
+                publicUrl
+              );
+
+            return `${parsedUrl.pathname}${parsedUrl.search}${parsedUrl.hash}`;
+          } catch {
+            return publicUrl;
+          }
+        })()
+      : null;
+
   return (
     <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -93,7 +109,7 @@ export default function PropertyWebsitePreviewPanel({
         </div>
       </div>
 
-      {publicUrl ? (
+      {previewUrl ? (
         <div className="mt-5 overflow-auto rounded-2xl border border-slate-300 bg-slate-100 p-4">
           <div
             className={
@@ -104,8 +120,8 @@ export default function PropertyWebsitePreviewPanel({
             }
           >
             <iframe
-              key={`${previewMode}-${publicUrl}`}
-              src={publicUrl}
+              key={`${previewMode}-${previewUrl}`}
+              src={previewUrl}
               title={`${title} ${previewMode} property website preview`}
               loading="lazy"
               referrerPolicy="strict-origin-when-cross-origin"

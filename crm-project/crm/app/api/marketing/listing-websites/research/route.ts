@@ -208,6 +208,29 @@ type PhotoRow = {
     | null;
 };
 
+type PhotoAnalysisRow = {
+  media_id: string;
+  analysis_status: string;
+  primary_category: string;
+  room_label:
+    | string
+    | null;
+  feature_tags: string[];
+  quality_score: number;
+  marketing_score: number;
+  confidence: number;
+  is_usable: boolean;
+  rejection_reason:
+    | string
+    | null;
+  duplicate_group:
+    | string
+    | null;
+  visual_summary:
+    | string
+    | null;
+};
+
 type DocumentRow = {
   id: string;
 
@@ -774,6 +797,7 @@ export async function POST(
 
     const [
       photoResult,
+      photoAnalysisResult,
       documentResult,
       enrichmentResult,
     ] = await Promise.all([
@@ -809,8 +833,30 @@ export async function POST(
             ascending:
               true,
           }
+        ),
+
+      supabaseAdmin
+        .from(
+          'listing_media_ai_analysis'
         )
-        .limit(18),
+        .select(`
+          media_id,
+          analysis_status,
+          primary_category,
+          room_label,
+          feature_tags,
+          quality_score,
+          marketing_score,
+          confidence,
+          is_usable,
+          rejection_reason,
+          duplicate_group,
+          visual_summary
+        `)
+        .eq(
+          'listing_id',
+          listing.id
+        ),
 
       supabaseAdmin
         .from(
@@ -865,6 +911,16 @@ export async function POST(
     }
 
     if (
+      photoAnalysisResult.error
+    ) {
+      throw new ListingResearchError(
+        photoAnalysisResult.error.message,
+        500,
+        'photo_analysis_load_failed'
+      );
+    }
+
+    if (
       documentResult.error
     ) {
       throw new ListingResearchError(
@@ -889,6 +945,28 @@ export async function POST(
         photoResult.data ||
         []
       ) as PhotoRow[];
+
+    const photoAnalyses =
+      (
+        photoAnalysisResult.data ||
+        []
+      ) as PhotoAnalysisRow[];
+
+    const photoAnalysisByMediaId =
+      new Map<
+        string,
+        PhotoAnalysisRow
+      >();
+
+    for (
+      const analysis of
+      photoAnalyses
+    ) {
+      photoAnalysisByMediaId.set(
+        analysis.media_id,
+        analysis
+      );
+    }
 
     if (
       photos.length ===
@@ -1099,25 +1177,69 @@ export async function POST(
 
     const photoCatalog =
       photos.map(
-        (photo) => ({
-          photo_media_id:
-            photo.id,
+        (photo) => {
+          const analysis =
+            photoAnalysisByMediaId.get(
+              photo.id
+            ) || null;
 
-          file_name:
-            photo.file_name,
+          return {
+            photo_media_id:
+              photo.id,
 
-          title:
-            photo.title,
+            file_name:
+              photo.file_name,
 
-          caption:
-            photo.caption,
+            title:
+              photo.title,
 
-          sort_order:
-            photo.sort_order,
+            caption:
+              photo.caption,
 
-          is_primary:
-            photo.is_primary,
-        })
+            sort_order:
+              photo.sort_order,
+
+            is_primary:
+              photo.is_primary,
+
+            analysis: analysis
+              ? {
+                  analysis_status:
+                    analysis.analysis_status,
+
+                  primary_category:
+                    analysis.primary_category,
+
+                  room_label:
+                    analysis.room_label,
+
+                  feature_tags:
+                    analysis.feature_tags,
+
+                  quality_score:
+                    analysis.quality_score,
+
+                  marketing_score:
+                    analysis.marketing_score,
+
+                  confidence:
+                    analysis.confidence,
+
+                  is_usable:
+                    analysis.is_usable,
+
+                  rejection_reason:
+                    analysis.rejection_reason,
+
+                  duplicate_group:
+                    analysis.duplicate_group,
+
+                  visual_summary:
+                    analysis.visual_summary,
+                }
+              : null,
+          };
+        }
       );
 
     const content:
@@ -1137,6 +1259,13 @@ export async function POST(
           '',
           'Rules:',
           '- Inspect every supplied photograph before choosing any marketing themes.',
+          '- Use each PHOTO CATALOG analysis as the primary classification guide for what the photograph depicts.',
+          '- A complete or needs_review primary_category, room_label, feature_tags, and visual_summary must agree with the card theme.',
+          '- Never assign a garage card to a patio, backyard, view, bedroom, bathroom, kitchen, living-room, or unrelated photograph.',
+          '- Never assign a primary-bathroom or freestanding-tub card to a bedroom photograph unless the selected image clearly shows the bathroom or tub.',
+          '- Prefer photographs marked is_usable with stronger marketing_score, quality_score, and confidence when several photos support the same theme.',
+          '- Avoid selecting two photographs from the same duplicate_group when alternatives exist.',
+          '- When analysis_status is failed or analysis is missing, rely on direct visual inspection and do not infer the room from filename or photo order.',
           '- Determine what room, exterior area, view, or property feature each photograph visibly depicts.',
           '- The selected photograph must directly and clearly show the main subject named in the card headline.',
           '- Never pair a kitchen photograph with a bathroom card, a bathroom photograph with a living-area card, or an exterior photograph with an interior-feature card.',

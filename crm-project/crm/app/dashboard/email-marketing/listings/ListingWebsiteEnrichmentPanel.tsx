@@ -1441,56 +1441,124 @@ export default function ListingWebsiteEnrichmentPanel({
                             )}
                           </div>
 
-                          <label className="mt-3 block text-[11px] font-semibold text-slate-700">
-                            Highlight Photo
+                            <div className="mt-3">
+                              <div className="text-[11px] font-semibold text-slate-700">
+                                Highlight Photo
+                              </div>
 
-                            <select
-                              value={
-                                highlight.photo_media_id ||
-                                ''
-                              }
-                              onChange={(
-                                event
-                              ) =>
-                                updateLocalHighlight(
-                                  highlight.id,
+                              <details className="mt-1 overflow-hidden rounded-xl border border-slate-200 bg-white">
+                                <summary className="cursor-pointer select-none px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">
                                   {
-                                    photo_media_id:
-                                      event
-                                        .target
-                                        .value ||
-                                      null,
+                                    selectedPhoto
+                                      ? "Change Photo"
+                                      : "Choose Photo"
                                   }
-                                )
-                              }
-                              className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs"
-                            >
-                              <option value="">
-                                Select a photo
-                              </option>
+                                </summary>
 
-                              {photos.map(
-                                (
-                                  photo,
-                                  photoIndex
-                                ) => (
-                                  <option
-                                    key={
-                                      photo.id
-                                    }
-                                    value={
-                                      photo.id
-                                    }
-                                  >
-                                    {photoLabel(
-                                      photo,
-                                      photoIndex
+                                <div className="border-t border-slate-200 p-3">
+                                  <div className="mb-3 text-xs text-slate-500">
+                                    Select the actual photo you want for this highlight.
+                                  </div>
+
+                                  <div className="grid max-h-96 grid-cols-2 gap-3 overflow-y-auto pr-1 sm:grid-cols-3">
+                                    {photos.map(
+                                      (
+                                        photo,
+                                        photoIndex
+                                      ) => {
+                                        const photoUrl =
+                                          photo.thumbnail_url ||
+                                          photo.public_url ||
+                                          "";
+
+                                        const isSelected =
+                                          photo.id ===
+                                          highlight.photo_media_id;
+
+                                        return (
+                                          <button
+                                            key={photo.id}
+                                            type="button"
+                                            aria-pressed={
+                                              isSelected
+                                            }
+                                            title={
+                                              photoLabel(
+                                                photo,
+                                                photoIndex
+                                              )
+                                            }
+                                            onClick={(
+                                              event
+                                            ) => {
+                                              updateLocalHighlight(
+                                                highlight.id,
+                                                {
+                                                  photo_media_id:
+                                                    photo.id,
+                                                }
+                                              );
+
+                                              event.currentTarget
+                                                .closest(
+                                                  "details"
+                                                )
+                                                ?.removeAttribute(
+                                                  "open"
+                                                );
+                                            }}
+                                            className={`overflow-hidden rounded-xl border bg-white text-left transition ${
+                                              isSelected
+                                                ? "border-violet-600 ring-2 ring-violet-200"
+                                                : "border-slate-200 hover:border-violet-300 hover:bg-violet-50/30"
+                                            }`}
+                                          >
+                                            <div className="relative bg-slate-100">
+                                              {photoUrl ? (
+                                                <img
+                                                  src={photoUrl}
+                                                  alt={
+                                                    photo.title ||
+                                                    photo.caption ||
+                                                    photoLabel(
+                                                      photo,
+                                                      photoIndex
+                                                    )
+                                                  }
+                                                  className="h-24 w-full object-cover"
+                                                  loading="lazy"
+                                                />
+                                              ) : (
+                                                <div className="flex h-24 items-center justify-center px-2 text-center text-[11px] text-slate-500">
+                                                  Preview unavailable
+                                                </div>
+                                              )}
+
+                                              {isSelected && (
+                                                <span className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-violet-700 text-white shadow">
+                                                  <CheckCircle2 className="h-4 w-4" />
+                                                </span>
+                                              )}
+                                            </div>
+
+                                            <div className="p-2">
+                                              <div className="truncate text-[11px] font-semibold text-slate-800">
+                                                {
+                                                  photoLabel(
+                                                    photo,
+                                                    photoIndex
+                                                  )
+                                                }
+                                              </div>
+                                            </div>
+                                          </button>
+                                        );
+                                      }
                                     )}
-                                  </option>
-                                )
-                              )}
-                            </select>
-                          </label>
+                                  </div>
+                                </div>
+                              </details>
+                            </div>
 
                           <label className="mt-3 block text-[11px] font-semibold text-slate-700">
                             Headline
