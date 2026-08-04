@@ -81,11 +81,47 @@ type PreparePhotoIntelligenceInput = {
   photos: ListingPhotoInput[];
 };
 
+export const LISTING_EMAIL_EDITION_KEYS = [
+  'launch',
+  'views_lifestyle',
+  'design_interiors',
+  'property_in_motion',
+  'closer_look',
+  'agent_spotlight',
+  'fresh_opportunity',
+] as const;
+
+export type ListingEmailEditionKey =
+  typeof LISTING_EMAIL_EDITION_KEYS[number];
+
+type ListingEmailSlotPhotoIdsByEdition =
+  Record<
+    ListingEmailEditionKey,
+    Array<string | null>
+  >;
+
+type ListingEmailLockedSlotIndexesByEdition =
+  Record<
+    ListingEmailEditionKey,
+    number[]
+  >;
+
 export type ListingPhotoIntelligenceResult = {
   analyses: ListingPhotoAnalysis[];
+
+  emailSlotPhotoIdsByEdition:
+    ListingEmailSlotPhotoIdsByEdition;
+
+  lockedEmailSlotIndexesByEdition:
+    ListingEmailLockedSlotIndexesByEdition;
+
+  // Temporary aliases for callers that still need the
+  // launch-edition defaults during this migration phase.
   emailSlotPhotoIds:
     Array<string | null>;
-  lockedEmailSlotIndexes: number[];
+
+  lockedEmailSlotIndexes:
+    number[];
 };
 
 const PHOTO_CATEGORY_SET =
@@ -1296,6 +1332,65 @@ function selectEmailSlots(
   };
 }
 
+function selectEmailSlotsByEdition(
+  photos:
+    ListingPhotoInput[],
+  analyses:
+    ListingPhotoAnalysis[],
+  lockedRows:
+    any[]
+) {
+  const slotPhotoIdsByEdition =
+    {} as
+      ListingEmailSlotPhotoIdsByEdition;
+
+  const lockedSlotIndexesByEdition =
+    {} as
+      ListingEmailLockedSlotIndexesByEdition;
+
+  for (
+    const editionKey of
+      LISTING_EMAIL_EDITION_KEYS
+  ) {
+    const editionRows =
+      lockedRows.filter(
+        (row) => {
+          const storedEditionKey =
+            cleanText(
+              row?.edition_key,
+              100
+            ) ||
+            'launch';
+
+          return storedEditionKey ===
+            editionKey;
+        }
+      );
+
+    const selection =
+      selectEmailSlots(
+        photos,
+        analyses,
+        editionRows
+      );
+
+    slotPhotoIdsByEdition[
+      editionKey
+    ] =
+      selection.slotPhotoIds;
+
+    lockedSlotIndexesByEdition[
+      editionKey
+    ] =
+      selection.lockedIndexes;
+  }
+
+  return {
+    slotPhotoIdsByEdition,
+    lockedSlotIndexesByEdition,
+  };
+}
+
 export async function loadSavedListingPhotoIntelligence(
   input: {
     listingId: string;
@@ -1342,6 +1437,7 @@ export async function loadSavedListingPhotoIntelligence(
         'listing_marketing_photo_assignments'
       )
       .select(`
+        edition_key,
         slot_key,
         sort_order,
         media_id,
@@ -1408,23 +1504,35 @@ export async function loadSavedListingPhotoIntelligence(
           )
       );
 
-  const selection =
-    selectEmailSlots(
+  const selections =
+    selectEmailSlotsByEdition(
       input.photos,
       analyses,
       lockedAssignmentResult
         .data ||
-        []
+      []
     );
 
   return {
     analyses,
 
+    emailSlotPhotoIdsByEdition:
+      selections
+        .slotPhotoIdsByEdition,
+
+    lockedEmailSlotIndexesByEdition:
+      selections
+        .lockedSlotIndexesByEdition,
+
     emailSlotPhotoIds:
-      selection.slotPhotoIds,
+      selections
+        .slotPhotoIdsByEdition
+        .launch,
 
     lockedEmailSlotIndexes:
-      selection.lockedIndexes,
+      selections
+        .lockedSlotIndexesByEdition
+        .launch,
   };
 }
 
@@ -1476,6 +1584,7 @@ export async function prepareListingPhotoIntelligence(
         'listing_marketing_photo_assignments'
       )
       .select(`
+        edition_key,
         slot_key,
         sort_order,
         media_id,
@@ -2089,24 +2198,34 @@ export async function prepareListingPhotoIntelligence(
           )
       );
 
-  const selection =
-    selectEmailSlots(
+  const selections =
+    selectEmailSlotsByEdition(
       input.photos,
       analyses,
       lockedAssignmentResult
         .data ||
-        []
+      []
     );
 
   return {
     analyses,
 
+    emailSlotPhotoIdsByEdition:
+      selections
+        .slotPhotoIdsByEdition,
+
+    lockedEmailSlotIndexesByEdition:
+      selections
+        .lockedSlotIndexesByEdition,
+
     emailSlotPhotoIds:
-      selection
-        .slotPhotoIds,
+      selections
+        .slotPhotoIdsByEdition
+        .launch,
 
     lockedEmailSlotIndexes:
-      selection
-        .lockedIndexes,
+      selections
+        .lockedSlotIndexesByEdition
+        .launch,
   };
 }

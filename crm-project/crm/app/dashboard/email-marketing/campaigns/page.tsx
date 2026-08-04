@@ -317,6 +317,315 @@ type Contact = {
     | null;
 };
 
+const LUXURY_EMAIL_EDITION_KEYS = [
+  'launch',
+  'views_lifestyle',
+  'design_interiors',
+  'property_in_motion',
+  'closer_look',
+  'agent_spotlight',
+  'fresh_opportunity',
+] as const;
+
+type LuxuryEmailEditionKey =
+  typeof LUXURY_EMAIL_EDITION_KEYS[number];
+
+function campaignRecordValue(
+  value: unknown
+): Record<string, any> {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    Array.isArray(value)
+  ) {
+    return {};
+  }
+
+  return value as
+    Record<string, any>;
+}
+
+function campaignStringArrayValue(
+  value: unknown
+) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const output:
+    string[] = [];
+
+  for (
+    const item of value
+  ) {
+    const cleaned =
+      typeof item ===
+        'string'
+        ? item.trim()
+        : '';
+
+    if (
+      cleaned &&
+      !output.includes(
+        cleaned
+      )
+    ) {
+      output.push(
+        cleaned
+      );
+    }
+  }
+
+  return output;
+}
+
+function normalizeCampaignLuxuryEdition(
+  value: unknown
+): LuxuryEmailEditionKey {
+  const candidate =
+    typeof value === 'string'
+      ? value
+      : '';
+
+  return LUXURY_EMAIL_EDITION_KEYS
+    .includes(
+      candidate as
+        LuxuryEmailEditionKey
+    )
+    ? candidate as
+        LuxuryEmailEditionKey
+    : 'launch';
+}
+
+function normalizeCampaignFollowUpDelay(
+  value: unknown
+): 24 | 36 | 48 {
+  const candidate =
+    Number(value);
+
+  if (candidate === 24) {
+    return 24;
+  }
+
+  if (candidate === 48) {
+    return 48;
+  }
+
+  return 36;
+}
+
+type StudioCreativeSnapshot = {
+  section_id: string;
+  section_status: string;
+  luxury_edition:
+    LuxuryEmailEditionKey;
+  edition_status: string;
+  enabled: boolean;
+  delay_hours:
+    | 24
+    | 36
+    | 48;
+  stop_after_reply: boolean;
+  categories:
+    Record<string, any>;
+
+  photo_media_ids:
+    string[];
+
+  subject:
+    string;
+
+  preview_text:
+    string;
+
+  headline:
+    string;
+
+  body:
+    string;
+
+  full_description:
+    string;
+
+  cta_label:
+    string;
+};
+
+async function loadStudioCreativeSnapshot(
+  listingId: string
+): Promise<
+  StudioCreativeSnapshot | null
+> {
+  const {
+    data,
+    error,
+  } = await supabase
+    .from(
+      'listing_marketing_sections'
+    )
+    .select(`
+      id,
+      status,
+      content
+    `)
+    .eq(
+      'listing_id',
+      listingId
+    )
+    .eq(
+      'section_key',
+      'email'
+    )
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  const content =
+    campaignRecordValue(
+      data.content
+    );
+
+  const editions =
+    campaignRecordValue(
+      content.editions
+    );
+
+  const luxuryEdition =
+    normalizeCampaignLuxuryEdition(
+      content.luxury_edition
+    );
+
+  const edition =
+    campaignRecordValue(
+      editions[luxuryEdition]
+    );
+
+  const editionFollowUp =
+    campaignRecordValue(
+      edition.personal_follow_up
+    );
+
+  const sharedFollowUp =
+    campaignRecordValue(
+      content.personal_follow_up
+    );
+
+  const resolvedShared =
+    Object.keys(
+      sharedFollowUp
+    ).length > 0
+      ? sharedFollowUp
+      : editionFollowUp;
+
+  return {
+    section_id:
+      String(data.id),
+
+    section_status:
+      typeof data.status ===
+      'string'
+        ? data.status
+        : 'needs_review',
+
+    luxury_edition:
+      luxuryEdition,
+
+    edition_status:
+      typeof edition.status ===
+      'string'
+        ? edition.status
+        : 'not_prepared',
+
+    enabled:
+      resolvedShared.enabled ===
+      true,
+
+    delay_hours:
+      normalizeCampaignFollowUpDelay(
+        resolvedShared.delay_hours
+      ),
+
+    stop_after_reply:
+      resolvedShared
+        .stop_after_reply !==
+      false,
+
+    categories:
+      campaignRecordValue(
+        editionFollowUp.categories
+      ),
+
+    photo_media_ids:
+      campaignStringArrayValue(
+        edition.photo_media_ids
+      ),
+
+    subject:
+      typeof edition.subject ===
+        'string'
+        ? edition.subject
+        : typeof content.subject ===
+            'string'
+          ? content.subject
+          : '',
+
+    preview_text:
+      typeof edition
+        .preview_text ===
+        'string'
+        ? edition.preview_text
+        : typeof content
+            .preview_text ===
+            'string'
+          ? content.preview_text
+          : '',
+
+    headline:
+      typeof edition.headline ===
+        'string'
+        ? edition.headline
+        : typeof content.headline ===
+            'string'
+          ? content.headline
+          : '',
+
+    body:
+      typeof edition.body ===
+        'string'
+        ? edition.body
+        : typeof content.body ===
+            'string'
+          ? content.body
+          : '',
+
+    full_description:
+      typeof edition
+        .full_description ===
+        'string'
+        ? edition.full_description
+        : typeof content
+            .full_description ===
+            'string'
+          ? content.full_description
+          : '',
+
+    cta_label:
+      typeof edition.cta_label ===
+        'string'
+        ? edition.cta_label
+        : typeof content.cta_label ===
+            'string'
+          ? content.cta_label
+          : 'View Full Listing',
+  };
+}
+
 const CAMPAIGN_CONTACT_CATEGORIES = [
   {
     value: 'prospect',
@@ -1712,6 +2021,7 @@ function buildEmailHtml({
                 : ''
             }
 
+
             ${buildMarketingFooterHtml(
               profile
             )}
@@ -1807,6 +2117,14 @@ export default function CampaignsPage() {
   ] = useState<
     ListingPhoto[]
   >([]);
+
+  const [
+    studioCreativeSnapshot,
+    setStudioCreativeSnapshot,
+  ] = useState<
+    StudioCreativeSnapshot |
+    null
+  >(null);
 
   const [
     editingCampaignId,
@@ -2031,12 +2349,18 @@ export default function CampaignsPage() {
     ]);
 
   const headline =
+    studioCreativeSnapshot
+      ?.headline
+      ?.trim() ||
     selectedListing
       ?.campaign_headline ||
     selectedListing?.title ||
     '';
 
   const marketingDescription =
+    studioCreativeSnapshot
+      ?.body
+      ?.trim() ||
     selectedListing
       ?.short_marketing_description ||
     selectedListing
@@ -2044,6 +2368,16 @@ export default function CampaignsPage() {
     selectedListing
       ?.description ||
     '';
+
+  const fullMarketingDescription =
+    studioCreativeSnapshot
+      ?.full_description
+      ?.trim() ||
+    selectedListing
+      ?.public_remarks ||
+    selectedListing
+      ?.description ||
+    marketingDescription;
 
   const previewHtml =
     useMemo(() => {
@@ -2055,12 +2389,23 @@ export default function CampaignsPage() {
       }
 
       return buildSharedEmailHtml({
-        listing:
-          selectedListing,
+        listing: {
+          ...selectedListing,
+
+          public_remarks:
+            fullMarketingDescription,
+
+          description:
+            fullMarketingDescription,
+        },
 
         photos,
 
-        photoCount,
+        photoCount:
+          Math.min(
+            6,
+            photos.length
+          ),
 
         headline,
 
@@ -2072,6 +2417,16 @@ export default function CampaignsPage() {
         campaignType,
 
         templateKey,
+
+        luxuryEdition:
+          studioCreativeSnapshot
+            ?.luxury_edition ||
+          'launch',
+
+        primaryCtaLabel:
+          studioCreativeSnapshot
+            ?.cta_label ||
+          'View Full Listing',
 
         generatedArtworkUrl:
           selectedGeneratedArtworkUrl,
@@ -2091,6 +2446,8 @@ export default function CampaignsPage() {
       previewText,
       campaignType,
       templateKey,
+      studioCreativeSnapshot,
+      fullMarketingDescription,
       selectedGeneratedArtworkUrl,
       contactTypeFilter,
     ]);
@@ -2501,6 +2858,10 @@ export default function CampaignsPage() {
       !selectedListingId
     ) {
       setPhotos([]);
+      setStudioCreativeSnapshot(
+        null
+      );
+
       return;
     }
 
@@ -2510,71 +2871,183 @@ export default function CampaignsPage() {
       try {
         setLoadingPhotos(true);
 
-        const {
-          data,
-          error: photoError,
-        } = await supabase
-          .from('listing_media')
-          .select(`
-            id,
-            public_url,
-            sort_order,
-            is_primary,
-            use_in_marketing,
-            title,
-            caption
-          `)
-          .eq(
-            'listing_id',
+        const [
+          photoResult,
+          creativeSnapshot,
+        ] = await Promise.all([
+          supabase
+            .from(
+              'listing_media'
+            )
+            .select(`
+              id,
+              public_url,
+              sort_order,
+              is_primary,
+              use_in_marketing,
+              title,
+              caption
+            `)
+            .eq(
+              'listing_id',
+              selectedListingId
+            )
+            .eq(
+              'media_type',
+              'photo'
+            )
+            .eq(
+              'use_in_marketing',
+              true
+            )
+            .order(
+              'sort_order',
+              {
+                ascending: true,
+              }
+            ),
+
+          loadStudioCreativeSnapshot(
             selectedListingId
-          )
-          .eq(
-            'media_type',
-            'photo'
-          )
-          .eq(
-            'use_in_marketing',
-            true
-          )
-          .order(
-            'sort_order',
-            {
-              ascending: true,
-            }
+          ),
+        ]);
+
+        if (
+          photoResult.error
+        ) {
+          throw photoResult.error;
+        }
+
+        if (
+          !creativeSnapshot
+        ) {
+          throw new Error(
+            'Prepare and select an Email edition in Marketing Studio before creating a campaign.'
+          );
+        }
+
+        if (
+          creativeSnapshot
+            .photo_media_ids
+            .length !== 6 ||
+          new Set(
+            creativeSnapshot
+              .photo_media_ids
+          ).size !== 6
+        ) {
+          throw new Error(
+            'The selected Email edition does not have six unique saved photos.'
+          );
+        }
+
+        const photoById =
+          new Map(
+            (
+              photoResult.data ||
+              []
+            ).map(
+              (photo) => [
+                photo.id,
+                photo as
+                  ListingPhoto,
+              ]
+            )
           );
 
-        if (photoError) {
-          throw photoError;
+        const orderedPhotos =
+          creativeSnapshot
+            .photo_media_ids
+            .map(
+              (photoId) =>
+                photoById.get(
+                  photoId
+                ) ||
+                null
+            )
+            .filter(
+              (
+                photo
+              ): photo is
+                ListingPhoto =>
+                  Boolean(photo)
+            );
+
+        if (
+          orderedPhotos.length !==
+          6
+        ) {
+          throw new Error(
+            'One or more selected Email-edition photos are no longer available in the listing media library.'
+          );
         }
 
         if (mounted) {
-          setPhotos(
-            (data ||
-              []) as ListingPhoto[]
+          setStudioCreativeSnapshot(
+            creativeSnapshot
           );
+
+          setPhotos(
+            orderedPhotos
+          );
+
+          if (
+            !editingCampaignId
+          ) {
+            if (
+              creativeSnapshot
+                .subject
+                .trim()
+            ) {
+              setSubject(
+                creativeSnapshot
+                  .subject
+              );
+            }
+
+            if (
+              creativeSnapshot
+                .preview_text
+                .trim()
+            ) {
+              setPreviewText(
+                creativeSnapshot
+                  .preview_text
+              );
+            }
+          }
         }
-      } catch (err: any) {
+      }
+      catch (
+        err: any
+      ) {
         if (mounted) {
           setError(
             err?.message ||
-              'Could not load listing photos.'
+              'Could not load the selected Email-edition photos.'
           );
 
           setPhotos([]);
+          setStudioCreativeSnapshot(
+            null
+          );
         }
-      } finally {
+      }
+      finally {
         if (mounted) {
           setLoadingPhotos(false);
         }
       }
     }
 
-    loadPhotos();
+    void loadPhotos();
 
     return () => {
       mounted = false;
     };
-  }, [selectedListingId]);
+  }, [
+    selectedListingId,
+    editingCampaignId,
+  ]);
 
   useEffect(() => {
     if (
@@ -2888,6 +3361,48 @@ export default function CampaignsPage() {
         setNotice(null);
       }
 
+      let existingDesignSettings:
+        Record<string, any> =
+          {};
+
+      if (editingCampaignId) {
+        const {
+          data:
+            existingCampaign,
+          error:
+            existingCampaignError,
+        } = await supabase
+          .from(
+            'email_campaigns'
+          )
+          .select(
+            'design_settings'
+          )
+          .eq(
+            'id',
+            editingCampaignId
+          )
+          .single();
+
+        if (
+          existingCampaignError
+        ) {
+          throw existingCampaignError;
+        }
+
+        existingDesignSettings =
+          campaignRecordValue(
+            existingCampaign
+              ?.design_settings
+          );
+      }
+
+      const studioCreative =
+        studioCreativeSnapshot ||
+        await loadStudioCreativeSnapshot(
+          selectedListing.id
+        );
+
       const payload = {
         org_id:
           profile.org_id,
@@ -2900,6 +3415,21 @@ export default function CampaignsPage() {
 
         campaign_type:
           campaignType,
+
+        creative_kind:
+          'luxury_edition',
+
+        creative_key:
+          studioCreative
+            ?.luxury_edition ||
+          (
+            typeof existingDesignSettings
+              .luxury_edition ===
+            'string'
+              ? existingDesignSettings
+                  .luxury_edition
+              : null
+          ),
 
         name:
           campaignName.trim(),
@@ -2971,17 +3501,24 @@ export default function CampaignsPage() {
         },
 
         design_settings: {
+          ...existingDesignSettings,
+
           template_key:
             templateKey,
 
           photo_count:
             Math.min(
-              photoCount,
+              6,
               photos.length
             ),
 
           photo_order_source:
-            'listing_media_sort_order',
+            'listing_email_edition_photo_media_ids',
+
+          photo_media_ids:
+            studioCreative
+              ?.photo_media_ids ||
+            [],
 
           primary_first: true,
 
@@ -2997,6 +3534,64 @@ export default function CampaignsPage() {
             selectedGeneratedAssetId
               ? 'email_banner'
               : null,
+
+          ...(studioCreative
+            ? {
+                luxury_edition:
+                  studioCreative
+                    .luxury_edition,
+
+                listing_marketing_section_id:
+                  studioCreative
+                    .section_id,
+
+                personal_follow_up: {
+                  version: 1,
+
+                  enabled:
+                    studioCreative
+                      .enabled,
+
+                  delay_hours:
+                    studioCreative
+                      .delay_hours,
+
+                  stop_after_reply:
+                    studioCreative
+                      .stop_after_reply,
+
+                  luxury_edition:
+                    studioCreative
+                      .luxury_edition,
+
+                  edition_status:
+                    studioCreative
+                      .edition_status,
+
+                  source_section_id:
+                    studioCreative
+                      .section_id,
+
+                  source_section_status:
+                    studioCreative
+                      .section_status,
+
+                  category_count:
+                    Object.keys(
+                      studioCreative
+                        .categories
+                    ).length,
+
+                  categories:
+                    studioCreative
+                      .categories,
+
+                  captured_at:
+                    new Date()
+                      .toISOString(),
+                },
+              }
+            : {}),
         },
       };
 

@@ -36,6 +36,12 @@ import {
   getSupabaseBrowser,
 } from '../../../../../../lib/supabase-browser';
 
+import {
+  LISTING_EMAIL_EXTERNAL_EVENTS,
+  listingEmailEventDefinition,
+  type ListingEmailExternalEventKey,
+} from '../../../../../../lib/listing-email-events';
+
 import ListingWebsiteEnrichmentPanel from '../../ListingWebsiteEnrichmentPanel';
 import ListingEmailStudioPanel from '../../ListingEmailStudioPanel';
 import ListingRealtorMatchPanel from '../../ListingRealtorMatchPanel';
@@ -126,6 +132,7 @@ type PhotoAssignment = {
   id: string;
   listing_id: string;
   section_key: SectionKey;
+  edition_key: string;
   slot_key: string;
   sort_order: number;
   media_id: string;
@@ -138,6 +145,25 @@ type PhotoPickerTarget = {
   slotKey: string;
   sortOrder: number;
   label: string;
+};
+
+type ListingEmailEventFormState = {
+  event_start_at: string;
+  original_price: string;
+  video_url: string;
+  incentive_summary: string;
+  deadline_at: string;
+  photo_media_ids: string[];
+};
+
+const EMPTY_LISTING_EMAIL_EVENT_DETAILS:
+  ListingEmailEventFormState = {
+  event_start_at: '',
+  original_price: '',
+  video_url: '',
+  incentive_summary: '',
+  deadline_at: '',
+  photo_media_ids: [],
 };
 
 const TABS: Array<{
@@ -795,6 +821,23 @@ export default function MarketingStudioPage() {
   ] = useState(false);
 
   const [
+    emailEventType,
+    setEmailEventType,
+  ] = useState<
+    ListingEmailExternalEventKey
+  >('new_listing');
+
+  const [
+    emailEventDetails,
+    setEmailEventDetails,
+  ] = useState<
+    ListingEmailEventFormState
+  >(() => ({
+    ...EMPTY_LISTING_EMAIL_EVENT_DETAILS,
+    photo_media_ids: [],
+  }));
+
+  const [
     photoPickerTarget,
     setPhotoPickerTarget,
   ] = useState<
@@ -837,6 +880,11 @@ export default function MarketingStudioPage() {
             photo.use_in_marketing
         ),
       [photos]
+    );
+
+  const selectedEmailEventDefinition =
+    listingEmailEventDefinition(
+      emailEventType
     );
 
   const loadStudio =
@@ -997,6 +1045,7 @@ export default function MarketingStudioPage() {
               id,
               listing_id,
               section_key,
+              edition_key,
               slot_key,
               sort_order,
               media_id,
@@ -1219,6 +1268,202 @@ export default function MarketingStudioPage() {
     void loadStudio();
   }, [loadStudio]);
 
+  useEffect(() => {
+    const emailSection =
+      sections.find(
+        (section) =>
+          section.section_key ===
+          'email'
+      ) || null;
+
+    const contentValue =
+      emailSection?.content;
+
+    const contentRecord =
+      contentValue &&
+      typeof contentValue === 'object' &&
+      !Array.isArray(
+        contentValue
+      )
+        ? contentValue as
+            Record<string, unknown>
+        : {};
+
+    const storedEventType =
+      typeof contentRecord
+        .event_type ===
+        'string'
+        ? contentRecord
+            .event_type
+            .trim()
+        : '';
+
+    const resolvedEventType:
+      ListingEmailExternalEventKey =
+      LISTING_EMAIL_EXTERNAL_EVENTS
+        .some(
+          (definition) =>
+            definition.value ===
+              storedEventType
+        )
+        ? storedEventType as
+            ListingEmailExternalEventKey
+        : 'new_listing';
+
+    const detailsValue =
+      contentRecord
+        .event_details;
+
+    const detailsRecord =
+      detailsValue &&
+      typeof detailsValue === 'object' &&
+      !Array.isArray(
+        detailsValue
+      )
+        ? detailsValue as
+            Record<string, unknown>
+        : {};
+
+    function stringValue(
+      value: unknown
+    ) {
+      if (
+        typeof value ===
+        'string'
+      ) {
+        return value;
+      }
+
+      if (
+        typeof value ===
+        'number' &&
+        Number.isFinite(value)
+      ) {
+        return String(value);
+      }
+
+      return '';
+    }
+
+    function dateTimeLocalValue(
+      value: unknown
+    ) {
+      const cleaned =
+        stringValue(value)
+          .trim();
+
+      if (!cleaned) {
+        return '';
+      }
+
+      const parsed =
+        new Date(cleaned);
+
+      if (
+        Number.isNaN(
+          parsed.getTime()
+        )
+      ) {
+        return cleaned.slice(
+          0,
+          16
+        );
+      }
+
+      const localDate =
+        new Date(
+          parsed.getTime() -
+            parsed
+              .getTimezoneOffset() *
+              60_000
+        );
+
+      return localDate
+        .toISOString()
+        .slice(
+          0,
+          16
+        );
+    }
+
+    const storedPhotoIds =
+      Array.isArray(
+        detailsRecord
+          .photo_media_ids
+      )
+        ? detailsRecord
+            .photo_media_ids
+            .filter(
+              (
+                photoId
+              ): photoId is string =>
+                typeof photoId ===
+                  'string' &&
+                marketingPhotos.some(
+                  (photo) =>
+                    photo.id ===
+                      photoId
+                )
+            )
+        : [];
+
+    const storedVideoUrl =
+      stringValue(
+        detailsRecord
+          .video_url
+      ).trim();
+
+    setEmailEventType(
+      resolvedEventType
+    );
+
+    setEmailEventDetails({
+      event_start_at:
+        dateTimeLocalValue(
+          detailsRecord
+            .event_start_at
+        ),
+
+      original_price:
+        stringValue(
+          detailsRecord
+            .original_price
+        ),
+
+      video_url:
+        storedVideoUrl ||
+        (
+          resolvedEventType ===
+            'new_video' ||
+          resolvedEventType ===
+            'virtual_tour'
+            ? listing
+                ?.unbranded_video_url ||
+              ''
+            : ''
+        ),
+
+      incentive_summary:
+        stringValue(
+          detailsRecord
+            .incentive_summary
+        ),
+
+      deadline_at:
+        dateTimeLocalValue(
+          detailsRecord
+            .deadline_at
+        ),
+
+      photo_media_ids:
+        storedPhotoIds,
+    });
+  }, [
+    sections,
+    listing,
+    marketingPhotos,
+  ]);
+
   async function prepareCompletePackage() {
     if (!listing) {
       return;
@@ -1233,6 +1478,193 @@ export default function MarketingStudioPage() {
       );
 
       return;
+    }
+
+    const requiredEventDetails =
+      selectedEmailEventDefinition
+        .requiredDetails;
+
+    const packageEventDetails:
+      Record<string, unknown> =
+      {};
+
+    if (
+      requiredEventDetails.includes(
+        'event_start_at'
+      )
+    ) {
+      const eventStartAt =
+        emailEventDetails
+          .event_start_at
+          .trim();
+
+      if (!eventStartAt) {
+        setError(
+          'Enter the verified event date and start time.'
+        );
+
+        return;
+      }
+
+      packageEventDetails
+        .event_start_at =
+        eventStartAt;
+    }
+
+    if (
+      emailEventType ===
+        'price_improvement'
+    ) {
+      const originalPrice =
+        Number(
+          emailEventDetails
+            .original_price
+            .replace(
+              /[$,\s]/g,
+              ''
+            )
+        );
+
+      if (
+        !Number.isFinite(
+          originalPrice
+        ) ||
+        originalPrice <= 0
+      ) {
+        setError(
+          'Enter the verified original listing price.'
+        );
+
+        return;
+      }
+
+      if (
+        listing.list_price ===
+          null ||
+        !Number.isFinite(
+          listing.list_price
+        ) ||
+        listing.list_price <= 0
+      ) {
+        setError(
+          'Confirm the current listing price before preparing a Price Improvement package.'
+        );
+
+        return;
+      }
+
+      if (
+        originalPrice <=
+          listing.list_price
+      ) {
+        setError(
+          'The original price must be higher than the current listing price.'
+        );
+
+        return;
+      }
+
+      packageEventDetails
+        .original_price =
+        originalPrice;
+
+      packageEventDetails
+        .new_price =
+        listing.list_price;
+    }
+
+    if (
+      requiredEventDetails.includes(
+        'video_url'
+      )
+    ) {
+      const videoUrl =
+        emailEventDetails
+          .video_url
+          .trim();
+
+      if (!videoUrl) {
+        setError(
+          'Enter the verified property video or virtual-tour URL.'
+        );
+
+        return;
+      }
+
+      packageEventDetails
+        .video_url =
+        videoUrl;
+    }
+
+    if (
+      requiredEventDetails.includes(
+        'incentive_summary'
+      )
+    ) {
+      const incentiveSummary =
+        emailEventDetails
+          .incentive_summary
+          .trim();
+
+      if (!incentiveSummary) {
+        setError(
+          'Enter the verified incentive or rate-buydown terms.'
+        );
+
+        return;
+      }
+
+      packageEventDetails
+        .incentive_summary =
+        incentiveSummary;
+    }
+
+    if (
+      requiredEventDetails.includes(
+        'deadline_at'
+      )
+    ) {
+      const deadlineAt =
+        emailEventDetails
+          .deadline_at
+          .trim();
+
+      if (!deadlineAt) {
+        setError(
+          'Enter the verified deadline date and time.'
+        );
+
+        return;
+      }
+
+      packageEventDetails
+        .deadline_at =
+        deadlineAt;
+    }
+
+    if (
+      requiredEventDetails.includes(
+        'photo_media_ids'
+      )
+    ) {
+      if (
+        emailEventDetails
+          .photo_media_ids
+          .length === 0
+      ) {
+        setError(
+          'Choose at least one newly added listing photo.'
+        );
+
+        return;
+      }
+
+      packageEventDetails
+        .photo_media_ids =
+        [
+          ...emailEventDetails
+            .photo_media_ids,
+        ];
     }
 
     try {
@@ -1314,6 +1746,12 @@ export default function MarketingStudioPage() {
               JSON.stringify({
                 listing_id:
                   listing.id,
+
+                event_type:
+                  emailEventType,
+
+                event_details:
+                  packageEventDetails,
               }),
           }
         );
@@ -1440,6 +1878,18 @@ export default function MarketingStudioPage() {
       return;
     }
 
+    if (
+      photoPickerTarget
+        .sectionKey ===
+      'email'
+    ) {
+      setError(
+        'Email photos must be changed inside the active Email edition.'
+      );
+
+      return;
+    }
+
     try {
       setSaving(true);
       setError(null);
@@ -1483,6 +1933,9 @@ export default function MarketingStudioPage() {
               photoPickerTarget
                 .sectionKey,
 
+            edition_key:
+              'shared',
+
             slot_key:
               photoPickerTarget
                 .slotKey,
@@ -1508,7 +1961,7 @@ export default function MarketingStudioPage() {
           },
           {
             onConflict:
-              'listing_id,section_key,slot_key,sort_order',
+              'listing_id,section_key,edition_key,slot_key,sort_order',
           }
         );
 
@@ -1755,6 +2208,13 @@ export default function MarketingStudioPage() {
   function renderPhotoSlots(
     sectionKey: SectionKey
   ) {
+    if (
+      sectionKey ===
+      'email'
+    ) {
+      return null;
+    }
+
     const definition =
       SECTION_DEFINITIONS[
         sectionKey
@@ -1762,12 +2222,7 @@ export default function MarketingStudioPage() {
 
     return (
       <div
-        className={
-          sectionKey ===
-          'email'
-            ? 'grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6'
-            : 'grid gap-3 sm:grid-cols-2 xl:grid-cols-4'
-        }
+        className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
       >
         {definition.photoSlots.map(
           (slot) => {
@@ -2257,6 +2712,413 @@ export default function MarketingStudioPage() {
           </div>
         </div>
       </header>
+
+      <section className="rounded-2xl border border-violet-200 bg-violet-50/50 p-5 shadow-sm">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div className="max-w-3xl">
+            <div className="text-xs font-bold uppercase tracking-wide text-violet-700">
+              Listing Marketing Event
+            </div>
+
+            <h2 className="mt-1 text-lg font-bold text-slate-950">
+              Tell Samantha what changed
+            </h2>
+
+            <p className="mt-1 text-sm leading-6 text-slate-600">
+              Choose the verified listing event before preparing the marketing package. Samantha will use it for the Email section while preserving approved copy and locked photos.
+            </p>
+          </div>
+
+          <label className="block w-full xl:max-w-sm">
+            <span className="text-sm font-bold text-slate-800">
+              Marketing event
+            </span>
+
+            <select
+              value={emailEventType}
+              onChange={(event) => {
+                const nextEventType =
+                  event.target.value as
+                    ListingEmailExternalEventKey;
+
+                setEmailEventType(
+                  nextEventType
+                );
+
+                if (
+                  (
+                    nextEventType ===
+                      'new_video' ||
+                    nextEventType ===
+                      'virtual_tour'
+                  ) &&
+                  !emailEventDetails
+                    .video_url
+                    .trim() &&
+                  listing
+                    .unbranded_video_url
+                ) {
+                  setEmailEventDetails(
+                    (current) => ({
+                      ...current,
+                      video_url:
+                        listing
+                          .unbranded_video_url ||
+                        '',
+                    })
+                  );
+                }
+
+                setError(null);
+                setNotice(null);
+              }}
+              disabled={preparing}
+              className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-900 shadow-sm outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {LISTING_EMAIL_EXTERNAL_EVENTS.map(
+                (definition) => (
+                  <option
+                    key={definition.value}
+                    value={definition.value}
+                  >
+                    {definition.label}
+                  </option>
+                )
+              )}
+            </select>
+          </label>
+        </div>
+
+        <div className="mt-4 rounded-xl border border-violet-100 bg-white p-4">
+          <div className="text-sm font-bold text-slate-900">
+            {selectedEmailEventDefinition.label}
+          </div>
+
+          <p className="mt-1 text-sm leading-6 text-slate-600">
+            {selectedEmailEventDefinition.samanthaBrief}
+          </p>
+        </div>
+
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          {selectedEmailEventDefinition
+            .requiredDetails
+            .includes(
+              'event_start_at'
+            ) && (
+            <label className="block">
+              <span className="text-sm font-bold text-slate-800">
+                Event date and start time
+              </span>
+
+              <input
+                type="datetime-local"
+                value={emailEventDetails.event_start_at}
+                onChange={(event) => {
+                  setEmailEventDetails(
+                    (current) => ({
+                      ...current,
+                      event_start_at:
+                        event.target.value,
+                    })
+                  );
+
+                  setError(null);
+                  setNotice(null);
+                }}
+                disabled={preparing}
+                className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 disabled:cursor-not-allowed disabled:opacity-60"
+              />
+            </label>
+          )}
+
+          {emailEventType ===
+            'price_improvement' && (
+            <>
+              <label className="block">
+                <span className="text-sm font-bold text-slate-800">
+                  Original listing price
+                </span>
+
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={emailEventDetails.original_price}
+                  onChange={(event) => {
+                    setEmailEventDetails(
+                      (current) => ({
+                        ...current,
+                        original_price:
+                          event.target.value,
+                      })
+                    );
+
+                    setError(null);
+                    setNotice(null);
+                  }}
+                  placeholder="$1,099,900"
+                  disabled={preparing}
+                  className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 disabled:cursor-not-allowed disabled:opacity-60"
+                />
+              </label>
+
+              <div>
+                <div className="text-sm font-bold text-slate-800">
+                  Current verified price
+                </div>
+
+                <div className="mt-2 rounded-xl border border-slate-200 bg-slate-100 px-3 py-2.5 text-sm font-bold text-slate-900">
+                  {listing.list_price ===
+                  null
+                    ? 'Current price unavailable'
+                    : new Intl.NumberFormat(
+                        'en-US',
+                        {
+                          style: 'currency',
+                          currency: 'USD',
+                          maximumFractionDigits:
+                            0,
+                        }
+                      ).format(
+                        listing.list_price
+                      )}
+                </div>
+
+                <p className="mt-1 text-xs leading-5 text-slate-500">
+                  This comes directly from the current listing record and will be used as the new price.
+                </p>
+              </div>
+            </>
+          )}
+
+          {selectedEmailEventDefinition
+            .requiredDetails
+            .includes(
+              'video_url'
+            ) && (
+            <label className="block lg:col-span-2">
+              <span className="text-sm font-bold text-slate-800">
+                Property video or virtual-tour URL
+              </span>
+
+              <input
+                type="url"
+                value={emailEventDetails.video_url}
+                onChange={(event) => {
+                  setEmailEventDetails(
+                    (current) => ({
+                      ...current,
+                      video_url:
+                        event.target.value,
+                    })
+                  );
+
+                  setError(null);
+                  setNotice(null);
+                }}
+                placeholder="https://..."
+                disabled={preparing}
+                className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 disabled:cursor-not-allowed disabled:opacity-60"
+              />
+            </label>
+          )}
+
+          {selectedEmailEventDefinition
+            .requiredDetails
+            .includes(
+              'incentive_summary'
+            ) && (
+            <label className="block lg:col-span-2">
+              <span className="text-sm font-bold text-slate-800">
+                Verified incentive terms
+              </span>
+
+              <textarea
+                value={emailEventDetails.incentive_summary}
+                onChange={(event) => {
+                  setEmailEventDetails(
+                    (current) => ({
+                      ...current,
+                      incentive_summary:
+                        event.target.value,
+                    })
+                  );
+
+                  setError(null);
+                  setNotice(null);
+                }}
+                maxLength={1000}
+                rows={4}
+                disabled={preparing}
+                placeholder="Enter only the approved seller incentive or rate-buydown terms and any required disclaimer."
+                className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm leading-6 text-slate-900 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 disabled:cursor-not-allowed disabled:opacity-60"
+              />
+
+              <span className="mt-1 block text-right text-xs text-slate-500">
+                {emailEventDetails.incentive_summary.length}/1000
+              </span>
+            </label>
+          )}
+
+          {selectedEmailEventDefinition
+            .requiredDetails
+            .includes(
+              'deadline_at'
+            ) && (
+            <label className="block">
+              <span className="text-sm font-bold text-slate-800">
+                Deadline date and time
+              </span>
+
+              <input
+                type="datetime-local"
+                value={emailEventDetails.deadline_at}
+                onChange={(event) => {
+                  setEmailEventDetails(
+                    (current) => ({
+                      ...current,
+                      deadline_at:
+                        event.target.value,
+                    })
+                  );
+
+                  setError(null);
+                  setNotice(null);
+                }}
+                disabled={preparing}
+                className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 disabled:cursor-not-allowed disabled:opacity-60"
+              />
+            </label>
+          )}
+        </div>
+
+        {selectedEmailEventDefinition
+          .requiredDetails
+          .includes(
+            'photo_media_ids'
+          ) && (
+          <div className="mt-4">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <div className="text-sm font-bold text-slate-800">
+                  Newly added listing photos
+                </div>
+
+                <p className="mt-1 text-xs leading-5 text-slate-500">
+                  Select only the new, approved property photos Samantha should prioritize in this announcement.
+                </p>
+              </div>
+
+              <div className="rounded-full bg-violet-100 px-3 py-1 text-xs font-bold text-violet-700">
+                {emailEventDetails.photo_media_ids.length} selected
+              </div>
+            </div>
+
+            {marketingPhotos.length ===
+            0 ? (
+              <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                No approved marketing photos are currently available for this listing.
+              </div>
+            ) : (
+              <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                {marketingPhotos.map(
+                  (photo) => {
+                    const selected =
+                      emailEventDetails
+                        .photo_media_ids
+                        .includes(
+                          photo.id
+                        );
+
+                    return (
+                      <label
+                        key={photo.id}
+                        className={
+                          selected
+                            ? 'cursor-pointer overflow-hidden rounded-xl border-2 border-violet-500 bg-violet-50 shadow-sm'
+                            : 'cursor-pointer overflow-hidden rounded-xl border border-slate-200 bg-white hover:border-violet-300'
+                        }
+                      >
+                        <div className="aspect-[4/3] overflow-hidden bg-slate-100">
+                          <img
+                            src={
+                              photo.thumbnail_url ||
+                              photo.public_url
+                            }
+                            alt={
+                              photo.title ||
+                              photo.file_name
+                            }
+                            className="h-full w-full object-cover"
+                          />
+                        </div>
+
+                        <div className="flex items-start gap-3 p-3">
+                          <input
+                            type="checkbox"
+                            checked={selected}
+                            onChange={(event) => {
+                              const nextPhotoIds =
+                                event.target.checked
+                                  ? [
+                                      ...new Set([
+                                        ...emailEventDetails
+                                          .photo_media_ids,
+                                        photo.id,
+                                      ]),
+                                    ]
+                                  : emailEventDetails
+                                      .photo_media_ids
+                                      .filter(
+                                        (photoId) =>
+                                          photoId !==
+                                            photo.id
+                                      );
+
+                              setEmailEventDetails(
+                                (current) => ({
+                                  ...current,
+                                  photo_media_ids:
+                                    nextPhotoIds,
+                                })
+                              );
+
+                              setError(null);
+                              setNotice(null);
+                            }}
+                            disabled={preparing}
+                            className="mt-0.5 h-4 w-4 rounded border-slate-300 text-violet-700 focus:ring-violet-500"
+                          />
+
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-bold text-slate-800">
+                              {photo.title ||
+                                photo.file_name}
+                            </span>
+
+                            {photo.caption && (
+                              <span className="mt-1 block line-clamp-2 text-xs leading-5 text-slate-500">
+                                {photo.caption}
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                      </label>
+                    );
+                  }
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {selectedEmailEventDefinition
+          .requiredDetails.length ===
+          0 && (
+          <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">
+            No additional event details are required. Samantha will use the verified listing facts already stored in the CRM.
+          </div>
+        )}
+      </section>
 
       <nav className="sticky top-0 z-30 overflow-x-auto rounded-2xl border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur">
         <div className="flex min-w-max gap-1">

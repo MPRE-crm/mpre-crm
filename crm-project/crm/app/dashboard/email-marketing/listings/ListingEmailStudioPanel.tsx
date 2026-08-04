@@ -11,12 +11,14 @@ import {
   Check,
   CheckCircle2,
   Eye,
+  Image as ImageIcon,
   Loader2,
   Mail,
   Monitor,
   Pencil,
   Save,
   Smartphone,
+  X,
 } from 'lucide-react';
 
 import {
@@ -34,7 +36,9 @@ import {
   type Profile,
 } from '../../../../lib/listing-email-creative';
 
-import ListingQuickNotePanel from './ListingQuickNotePanel';
+import ListingQuickNotePanel, {
+  type PersonalFollowUpSettings,
+} from './ListingQuickNotePanel';
 
 
 const supabase =
@@ -43,6 +47,10 @@ const supabase =
 export type StudioEmailListing =
   Listing & {
     org_id: string;
+
+    owner_user_id:
+      | string
+      | null;
   };
 
 export type StudioEmailSection = {
@@ -73,6 +81,7 @@ export type StudioEmailPhoto =
 export type StudioEmailAssignment = {
   id: string;
   section_key: string;
+  edition_key: string;
   slot_key: string;
   sort_order: number;
   media_id: string;
@@ -152,10 +161,106 @@ function stringArrayValue(
   return output;
 }
 
+function sharedPersonalFollowUpValue(
+  value: unknown
+):
+  | PersonalFollowUpSharedSettings
+  | null {
+  const source =
+    recordValue(value);
+
+  const hasSharedSettings =
+    Object.prototype
+      .hasOwnProperty.call(
+        source,
+        'enabled'
+      ) ||
+    Object.prototype
+      .hasOwnProperty.call(
+        source,
+        'delay_hours'
+      ) ||
+    Object.prototype
+      .hasOwnProperty.call(
+        source,
+        'stop_after_reply'
+      );
+
+  if (!hasSharedSettings) {
+    return null;
+  }
+
+  return {
+    version: 1,
+
+    enabled:
+      source.enabled ===
+      true,
+
+    delay_hours:
+      source.delay_hours ===
+          24 ||
+        source.delay_hours ===
+          48
+        ? source.delay_hours
+        : 36,
+
+    stop_after_reply:
+      true,
+  };
+}
+
+function editionPersonalFollowUpValue(
+  value: unknown
+):
+  | PersonalFollowUpEditionSettings
+  | null {
+  const source =
+    recordValue(value);
+
+  if (
+    !Object.prototype
+      .hasOwnProperty.call(
+        source,
+        'categories'
+      )
+  ) {
+    return null;
+  }
+
+  return {
+    version: 1,
+
+    categories:
+      recordValue(
+        source.categories
+      ) as
+        PersonalFollowUpEditionSettings[
+          'categories'
+        ],
+  };
+}
+
 type EmailEditionStatus =
   | 'not_prepared'
   | 'needs_review'
   | 'approved';
+
+type PersonalFollowUpSharedSettings =
+  Pick<
+    PersonalFollowUpSettings,
+    | 'version'
+    | 'enabled'
+    | 'delay_hours'
+    | 'stop_after_reply'
+  >;
+
+type PersonalFollowUpEditionSettings =
+  Pick<
+    PersonalFollowUpSettings,
+    | 'version'
+    | 'categories'
+  >;
 
 type EmailEditionDraft = {
   subject: string;
@@ -174,6 +279,13 @@ type EmailEditionDraft = {
     | string
     | null;
   manual_override: boolean;
+
+  copy_manual_override?:
+    boolean;
+
+  personal_follow_up?:
+    PersonalFollowUpEditionSettings;
+
   [key: string]: unknown;
 };
 
@@ -283,6 +395,22 @@ function normalizeEmailEditionDraft(
         source.manual_override ??
         fallback.manual_override
       ),
+
+    copy_manual_override:
+      Boolean(
+        source
+          .copy_manual_override ??
+        fallback
+          .copy_manual_override
+      ),
+
+    personal_follow_up:
+      (
+        source.personal_follow_up ??
+        fallback.personal_follow_up
+      ) as
+        | PersonalFollowUpEditionSettings
+        | undefined,
   };
 }
 
@@ -325,6 +453,36 @@ function assignmentRank(
   }
 
   return assignment.sort_order;
+}
+
+function emailAssignmentIndex(
+  assignment:
+    StudioEmailAssignment
+) {
+  if (
+    assignment.slot_key ===
+    'hero' &&
+    assignment.sort_order ===
+      0
+  ) {
+    return 0;
+  }
+
+  if (
+    assignment.slot_key ===
+      'supporting' &&
+    assignment.sort_order >=
+      0 &&
+    assignment.sort_order <=
+      4
+  ) {
+    return (
+      assignment.sort_order +
+      1
+    );
+  }
+
+  return null;
 }
 
 export default function ListingEmailStudioPanel({
@@ -409,11 +567,23 @@ export default function ListingEmailStudioPanel({
   >(null);
 
   const [
+    refreshError,
+    setRefreshError,
+  ] = useState<
+    string | null
+  >(null);
+
+  const [
     notice,
     setNotice,
   ] = useState<
     string | null
   >(null);
+
+  const [
+    repairingPhotos,
+    setRepairingPhotos,
+  ] = useState(false);
 
   const selectedPhotos =
     useMemo(() => {
@@ -438,7 +608,10 @@ export default function ListingEmailStudioPanel({
           (assignment) =>
             assignment
               .section_key ===
-            'email'
+              'email' &&
+            assignment
+              .edition_key ===
+              'launch'
         )
         .slice()
         .sort(
@@ -474,37 +647,7 @@ export default function ListingEmailStudioPanel({
           }
         );
 
-      if (
-        selected.length >
-        0
-      ) {
-        return selected;
-      }
-
-      return photos
-        .filter(
-          (photo) =>
-            photo.use_in_marketing
-        )
-        .slice()
-        .sort(
-          (left, right) => {
-            if (
-              left.is_primary !==
-              right.is_primary
-            ) {
-              return left.is_primary
-                ? -1
-                : 1;
-            }
-
-            return (
-              left.sort_order -
-              right.sort_order
-            );
-          }
-        )
-        .slice(0, 6);
+      return selected;
     }, [
       photos,
       assignments,
@@ -546,6 +689,141 @@ export default function ListingEmailStudioPanel({
     EmailEditionStatus
   >('not_prepared');
 
+  const [
+    photoPickerIndex,
+    setPhotoPickerIndex,
+  ] = useState<
+    number | null
+  >(null);
+
+  const sharedPersonalFollowUpRef =
+    useRef<
+      PersonalFollowUpSharedSettings |
+      null
+    >(null);
+
+  const storedSectionEditions =
+    recordValue(
+      section
+        ?.content
+        ?.editions
+    );
+
+  const persistedSharedPersonalFollowUp =
+    sharedPersonalFollowUpValue(
+      section
+        ?.content
+        ?.personal_follow_up
+    ) ||
+    LUXURY_EMAIL_EDITIONS
+      .map(
+        (edition) =>
+          sharedPersonalFollowUpValue(
+            recordValue(
+              storedSectionEditions[
+                edition.value
+              ]
+            )
+              .personal_follow_up
+          )
+      )
+      .find(Boolean) ||
+    null;
+
+  const activeEditionPersonalFollowUp =
+    editionPersonalFollowUpValue(
+      editionDraftsRef
+        .current[
+        luxuryEdition
+      ]
+        ?.personal_follow_up
+    ) ||
+    editionPersonalFollowUpValue(
+      recordValue(
+        storedSectionEditions[
+          luxuryEdition
+        ]
+      )
+        .personal_follow_up
+    ) ||
+    null;
+
+  const activeSharedPersonalFollowUp =
+    sharedPersonalFollowUpRef
+      .current ||
+    persistedSharedPersonalFollowUp ||
+    {
+      version: 1,
+      enabled: false,
+      delay_hours: 36,
+      stop_after_reply: true,
+    };
+
+  const activePersonalFollowUpSettings:
+    PersonalFollowUpSettings = {
+    ...activeSharedPersonalFollowUp,
+
+    version: 1,
+
+    categories:
+      activeEditionPersonalFollowUp
+        ?.categories ||
+      {},
+  };
+
+  const marketingPhotos =
+    useMemo(
+      () =>
+        photos.filter(
+          (photo) =>
+            photo.use_in_marketing
+        ),
+      [photos]
+    );
+
+  const activeEditionAssignmentsByIndex =
+    useMemo(() => {
+      const output =
+        new Map<
+          number,
+          StudioEmailAssignment
+        >();
+
+      assignments
+        .filter(
+          (assignment) =>
+            assignment
+              .section_key ===
+              'email' &&
+            assignment
+              .edition_key ===
+              luxuryEdition
+        )
+        .forEach(
+          (assignment) => {
+            const index =
+              emailAssignmentIndex(
+                assignment
+              );
+
+            if (
+              index !==
+              null
+            ) {
+              output.set(
+                index,
+                assignment
+              );
+            }
+          }
+        );
+
+      return output;
+    }, [
+      assignments,
+      luxuryEdition,
+    ]);
+
   const activeEditionPhotos =
     useMemo(() => {
       const photoById =
@@ -582,14 +860,10 @@ export default function ListingEmailStudioPanel({
         }
       }
 
-      return output.length >
-        0
-        ? output
-        : selectedPhotos;
+      return output;
     }, [
       photos,
       editionPhotoIds,
-      selectedPhotos,
     ]);
 
   useEffect(() => {
@@ -1132,6 +1406,12 @@ export default function ListingEmailStudioPanel({
         currentStored
           .manual_override ||
         currentWasDirty,
+
+      copy_manual_override:
+        currentStored
+          .copy_manual_override ===
+          true ||
+        currentWasDirty,
     };
 
     const nextDraft =
@@ -1220,6 +1500,601 @@ export default function ListingEmailStudioPanel({
     setNotice(null);
   }
 
+  function changePersonalFollowUpSettings(
+    settings:
+      PersonalFollowUpSettings,
+
+    options?: {
+      markDirty?: boolean;
+    }
+  ) {
+    sharedPersonalFollowUpRef.current = {
+      version: 1,
+
+      enabled:
+        settings.enabled,
+
+      delay_hours:
+        settings.delay_hours,
+
+      stop_after_reply:
+        true,
+    };
+
+    const currentStored =
+      normalizeEmailEditionDraft(
+        editionDraftsRef
+          .current[
+          luxuryEdition
+        ],
+        {
+          cta_label:
+            LUXURY_EMAIL_EDITION_DEFAULT_CTA[
+              luxuryEdition
+            ],
+
+          status:
+            editionStatus,
+
+          photo_media_ids:
+            editionPhotoIds,
+        }
+      );
+
+    editionDraftsRef.current[
+      luxuryEdition
+    ] = {
+      ...currentStored,
+
+      personal_follow_up: {
+        version: 1,
+
+        categories:
+          settings.categories,
+      },
+
+      manual_override:
+        currentStored
+          .manual_override,
+    };
+
+    if (
+      options?.markDirty !==
+      false
+    ) {
+      setError(null);
+      setNotice(null);
+    }
+  }
+
+  async function refreshEditionStoriesAndPhotos() {
+    if (!section) {
+      setError(
+        'Prepare the Email section before refreshing its stories and photos.'
+      );
+
+      return;
+    }
+
+    try {
+      setRepairingPhotos(
+        true
+      );
+
+      setRefreshError(null);
+      setError(null);
+      setNotice(null);
+
+      const {
+        data:
+          sessionResult,
+        error:
+          sessionError,
+      } = await supabase
+        .auth
+        .getSession();
+
+      if (
+        sessionError ||
+        !sessionResult.session
+      ) {
+        throw new Error(
+          sessionError?.message ||
+            'Your CRM session expired.'
+        );
+      }
+
+      const response =
+        await fetch(
+          '/api/marketing/listing-marketing-package/prepare',
+          {
+            method:
+              'POST',
+
+            headers: {
+              'Content-Type':
+                'application/json',
+
+              Authorization:
+                `Bearer ${sessionResult.session.access_token}`,
+            },
+
+            body:
+              JSON.stringify({
+                listing_id:
+                  listing.id,
+
+                mode:
+                  'refresh_email_edition_stories',
+              }),
+          }
+        );
+
+      const result =
+        await response
+          .json()
+          .catch(
+            () => ({})
+          );
+
+      if (
+        !response.ok ||
+        !result?.ok
+      ) {
+        throw new Error(
+          result?.error ||
+            'Samantha could not compose the Email edition stories and photo sequences.'
+        );
+      }
+
+      setPhotoPickerIndex(
+        null
+      );
+
+      setNotice(
+        result.message ||
+          'Samantha composed all seven Email edition stories around their final photo sequences.'
+      );
+
+      await onRefresh();
+    }
+    catch (
+      repairError: any
+    ) {
+      setRefreshError(
+        (
+          repairError?.message ||
+          'Could not refresh the Email edition stories and photos.'
+        ) +
+          ' The photos and copy shown below are the previously saved version. This failed refresh saved nothing.'
+      );
+    }
+    finally {
+      setRepairingPhotos(
+        false
+      );
+    }
+  }
+
+  async function selectEditionPhoto(
+    photo:
+      StudioEmailPhoto
+  ) {
+    const targetIndex =
+      photoPickerIndex;
+
+    if (
+      targetIndex ===
+        null ||
+      !section
+    ) {
+      return;
+    }
+
+    if (
+      editionPhotoIds.length !==
+        6 ||
+      new Set(
+        editionPhotoIds
+      ).size !== 6
+    ) {
+      setError(
+        'This edition must have six valid photos before one can be replaced. Prepare the package with Samantha first.'
+      );
+
+      return;
+    }
+
+    const duplicateIndex =
+      editionPhotoIds
+        .findIndex(
+          (
+            photoId,
+            index
+          ) =>
+            photoId ===
+              photo.id &&
+            index !==
+              targetIndex
+        );
+
+    if (
+      duplicateIndex >=
+      0
+    ) {
+      setError(
+        'That photo is already used in another slot for this edition.'
+      );
+
+      return;
+    }
+
+    try {
+      setSaving(true);
+      setError(null);
+      setNotice(null);
+
+      const {
+        data: userResult,
+        error: userError,
+      } = await supabase
+        .auth
+        .getUser();
+
+      if (
+        userError ||
+        !userResult.user
+      ) {
+        throw new Error(
+          userError?.message ||
+            'Your CRM session expired.'
+        );
+      }
+
+      const slot =
+        targetIndex ===
+          0
+          ? {
+              slot_key:
+                'hero',
+              sort_order:
+                0,
+            }
+          : {
+              slot_key:
+                'supporting',
+              sort_order:
+                targetIndex -
+                1,
+            };
+
+      const previousAssignment =
+        activeEditionAssignmentsByIndex
+          .get(
+            targetIndex
+          ) ||
+        null;
+
+      const nextPhotoIds =
+        [
+          ...editionPhotoIds,
+        ];
+
+      nextPhotoIds[
+        targetIndex
+      ] =
+        photo.id;
+
+      const storedEdition =
+        normalizeEmailEditionDraft(
+          editionDraftsRef
+            .current[
+            luxuryEdition
+          ],
+          {
+            subject,
+            preview_text:
+              previewText,
+            headline,
+            body,
+            full_description:
+              fullDescription,
+            cta_label:
+              ctaLabel,
+            photo_media_ids:
+              editionPhotoIds,
+            status:
+              editionStatus,
+          }
+        );
+
+      const nextEditionDraft:
+        EmailEditionDraft = {
+        ...storedEdition,
+
+        subject,
+        preview_text:
+          previewText,
+        headline,
+        body,
+        full_description:
+          fullDescription,
+        cta_label:
+          ctaLabel,
+
+        photo_media_ids:
+          nextPhotoIds,
+
+        status:
+          'needs_review',
+
+        approved_at:
+          null,
+
+        approved_by:
+          null,
+
+        manual_override:
+          storedEdition
+            .manual_override,
+
+        copy_manual_override:
+          storedEdition
+            .copy_manual_override ===
+            true,
+      };
+
+      const nextEditionDrafts = {
+        ...editionDraftsRef
+          .current,
+
+        [luxuryEdition]:
+          nextEditionDraft,
+      };
+
+      const nextContent = {
+        ...section.content,
+
+        subject:
+          nextEditionDraft
+            .subject,
+
+        preview_text:
+          nextEditionDraft
+            .preview_text,
+
+        headline:
+          nextEditionDraft
+            .headline,
+
+        body:
+          nextEditionDraft
+            .body,
+
+        full_description:
+          nextEditionDraft
+            .full_description,
+
+        cta_label:
+          nextEditionDraft
+            .cta_label,
+
+        luxury_edition:
+          luxuryEdition,
+
+        editions: {
+          ...recordValue(
+            section.content
+              .editions
+          ),
+
+          ...nextEditionDrafts,
+        },
+
+        generated_asset_id:
+          null,
+
+        generated_asset_url:
+          null,
+
+        generated_asset_format:
+          null,
+      };
+
+      const assignmentPayload = {
+        listing_id:
+          listing.id,
+
+        org_id:
+          listing.org_id,
+
+        owner_user_id:
+          listing
+            .owner_user_id,
+
+        section_key:
+          'email',
+
+        edition_key:
+          luxuryEdition,
+
+        ...slot,
+
+        media_id:
+          photo.id,
+
+        selected_by:
+          'agent',
+
+        is_locked:
+          true,
+
+        created_by:
+          userResult.user.id,
+
+        updated_by:
+          userResult.user.id,
+      };
+
+      const {
+        error:
+          assignmentError,
+      } = await supabase
+        .from(
+          'listing_marketing_photo_assignments'
+        )
+        .upsert(
+          assignmentPayload,
+          {
+            onConflict:
+              'listing_id,section_key,edition_key,slot_key,sort_order',
+          }
+        );
+
+      if (
+        assignmentError
+      ) {
+        throw assignmentError;
+      }
+
+      const {
+        error:
+          sectionError,
+      } = await supabase
+        .from(
+          'listing_marketing_sections'
+        )
+        .update({
+          content:
+            nextContent,
+
+          manual_override:
+            true,
+
+          status:
+            'needs_review',
+
+          approved_at:
+            null,
+
+          approved_by:
+            null,
+
+          updated_by:
+            userResult.user.id,
+        })
+        .eq(
+          'id',
+          section.id
+        );
+
+      if (
+        sectionError
+      ) {
+        if (
+          previousAssignment
+        ) {
+          await supabase
+            .from(
+              'listing_marketing_photo_assignments'
+            )
+            .upsert(
+              {
+                ...assignmentPayload,
+
+                media_id:
+                  previousAssignment
+                    .media_id,
+
+                selected_by:
+                  previousAssignment
+                    .selected_by,
+
+                is_locked:
+                  previousAssignment
+                    .is_locked,
+              },
+              {
+                onConflict:
+                  'listing_id,section_key,edition_key,slot_key,sort_order',
+              }
+            );
+        }
+        else {
+          await supabase
+            .from(
+              'listing_marketing_photo_assignments'
+            )
+            .delete()
+            .eq(
+              'listing_id',
+              listing.id
+            )
+            .eq(
+              'section_key',
+              'email'
+            )
+            .eq(
+              'edition_key',
+              luxuryEdition
+            )
+            .eq(
+              'slot_key',
+              slot.slot_key
+            )
+            .eq(
+              'sort_order',
+              slot.sort_order
+            );
+        }
+
+        throw sectionError;
+      }
+
+      editionDraftsRef.current =
+        nextEditionDrafts;
+
+      setEditionPhotoIds(
+        nextPhotoIds
+      );
+
+      setEditionStatus(
+        'needs_review'
+      );
+
+      setDirty(false);
+      setPhotoPickerIndex(null);
+
+      const editionLabel =
+        LUXURY_EMAIL_EDITIONS
+          .find(
+            (edition) =>
+              edition.value ===
+                luxuryEdition
+          )
+          ?.label ||
+        'Email edition';
+
+      setNotice(
+        editionLabel +
+          ' photo updated and locked only for this edition and slot.'
+      );
+
+      await onRefresh();
+    }
+    catch (
+      photoError: any
+    ) {
+      setError(
+        photoError?.message ||
+          'Could not save the edition photo.'
+      );
+    }
+    finally {
+      setSaving(false);
+    }
+  }
+
   async function saveCreative(
     nextStatus:
       | 'needs_review'
@@ -1242,6 +2117,20 @@ export default function ListingEmailStudioPanel({
     ) {
       setError(
         'Complete the subject, inbox preview, headline, full listing description and main button text.'
+      );
+
+      return;
+    }
+
+    if (
+      editionPhotoIds.length !==
+        6 ||
+      new Set(
+        editionPhotoIds
+      ).size !== 6
+    ) {
+      setError(
+        'This Email edition must contain six unique valid photos before it can be saved or approved.'
       );
 
       return;
@@ -1338,6 +2227,12 @@ export default function ListingEmailStudioPanel({
           storedEdition
             .manual_override ||
           dirty,
+
+        copy_manual_override:
+          storedEdition
+            .copy_manual_override ===
+            true ||
+          dirty,
       };
 
       const nextEditionDrafts:
@@ -1398,6 +2293,17 @@ export default function ListingEmailStudioPanel({
 
         editions:
           nextEditions,
+
+        personal_follow_up:
+          sharedPersonalFollowUpRef
+            .current ||
+          persistedSharedPersonalFollowUp ||
+          {
+            version: 1,
+            enabled: false,
+            delay_hours: 36,
+            stop_after_reply: true,
+          },
 
         generated_asset_id:
           null,
@@ -1484,6 +2390,26 @@ export default function ListingEmailStudioPanel({
 
   return (
     <div className="space-y-5">
+      {refreshError && (
+        <div className="flex flex-col gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            {refreshError}
+          </div>
+
+          <button
+            type="button"
+            onClick={() =>
+              setRefreshError(
+                null
+              )
+            }
+            className="self-start rounded-lg border border-red-300 bg-white px-3 py-1.5 text-xs font-bold text-red-700 hover:bg-red-100"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {error && (
         <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700">
           {error}
@@ -1514,6 +2440,30 @@ export default function ListingEmailStudioPanel({
           </div>
 
           <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={
+                repairingPhotos ||
+                saving ||
+                loadingProfile ||
+                !section
+              }
+              onClick={() =>
+                void refreshEditionStoriesAndPhotos()
+              }
+              className="inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-700 hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {repairingPhotos ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <ImageIcon className="h-4 w-4" />
+              )}
+
+              {repairingPhotos
+                ? 'Samantha Is Composing...'
+                : 'Refresh Edition Stories & Photos'}
+            </button>
+
             <button
               type="button"
               onClick={() =>
@@ -1667,6 +2617,217 @@ export default function ListingEmailStudioPanel({
               )}
             </div>
           </div>
+        )}
+
+        {templateKey ===
+          'luxury' && (
+          <section className="mt-5 rounded-2xl border border-violet-200 bg-violet-50/40 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2 text-sm font-bold text-violet-800">
+                  <ImageIcon className="h-4 w-4" />
+                  Photos for This Edition
+                </div>
+
+                <p className="mt-1 text-sm leading-6 text-slate-600">
+                  Samantha selected these six photos for the active edition. Changing one locks only this edition and exact slot.
+                </p>
+              </div>
+
+              <div className="rounded-full bg-white px-3 py-1 text-xs font-bold text-violet-700 shadow-sm">
+                {activeEditionPhotos.length}/6 ready
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+              {Array.from(
+                {
+                  length: 6,
+                },
+                (
+                  _,
+                  index
+                ) => {
+                  const photoId =
+                    editionPhotoIds[
+                      index
+                    ] ||
+                    '';
+
+                  const photo =
+                    photos.find(
+                      (candidate) =>
+                        candidate.id ===
+                          photoId
+                    ) ||
+                    null;
+
+                  const assignment =
+                    activeEditionAssignmentsByIndex
+                      .get(index) ||
+                    null;
+
+                  return (
+                    <div
+                      key={index}
+                      className="overflow-hidden rounded-xl border border-slate-200 bg-white"
+                    >
+                      <div className="aspect-[4/3] bg-slate-100">
+                        {photo ? (
+                          <img
+                            src={
+                              photo.thumbnail_url ||
+                              photo.public_url
+                            }
+                            alt={
+                              photo.title ||
+                              photo.caption ||
+                              photo.file_name
+                            }
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-full items-center justify-center px-3 text-center text-xs font-semibold text-amber-700">
+                            Photo needs repair
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="p-3">
+                        <div className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                          {index ===
+                          0
+                            ? 'Hero'
+                            : 'Supporting ' +
+                              index}
+                        </div>
+
+                        <div className="mt-1 text-xs text-slate-600">
+                          {assignment
+                            ?.is_locked
+                            ? 'Your choice - locked'
+                            : 'Samantha recommended'}
+                        </div>
+
+                        <button
+                          type="button"
+                          disabled={
+                            saving ||
+                            editionPhotoIds
+                              .length !==
+                              6
+                          }
+                          onClick={() =>
+                            setPhotoPickerIndex(
+                              index
+                            )
+                          }
+                          className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-2 text-xs font-bold text-violet-700 hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <ImageIcon className="h-3.5 w-3.5" />
+                          Change Photo
+                        </button>
+                      </div>
+                    </div>
+                  );
+                }
+              )}
+            </div>
+
+            {photoPickerIndex !==
+              null && (
+              <div className="mt-4 rounded-2xl border border-violet-200 bg-white p-4 shadow-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="font-bold text-slate-950">
+                      Choose a replacement
+                    </div>
+
+                    <div className="mt-1 text-xs text-slate-500">
+                      The selected photo will be locked only to this edition and slot.
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPhotoPickerIndex(
+                        null
+                      )
+                    }
+                    className="rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-slate-50"
+                    aria-label="Close photo picker"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                  {marketingPhotos.map(
+                    (photo) => {
+                      const usedInAnotherSlot =
+                        editionPhotoIds
+                          .some(
+                            (
+                              photoId,
+                              index
+                            ) =>
+                              photoId ===
+                                photo.id &&
+                              index !==
+                                photoPickerIndex
+                          );
+
+                      return (
+                        <button
+                          key={
+                            photo.id
+                          }
+                          type="button"
+                          disabled={
+                            saving ||
+                            usedInAnotherSlot
+                          }
+                          onClick={() =>
+                            void selectEditionPhoto(
+                              photo
+                            )
+                          }
+                          className={
+                            usedInAnotherSlot
+                              ? 'overflow-hidden rounded-xl border border-slate-200 bg-slate-50 text-left opacity-45'
+                              : 'overflow-hidden rounded-xl border border-slate-200 bg-white text-left hover:border-violet-400 hover:ring-2 hover:ring-violet-100'
+                          }
+                        >
+                          <div className="aspect-[4/3] bg-slate-100">
+                            <img
+                              src={
+                                photo.thumbnail_url ||
+                                photo.public_url
+                              }
+                              alt={
+                                photo.title ||
+                                photo.caption ||
+                                photo.file_name
+                              }
+                              className="h-full w-full object-cover"
+                            />
+                          </div>
+
+                          <div className="p-3 text-xs font-semibold text-slate-700">
+                            {usedInAnotherSlot
+                              ? 'Already used in this edition'
+                              : photo.title ||
+                                photo.file_name}
+                          </div>
+                        </button>
+                      );
+                    }
+                  )}
+                </div>
+              </div>
+            )}
+          </section>
         )}
 
         <div className="mt-5 grid gap-3 sm:grid-cols-3">
@@ -1841,6 +3002,15 @@ export default function ListingEmailStudioPanel({
         }
         editionBody={
           body
+        }
+        initialSettings={
+          activePersonalFollowUpSettings
+        }
+        settingsKey={
+          `${section?.id || 'none'}:${luxuryEdition}`
+        }
+        onSettingsChange={
+          changePersonalFollowUpSettings
         }
       />
 
