@@ -47,6 +47,23 @@ type ListingQuickNotePanelProps = {
 
   editionBody:
     string;
+
+  initialSettings:
+    | PersonalFollowUpSettings
+    | null;
+
+  settingsKey:
+    string;
+
+  onSettingsChange:
+    (
+      settings:
+        PersonalFollowUpSettings,
+
+      options?: {
+        markDirty?: boolean;
+      }
+    ) => void;
 };
 
 type SamanthaSubjectOption = {
@@ -65,6 +82,62 @@ type SamanthaSubjectSet = {
   model:
     string;
 };
+
+export type PersonalFollowUpCategorySettings = {
+  subject: string;
+  preview_text: string;
+  follow_up_paragraph: string;
+  customized: boolean;
+};
+
+export type PersonalFollowUpSettings = {
+  version: 1;
+  enabled: boolean;
+
+  delay_hours:
+    | 24
+    | 36
+    | 48;
+
+  stop_after_reply: true;
+
+  categories:
+    Partial<
+      Record<
+        QuickNoteAudience,
+        PersonalFollowUpCategorySettings
+      >
+    >;
+};
+
+function normalizePersonalFollowUpSettings(
+  value:
+    | PersonalFollowUpSettings
+    | null
+    | undefined
+): PersonalFollowUpSettings {
+  return {
+    version: 1,
+
+    enabled:
+      value?.enabled ===
+      true,
+
+    delay_hours:
+      value?.delay_hours ===
+          24 ||
+        value?.delay_hours ===
+          48
+        ? value.delay_hours
+        : 36,
+
+    stop_after_reply: true,
+
+    categories:
+      value?.categories ||
+      {},
+  };
+}
 
 const AUDIENCE_DESCRIPTIONS:
   Record<
@@ -146,6 +219,9 @@ export default function ListingQuickNotePanel({
   luxuryEdition,
   editionHeadline,
   editionBody,
+  initialSettings,
+  settingsKey,
+  onSettingsChange,
 }: ListingQuickNotePanelProps) {
   const [
     audience,
@@ -158,6 +234,18 @@ export default function ListingQuickNotePanel({
     firstName,
     setFirstName,
   ] = useState('Sarah');
+
+  const [
+    enabled,
+    setEnabled,
+  ] = useState(false);
+
+  const [
+    delayHours,
+    setDelayHours,
+  ] = useState<
+    24 | 36 | 48
+  >(36);
 
   const [
     subjectOverrides,
@@ -222,13 +310,96 @@ export default function ListingQuickNotePanel({
   >(null);
 
   useEffect(() => {
-    setSubjectOverrides({});
-    setPreviewTextOverrides({});
-    setEditionMessageOverrides({});
+    const savedSettings =
+      normalizePersonalFollowUpSettings(
+        initialSettings
+      );
+
+    const nextSubjectOverrides:
+      Partial<
+        Record<
+          QuickNoteAudience,
+          string
+        >
+      > = {};
+
+    const nextPreviewTextOverrides:
+      Partial<
+        Record<
+          QuickNoteAudience,
+          string
+        >
+      > = {};
+
+    const nextMessageOverrides:
+      Partial<
+        Record<
+          QuickNoteAudience,
+          string
+        >
+      > = {};
+
+    for (
+      const option of
+      QUICK_NOTE_AUDIENCES
+    ) {
+      const savedCategory =
+        savedSettings
+          .categories[
+          option
+        ];
+
+      if (
+        !savedCategory ||
+        !savedCategory
+          .customized
+      ) {
+        continue;
+      }
+
+      nextSubjectOverrides[
+        option
+      ] =
+        savedCategory.subject;
+
+      nextPreviewTextOverrides[
+        option
+      ] =
+        savedCategory
+          .preview_text;
+
+      nextMessageOverrides[
+        option
+      ] =
+        savedCategory
+          .follow_up_paragraph;
+    }
+
+    setEnabled(
+      savedSettings.enabled
+    );
+
+    setDelayHours(
+      savedSettings
+        .delay_hours
+    );
+
+    setSubjectOverrides(
+      nextSubjectOverrides
+    );
+
+    setPreviewTextOverrides(
+      nextPreviewTextOverrides
+    );
+
+    setEditionMessageOverrides(
+      nextMessageOverrides
+    );
+
     setSubjectSets({});
     setSubjectError(null);
   }, [
-    luxuryEdition,
+    settingsKey,
   ]);
 
   const quickNote =
@@ -266,6 +437,12 @@ export default function ListingQuickNotePanel({
             audience
           ],
 
+        preferences_url:
+          '{{preferences_url}}',
+
+        unsubscribe_url:
+          '{{unsubscribe_url}}',
+
         contact: {
           first_name:
             firstName,
@@ -283,6 +460,200 @@ export default function ListingQuickNotePanel({
       previewTextOverrides,
       editionMessageOverrides,
     ]);
+
+  function publishPersonalFollowUpSettings(
+    next: {
+      enabled?: boolean;
+
+      delay_hours?:
+        | 24
+        | 36
+        | 48;
+
+      subject_overrides?:
+        Partial<
+          Record<
+            QuickNoteAudience,
+            string
+          >
+        >;
+
+      preview_text_overrides?:
+        Partial<
+          Record<
+            QuickNoteAudience,
+            string
+          >
+        >;
+
+      message_overrides?:
+        Partial<
+          Record<
+            QuickNoteAudience,
+            string
+          >
+        >;
+    } = {},
+
+    markDirty = true
+  ) {
+    if (!profile) {
+      return;
+    }
+
+    const resolvedEnabled =
+      next.enabled ??
+      enabled;
+
+    const resolvedDelayHours =
+      next.delay_hours ??
+      delayHours;
+
+    const resolvedSubjectOverrides =
+      next.subject_overrides ||
+      subjectOverrides;
+
+    const resolvedPreviewTextOverrides =
+      next.preview_text_overrides ||
+      previewTextOverrides;
+
+    const resolvedMessageOverrides =
+      next.message_overrides ||
+      editionMessageOverrides;
+
+    const categories =
+      {} as Record<
+        QuickNoteAudience,
+        PersonalFollowUpCategorySettings
+      >;
+
+    for (
+      const option of
+      QUICK_NOTE_AUDIENCES
+    ) {
+      const draft =
+        buildQuickNoteEmail({
+          listing,
+          profile,
+          audience:
+            option,
+
+          luxury_edition:
+            luxuryEdition,
+
+          edition_headline:
+            editionHeadline,
+
+          edition_body:
+            editionBody,
+
+          edition_message_override:
+            resolvedMessageOverrides[
+              option
+            ],
+
+          subject_override:
+            resolvedSubjectOverrides[
+              option
+            ],
+
+          preview_text_override:
+            resolvedPreviewTextOverrides[
+              option
+            ],
+
+          contact: {
+            first_name:
+              firstName,
+          },
+        });
+
+      const customized =
+        Object.prototype
+          .hasOwnProperty.call(
+            resolvedSubjectOverrides,
+            option
+          ) ||
+        Object.prototype
+          .hasOwnProperty.call(
+            resolvedPreviewTextOverrides,
+            option
+          ) ||
+        Object.prototype
+          .hasOwnProperty.call(
+            resolvedMessageOverrides,
+            option
+          );
+
+      categories[
+        option
+      ] = {
+        subject:
+          draft.subject,
+
+        preview_text:
+          draft.preview_text,
+
+        follow_up_paragraph:
+          draft
+            .follow_up_paragraph,
+
+        customized,
+      };
+    }
+
+    onSettingsChange({
+      version: 1,
+
+      enabled:
+        resolvedEnabled,
+
+      delay_hours:
+        resolvedDelayHours,
+
+      stop_after_reply:
+        true,
+
+      categories,
+    }, {
+      markDirty,
+    });
+  }
+
+  useEffect(() => {
+    if (!profile) {
+      return;
+    }
+
+    const hasSavedCategories =
+      Object.keys(
+        initialSettings
+          ?.categories ||
+        {}
+      ).length > 0;
+
+    if (hasSavedCategories) {
+      return;
+    }
+
+    publishPersonalFollowUpSettings(
+      {
+        subject_overrides:
+          {},
+
+        preview_text_overrides:
+          {},
+
+        message_overrides:
+          {},
+      },
+      false
+    );
+  }, [
+    profile,
+    settingsKey,
+    initialSettings,
+  ]);
 
   const currentSubjectSet =
     subjectSets[
@@ -302,77 +673,99 @@ export default function ListingQuickNotePanel({
     option:
       SamanthaSubjectOption
   ) {
-    setSubjectOverrides(
-      (current) => ({
-        ...current,
+    const nextSubjects = {
+      ...subjectOverrides,
 
-        [audience]:
-          option.subject,
-      })
+      [audience]:
+        option.subject,
+    };
+
+    const nextPreviewText = {
+      ...previewTextOverrides,
+
+      [audience]:
+        option
+          .preview_text,
+    };
+
+    const nextMessages = {
+      ...editionMessageOverrides,
+
+      [audience]:
+        option.reason,
+    };
+
+    setSubjectOverrides(
+      nextSubjects
     );
 
     setPreviewTextOverrides(
-      (current) => ({
-        ...current,
-
-        [audience]:
-          option
-            .preview_text,
-      })
+      nextPreviewText
     );
 
     setEditionMessageOverrides(
-      (current) => ({
-        ...current,
-
-        [audience]:
-          option.reason,
-      })
+      nextMessages
     );
+
+    publishPersonalFollowUpSettings({
+      subject_overrides:
+        nextSubjects,
+
+      preview_text_overrides:
+        nextPreviewText,
+
+      message_overrides:
+        nextMessages,
+    });
   }
 
   function useCategoryFallback() {
+    const nextSubjects = {
+      ...subjectOverrides,
+    };
+
+    const nextPreviewText = {
+      ...previewTextOverrides,
+    };
+
+    const nextMessages = {
+      ...editionMessageOverrides,
+    };
+
+    delete nextSubjects[
+      audience
+    ];
+
+    delete nextPreviewText[
+      audience
+    ];
+
+    delete nextMessages[
+      audience
+    ];
+
     setSubjectOverrides(
-      (current) => {
-        const next = {
-          ...current,
-        };
-
-        delete next[
-          audience
-        ];
-
-        return next;
-      }
+      nextSubjects
     );
 
     setPreviewTextOverrides(
-      (current) => {
-        const next = {
-          ...current,
-        };
-
-        delete next[
-          audience
-        ];
-
-        return next;
-      }
+      nextPreviewText
     );
 
     setEditionMessageOverrides(
-      (current) => {
-        const next = {
-          ...current,
-        };
-
-        delete next[
-          audience
-        ];
-
-        return next;
-      }
+      nextMessages
     );
+
+    publishPersonalFollowUpSettings({
+      subject_overrides:
+        nextSubjects,
+
+      preview_text_overrides:
+        nextPreviewText,
+
+      message_overrides:
+        nextMessages,
+    });
   }
 
   async function generateSamanthaSubjects() {
@@ -592,6 +985,77 @@ export default function ListingQuickNotePanel({
         </div>
       </div>
 
+      <div className="mt-5 flex flex-wrap items-center gap-4 rounded-2xl border border-blue-200 bg-white p-4">
+        <label className="flex items-center gap-2 text-sm font-bold text-slate-800">
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(event) => {
+              const nextEnabled =
+                event.target
+                  .checked;
+
+              setEnabled(
+                nextEnabled
+              );
+
+              publishPersonalFollowUpSettings({
+                enabled:
+                  nextEnabled,
+              });
+            }}
+            className="h-4 w-4 rounded border-slate-300"
+          />
+
+          Send Personal Follow-Up
+        </label>
+
+        <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+          Delay
+
+          <select
+            value={delayHours}
+            disabled={!enabled}
+            onChange={(event) => {
+              const nextDelay =
+                Number(
+                  event.target
+                    .value
+                ) as
+                  | 24
+                  | 36
+                  | 48;
+
+              setDelayHours(
+                nextDelay
+              );
+
+              publishPersonalFollowUpSettings({
+                delay_hours:
+                  nextDelay,
+              });
+            }}
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-400"
+          >
+            <option value={24}>
+              24 hours
+            </option>
+
+            <option value={36}>
+              36 hours
+            </option>
+
+            <option value={48}>
+              48 hours
+            </option>
+          </select>
+        </label>
+
+        <div className="text-xs leading-5 text-slate-500">
+          The send setting and delay apply to every luxury edition. Each edition keeps its own subject, inbox preview and follow-up paragraph.
+        </div>
+      </div>
+
       <div className="mt-5 grid gap-3 sm:grid-cols-3">
         <div className="rounded-2xl border border-slate-200 bg-white p-4">
           <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-slate-500">
@@ -782,16 +1246,24 @@ export default function ListingQuickNotePanel({
                 quickNote?.subject ||
                 ''
               }
-              onChange={(event) =>
-                setSubjectOverrides(
-                  (current) => ({
-                    ...current,
+              onChange={(event) => {
+                const nextSubjects = {
+                  ...subjectOverrides,
 
-                    [audience]:
-                      event.target.value,
-                  })
-                )
-              }
+                  [audience]:
+                    event.target
+                      .value,
+                };
+
+                setSubjectOverrides(
+                  nextSubjects
+                );
+
+                publishPersonalFollowUpSettings({
+                  subject_overrides:
+                    nextSubjects,
+                });
+              }}
               placeholder="Subject line"
               className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-900"
             />
@@ -808,21 +1280,66 @@ export default function ListingQuickNotePanel({
                       ?.preview_text ||
                     ''
                   }
-                  onChange={(event) =>
-                    setPreviewTextOverrides(
-                      (current) => ({
-                        ...current,
+                  onChange={(event) => {
+                    const nextPreviewText = {
+                      ...previewTextOverrides,
 
-                        [audience]:
-                          event
-                            .target
-                            .value,
-                      })
-                    )
-                  }
+                      [audience]:
+                        event
+                          .target
+                          .value,
+                    };
+
+                    setPreviewTextOverrides(
+                      nextPreviewText
+                    );
+
+                    publishPersonalFollowUpSettings({
+                      preview_text_overrides:
+                        nextPreviewText,
+                    });
+                  }}
                   rows={3}
                   placeholder="Inbox preview text"
                   className="mt-2 w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm leading-5 text-slate-700"
+                />
+              </label>
+            </div>
+
+            <div className="mt-4">
+              <label>
+                <span className="block text-xs font-bold uppercase tracking-wide text-slate-500">
+                  Follow-Up Paragraph
+                </span>
+
+                <textarea
+                  value={
+                    quickNote
+                      ?.follow_up_paragraph ||
+                    ''
+                  }
+                  onChange={(event) => {
+                    const nextMessages = {
+                      ...editionMessageOverrides,
+
+                      [audience]:
+                        event
+                          .target
+                          .value,
+                    };
+
+                    setEditionMessageOverrides(
+                      nextMessages
+                    );
+
+                    publishPersonalFollowUpSettings({
+                      message_overrides:
+                        nextMessages,
+                    });
+                  }}
+                  rows={5}
+                  placeholder="Personal follow-up paragraph"
+                  className="mt-2 w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm leading-6 text-slate-700"
                 />
               </label>
             </div>

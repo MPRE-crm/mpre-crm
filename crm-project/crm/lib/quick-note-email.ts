@@ -195,6 +195,7 @@ export type QuickNoteDraft = {
   needs_classification_review: boolean;
   subject: string;
   preview_text: string;
+  follow_up_paragraph: string;
   text: string;
   html: string;
   stop_after_reply: true;
@@ -1514,6 +1515,8 @@ export function buildQuickNoteEmail(
     subject,
     preview_text:
       previewText,
+    follow_up_paragraph:
+      editionFollowUp,
     text:
       textParts
         .filter(

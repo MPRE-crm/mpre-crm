@@ -2,6 +2,36 @@ import {
   buildMarketingContactText,
   buildMarketingFooterHtml,
 } from './marketing-email-footer';
+
+function buildEmailComplianceLinksHtml() {
+  return `
+    <tr>
+      <td
+        style="padding:12px 28px;background:#11100e;border-top:1px solid #302b23;text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:9px;line-height:1.5;color:#9d9488;"
+      >
+        <a
+          href="{{preferences_url}}"
+          style="color:#c9a964;text-decoration:underline;"
+        >
+          Email preferences
+        </a>
+
+        <span
+          style="padding:0 8px;color:#695f52;"
+        >
+          &middot;
+        </span>
+
+        <a
+          href="{{unsubscribe_url}}"
+          style="color:#c9a964;text-decoration:underline;"
+        >
+          Unsubscribe
+        </a>
+      </td>
+    </tr>
+  `;
+}
 export type Profile = {
   id: string;
   email: string | null;
@@ -2251,6 +2281,8 @@ function buildLuxuryEditionEmailHtml({
 
             ${editionBodyHtml}
 
+            ${buildEmailComplianceLinksHtml()}
+
             ${buildMarketingFooterHtml(
               profile
             )}
@@ -3251,6 +3283,8 @@ const buttonText =
 
             ${realtorEditorial}
 
+            ${buildEmailComplianceLinksHtml()}
+
             ${buildMarketingFooterHtml(
               profile
             )}
@@ -4066,6 +4100,8 @@ export function buildEmailHtml({
                 `
                 : ''
             }
+
+            ${buildEmailComplianceLinksHtml()}
 
             ${buildMarketingFooterHtml(
               profile
