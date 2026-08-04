@@ -19,6 +19,7 @@ import {
   RefreshCw,
   Save,
   Send,
+  Trash2,
   Users,
 } from 'lucide-react';
 
@@ -2112,6 +2113,13 @@ export default function CampaignsPage() {
   >([]);
 
   const [
+    deletingCampaignId,
+    setDeletingCampaignId,
+  ] = useState<
+    string | null
+  >(null);
+
+  const [
     photos,
     setPhotos,
   ] = useState<
@@ -3304,6 +3312,117 @@ export default function CampaignsPage() {
     });
   }
 
+  async function deleteCampaign(
+    campaign: Campaign
+  ) {
+    if (campaign.status !== 'draft') {
+      setError(
+        'Only draft campaigns can be deleted.'
+      );
+
+      return;
+    }
+
+    const confirmed =
+      window.confirm(
+        `Delete "${campaign.name}"? This permanently removes the campaign draft and its unsent recipient snapshots. Contacts, listing data and Marketing Studio content are not deleted.`
+      );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setDeletingCampaignId(
+        campaign.id
+      );
+
+      setError(null);
+      setNotice(null);
+
+      const {
+        data: sessionResult,
+        error: sessionError,
+      } =
+        await supabase.auth.getSession();
+
+      if (
+        sessionError ||
+        !sessionResult.session
+      ) {
+        throw new Error(
+          sessionError?.message ||
+            'Your CRM session expired.'
+        );
+      }
+
+      const response =
+        await fetch(
+          '/api/marketing/email-campaigns/delete',
+          {
+            method: 'POST',
+
+            headers: {
+              Authorization:
+                `Bearer ${sessionResult.session.access_token}`,
+
+              'Content-Type':
+                'application/json',
+            },
+
+            body: JSON.stringify({
+              campaign_id:
+                campaign.id,
+            }),
+          }
+        );
+
+      const result =
+        await response
+          .json()
+          .catch(() => null);
+
+      if (
+        !response.ok ||
+        !result?.ok
+      ) {
+        throw new Error(
+          result?.error ||
+            'The campaign draft could not be deleted.'
+        );
+      }
+
+      if (
+        editingCampaignId ===
+        campaign.id
+      ) {
+        startNewCampaign();
+      }
+
+      setCampaigns(
+        (current) =>
+          current.filter(
+            (item) =>
+              item.id !== campaign.id
+          )
+      );
+
+      setNotice(
+        `Campaign draft deleted. ${result.deleted_recipient_count || 0} unsent recipient snapshot(s) were removed.`
+      );
+    }
+    catch (err: any) {
+      setError(
+        err?.message ||
+          'The campaign draft could not be deleted.'
+      );
+    }
+    finally {
+      setDeletingCampaignId(
+        null
+      );
+    }
+  }
   async function saveDraft(
     silent = false
   ): Promise<
@@ -4577,7 +4696,7 @@ export default function CampaignsPage() {
                 </th>
 
                 <th className="px-4 py-3">
-                  Edit
+                  Actions
                 </th>
               </tr>
             </thead>
@@ -4616,18 +4735,52 @@ export default function CampaignsPage() {
                     </td>
 
                     <td className="px-4 py-3">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          openCampaign(
-                            campaign
-                          )
-                        }
-                        className="inline-flex items-center gap-1 rounded-xl bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700"
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                        Edit
-                      </button>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={
+                            Boolean(
+                              deletingCampaignId
+                            )
+                          }
+                          onClick={() =>
+                            openCampaign(
+                              campaign
+                            )
+                          }
+                          className="inline-flex items-center gap-1 rounded-xl bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                          Edit
+                        </button>
+
+                        {campaign.status ===
+                          'draft' && (
+                          <button
+                            type="button"
+                            disabled={
+                              Boolean(
+                                deletingCampaignId
+                              )
+                            }
+                            onClick={() =>
+                              void deleteCampaign(
+                                campaign
+                              )
+                            }
+                            className="inline-flex items-center gap-1 rounded-xl bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {deletingCampaignId ===
+                            campaign.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-3.5 w-3.5" />
+                            )}
+
+                            Delete
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 )
