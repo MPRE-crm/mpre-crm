@@ -19,6 +19,9 @@ export const maxDuration =
 const MAX_BATCH_SIZE =
   25;
 
+const PUBLIC_SITE_URL =
+  'https://www.easyrealtor.homes';
+
 type DueRecipient = {
   id: string;
   campaign_id: string;
@@ -427,7 +430,7 @@ export async function GET(
         const sendResponse =
           await fetch(
             (
-              `${request.nextUrl.origin}` +
+              PUBLIC_SITE_URL +
               '/api/marketing/email-campaigns/send-one'
             ),
             {
