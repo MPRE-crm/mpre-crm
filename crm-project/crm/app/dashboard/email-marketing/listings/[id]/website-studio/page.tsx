@@ -48,6 +48,7 @@ import ListingRealtorMatchPanel from '../../ListingRealtorMatchPanel';
 import ListingSocialStudioPanel from '../../ListingSocialStudioPanel';
 import ListingCanvaMarketingPackagePanel from '../../ListingCanvaMarketingPackagePanel';
 import PropertyWebsitePreviewPanel from '../../PropertyWebsitePreviewPanel';
+import SellerReportMetricsPanel from '../../SellerReportMetricsPanel';
 
 const supabase =
   getSupabaseBrowser();
@@ -3490,8 +3491,10 @@ export default function MarketingStudioPage() {
 
       {activeTab ===
         'seller_report' &&
-        renderSection(
-          'seller_report'
+        listing && (
+          <SellerReportMetricsPanel
+            listingId={listing.id}
+          />
         )}
 
       {photoPickerTarget && (
