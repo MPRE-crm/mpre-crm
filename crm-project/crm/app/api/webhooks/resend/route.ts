@@ -206,8 +206,8 @@ export async function POST(
   }
 
   const {
-    data,
-    error,
+    data: marketingResult,
+    error: marketingError,
   } = await supabaseAdmin.rpc(
     'record_resend_email_event',
     {
@@ -228,10 +228,10 @@ export async function POST(
     }
   );
 
-  if (error) {
+  if (marketingError) {
     console.error(
       '[resend-webhook] Database recording failed.',
-      error
+      marketingError
     );
 
     return jsonResponse(
@@ -244,9 +244,68 @@ export async function POST(
     );
   }
 
+  const marketingRecord =
+    asRecord(
+      marketingResult
+    );
+
+  if (
+    marketingRecord.ignored ===
+      true &&
+    textValue(
+      marketingRecord.reason
+    ) ===
+      'marketing_recipient_not_found'
+  ) {
+    const {
+      data: followUpResult,
+      error: followUpError,
+    } = await supabaseAdmin.rpc(
+      'record_resend_personal_follow_up_event',
+      {
+        p_provider_event_id:
+          providerEventId,
+
+        p_event_type:
+          eventType,
+
+        p_resend_email_id:
+          resendEmailId,
+
+        p_event_at:
+          eventAt,
+
+        p_payload:
+          event,
+      }
+    );
+
+    if (followUpError) {
+      console.error(
+        '[resend-webhook] Personal Follow-Up recording failed.',
+        followUpError
+      );
+
+      return jsonResponse(
+        {
+          ok: false,
+          error:
+            'Could not record the Personal Follow-Up webhook event.',
+        },
+        500
+      );
+    }
+
+    return jsonResponse({
+      ok: true,
+      result:
+        followUpResult,
+    });
+  }
+
   return jsonResponse({
     ok: true,
     result:
-      data,
+      marketingResult,
   });
 }

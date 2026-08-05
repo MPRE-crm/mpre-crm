@@ -151,6 +151,58 @@ function complianceUrl(
   );
 }
 
+function attributedPropertyUrl(
+  value: unknown,
+  sourceCampaignId: string,
+  deliveryId: string
+): string {
+  const rawUrl =
+    clean(value);
+
+  if (!rawUrl) {
+    return '';
+  }
+
+  try {
+    const url =
+      new URL(rawUrl);
+
+    url.searchParams.set(
+      'source',
+      'personal_follow_up'
+    );
+
+    url.searchParams.set(
+      'utm_source',
+      'email'
+    );
+
+    url.searchParams.set(
+      'utm_medium',
+      'personal_follow_up'
+    );
+
+    url.searchParams.set(
+      'utm_campaign',
+      clean(
+        sourceCampaignId
+      )
+    );
+
+    url.searchParams.set(
+      'utm_content',
+      clean(
+        deliveryId
+      )
+    );
+
+    return url.toString();
+  }
+  catch {
+    return rawUrl;
+  }
+}
+
 function quickNoteAudience(
   value: unknown
 ): QuickNoteAudience {
@@ -779,9 +831,21 @@ async function processDelivery(
     } as unknown as
       Profile;
 
-    const listing =
+    const listingBase =
       listingResult.data as
         unknown as Listing;
+
+    const listing =
+      {
+        ...listingBase,
+
+        public_url:
+          attributedPropertyUrl(
+            listingBase.public_url,
+            delivery.source_campaign_id,
+            delivery.delivery_id
+          ),
+      } as Listing;
 
     if (
       profile
