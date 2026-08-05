@@ -437,6 +437,53 @@ function requestReferrerHost(
   );
 }
 
+function requestReferrerSearchParameter(
+  request: NextRequest,
+  parameterName: string,
+  maxLength: number
+) {
+  const referer =
+    cleanText(
+      request.headers.get(
+        "referer"
+      ),
+      2048
+    );
+
+  if (!referer) {
+    return null;
+  }
+
+  try {
+    const requestUrl =
+      new URL(
+        request.url
+      );
+
+    const referrerUrl =
+      new URL(
+        referer
+      );
+
+    if (
+      referrerUrl.origin !==
+        requestUrl.origin
+    ) {
+      return null;
+    }
+
+    return cleanText(
+      referrerUrl.searchParams.get(
+        parameterName
+      ),
+      maxLength
+    );
+  }
+  catch {
+    return null;
+  }
+}
+
 function getClientIp(
   request: NextRequest
 ) {
@@ -1303,12 +1350,30 @@ export async function POST(
 
       marketing_source:
         normalizeSource(
-          body.marketingSource
+          cleanText(
+            body.marketingSource,
+            160
+          ) ||
+            requestReferrerSearchParameter(
+              request,
+              "src",
+              160
+            ) ||
+            requestReferrerSearchParameter(
+              request,
+              "source",
+              160
+            )
         ),
 
       utm_source:
         cleanText(
           body.utmSource,
+          160
+        ) ||
+        requestReferrerSearchParameter(
+          request,
+          "utm_source",
           160
         ),
 
@@ -1316,17 +1381,32 @@ export async function POST(
         cleanText(
           body.utmMedium,
           160
+        ) ||
+        requestReferrerSearchParameter(
+          request,
+          "utm_medium",
+          160
         ),
 
       utm_campaign:
         cleanText(
           body.utmCampaign,
           200
+        ) ||
+        requestReferrerSearchParameter(
+          request,
+          "utm_campaign",
+          200
         ),
 
       utm_content:
         cleanText(
           body.utmContent,
+          200
+        ) ||
+        requestReferrerSearchParameter(
+          request,
+          "utm_content",
           200
         ),
 
