@@ -25,6 +25,7 @@ import {
   Play,
   RefreshCw,
   Sparkles,
+  Users,
   X,
 } from 'lucide-react';
 
@@ -58,6 +59,7 @@ type TabKey =
   | 'photos'
   | 'property_website'
   | 'email'
+  | 'realtor_matches'
   | 'social'
   | 'flyer'
   | 'video'
@@ -191,6 +193,11 @@ const TABS: Array<{
     key: 'email',
     label: 'Email',
     icon: Mail,
+  },
+  {
+    key: 'realtor_matches',
+    label: 'Realtor Matches',
+    icon: Users,
   },
   {
     key: 'social',
@@ -2457,15 +2464,6 @@ export default function MarketingStudioPage() {
           'email' &&
         listing ? (
           <>
-            <ListingRealtorMatchPanel
-              listingId={
-                listing.id
-              }
-              listingTitle={
-                listing.title
-              }
-            />
-
             <ListingEmailStudioPanel
               listing={
                 listing
@@ -3132,7 +3130,9 @@ export default function MarketingStudioPage() {
                 tab.key ===
                   'overview' ||
                 tab.key ===
-                  'photos'
+                  'photos' ||
+                tab.key ===
+                  'realtor_matches'
                   ? null
                   : sectionMap.get(
                       tab.key
@@ -3440,6 +3440,15 @@ export default function MarketingStudioPage() {
               }
             />
           </div>
+        )}
+
+      {activeTab ===
+        'realtor_matches' &&
+        listing && (
+          <ListingRealtorMatchPanel
+            listingId={listing.id}
+            listingTitle={listing.title}
+          />
         )}
 
       {activeTab ===
