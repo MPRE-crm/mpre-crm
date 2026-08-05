@@ -13,6 +13,10 @@
                       "schedule":  "* * * * *"
                   },
                   {
+                      "path":  "/api/internal/email-personal-follow-ups/process-due",
+                      "schedule":  "* * * * *"
+                  },
+                  {
                       "path":  "/api/internal/missed-calls/process",
                       "schedule":  "*/10 * * * *"
                   },
