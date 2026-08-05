@@ -1374,7 +1374,7 @@ export function buildQuickNoteEmail(
           alt="${escapeHtml(
             senderName
           )} personal email signature"
-          style="display:block;max-width:320px;max-height:140px;width:auto;height:auto;margin:10px 0 8px;"
+          style="display:block;width:520px;max-width:100%;height:auto;margin:32px 0 8px;"
         />
       `
       : `
