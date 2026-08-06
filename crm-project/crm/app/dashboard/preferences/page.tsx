@@ -5,6 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 import MarketingIdentityCard from "./MarketingIdentityCard";
 import OrganizationComplianceCard from "./OrganizationComplianceCard";
 import PlatformBrandCard from "./PlatformBrandCard";
+import SocialConnectionsCard from "./SocialConnectionsCard";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string;
@@ -936,6 +937,8 @@ return (
           <MarketingIdentityCard />
 
           {canManageOrganization ? <OrganizationComplianceCard /> : null}
+
+          <SocialConnectionsCard role={sessionRole} />
         </>
       )}
 
@@ -1915,4 +1918,3 @@ return (
     </div>
   );
 }
-
