@@ -374,6 +374,8 @@ async function processDelivery(
           id,
           contact_id,
           status,
+          sent_at,
+          resend_email_id,
           unsubscribe_token,
           preferences_token,
           unsubscribed_at,
@@ -578,8 +580,11 @@ async function processDelivery(
     }
 
     if (
-      sourceRecipient.status !==
-      'sent'
+      !sourceRecipient.sent_at ||
+      !clean(
+        sourceRecipient
+          .resend_email_id
+      )
     ) {
       return await finalizeBlocked(
         delivery,
